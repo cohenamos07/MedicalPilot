@@ -1,5 +1,5 @@
 # MedicalPilot — INDEX
-עדכון אחרון: 09/04/2026 18:19
+עדכון אחרון: 09/04/2026 18:50
 
 ## תיקיית src/infrastructure
 - [appsscript.json](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/appsscript.json)
