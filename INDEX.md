@@ -1,7 +1,8 @@
 # MedicalPilot — INDEX
-עדכון אחרון: 09/04/2026 17:07
+עדכון אחרון: 09/04/2026 18:19
 
 ## תיקיית src/infrastructure
+- [appsscript.json](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/appsscript.json)
 - [System_Logger.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/System_Logger.gs)
 - [System_Doc_Builder.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/System_Doc_Builder.gs)
 - [System_HealthCheck.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/System_HealthCheck.gs)
