@@ -1,11 +1,16 @@
 /**
- * MedicalPilot — Menu_LAB.gs v97.5
+ * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
+ * גרסה: v97.7 | תאריך: 09/04/2026
  */
 
-function buildLabMenu_v97_5() {
+function buildLabMenu() {
+  buildLabMenu_v97_7();
+}
+
+function buildLabMenu_v97_7() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('LA v97.5');
+  var menu = ui.createMenu('LA v97.7');
 
   var subMenuIngestion = ui.createMenu('🔄 קליטת נתונים')
     .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
@@ -34,10 +39,20 @@ function buildLabMenu_v97_5() {
   var subMenuDev = ui.createMenu('🔬 כלי פיתוח')
     .addItem('משימות פיתוח', 'refreshDevDashboard')
     .addItem('אבחון AI', 'testAiResponse')
-    .addItem('בדיקות QA', 'runAllTests');
+    .addItem('בדיקות QA', 'runAllTests')
+    .addSeparator()
+    .addItem('🧪 בדיקת כתיבה לגיטהאב', 'testGitHubWrite')
+    .addItem('📤 עדכון CONTEXT.md בגיטהאב', 'pushContextToGitHub')
+    .addItem('🔄 סנכרון סיום סשן', 'endSessionSync')
+    .addSeparator()
+    .addItem('⬇️ סנכרון Logger מגיטהאב לעורך', 'testSyncLogger');
   menu.addSubMenu(subMenuDev);
 
   menu.addToUi();
+}
+
+function buildLabMenu_v97_5() {
+  buildLabMenu_v97_7();
 }
 
 function buildLabMenu_v96_9_1() {
