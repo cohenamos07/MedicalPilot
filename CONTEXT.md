@@ -1,5 +1,5 @@
 # MedicalPilot — CONTEXT
-עדכון אחרון: 09/04/2026 15:37
+עדכון אחרון: 09/04/2026 17:06
 
 ## פרטי משתמש
 - שם: עמוס כהן
@@ -13,9 +13,10 @@
 - גיליון: https://docs.google.com/spreadsheets/d/1uYnt-wleYpuk1ZrX7fTn2HDZ12PNWBEFRDGqHQN_U4I
 - עורך: https://script.google.com/u/0/home/projects/1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf
 - גיטהאב: https://github.com/cohenamos07/MedicalPilot
+- אינדקס: https://github.com/cohenamos07/MedicalPilot/blob/main/INDEX.md
 
 ## מצב המערכת
-- גרסה: v97.5
+- גרסה: v97.6
 - פלטפורמה: Google Apps Script + Google Sheets + Google Drive + Gemini API
 
 ## 15 שירותים
@@ -52,3 +53,4 @@
 
 ## איך לפתוח שיחה חדשה
 כתוב: "אני עמוס. ממשיכים MedicalPilot."
+קישור אינדקס: https://github.com/cohenamos07/MedicalPilot/blob/main/INDEX.md
