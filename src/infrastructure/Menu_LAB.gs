@@ -1,16 +1,16 @@
 /**
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
- * @version 97.8 | @updated 10/04/2026
+ * @version 97.9 | @updated 10/04/2026
  */
 
 function buildLabMenu() {
-  buildLabMenu_v97_8();
+  buildLabMenu_v97_9();
 }
 
-function buildLabMenu_v97_8() {
+function buildLabMenu_v97_9() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('LA v97.8');
+  var menu = ui.createMenu('LA v97.9');
 
   var subMenuIngestion = ui.createMenu('🔄 קליטת נתונים')
     .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
@@ -36,12 +36,14 @@ function buildLabMenu_v97_8() {
   menu.addSubMenu(subMenuAdmin);
   menu.addSeparator();
 
-  var subMenuSync = ui.createMenu('⬇️ משיכה מגיטהאב לעורך')
+  var subMenuPull = ui.createMenu('⬇️ משיכה מגיטהאב לעורך')
     .addItem('משוך Logger', 'testSyncLogger');
-  menu.addSubMenu(subMenuSync);
+  menu.addSubMenu(subMenuPull);
   menu.addSeparator();
 
   var subMenuPush = ui.createMenu('⬆️ שמירה לגיטהאב')
+    .addItem('סנכרון כולל', 'syncAllFilesToGitHub')
+    .addSeparator()
     .addItem('שמור Ingestion', 'testSyncIngestion')
     .addItem('שמור MenuLab', 'testSyncMenuLab')
     .addItem('שמור MenuProd', 'testSyncMenuProd')
@@ -66,8 +68,9 @@ function buildLabMenu_v97_8() {
   menu.addToUi();
 }
 
-function buildLabMenu_v97_7() { buildLabMenu_v97_8(); }
-function buildLabMenu_v97_5() { buildLabMenu_v97_8(); }
+function buildLabMenu_v97_8() { buildLabMenu_v97_9(); }
+function buildLabMenu_v97_7() { buildLabMenu_v97_9(); }
+function buildLabMenu_v97_5() { buildLabMenu_v97_9(); }
 
 function buildLabMenu_v96_9_1() {
   const ui = SpreadsheetApp.getUi();
