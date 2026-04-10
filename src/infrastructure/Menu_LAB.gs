@@ -1,16 +1,16 @@
 /**
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
- * גרסה: v97.7 | תאריך: 09/04/2026
+ * @version 97.8 | @updated 10/04/2026
  */
 
 function buildLabMenu() {
-  buildLabMenu_v97_7();
+  buildLabMenu_v97_8();
 }
 
-function buildLabMenu_v97_7() {
+function buildLabMenu_v97_8() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('LA v97.7');
+  var menu = ui.createMenu('LA v97.8');
 
   var subMenuIngestion = ui.createMenu('🔄 קליטת נתונים')
     .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
@@ -45,15 +45,22 @@ function buildLabMenu_v97_7() {
     .addItem('📤 עדכון CONTEXT.md בגיטהאב', 'pushContextToGitHub')
     .addItem('🔄 סנכרון סיום סשן', 'endSessionSync')
     .addSeparator()
-    .addItem('⬇️ סנכרון Logger מגיטהאב לעורך', 'testSyncLogger');
+    .addItem('⬇️ סנכרון מגיטהאב לעורך', 'testSyncLogger')
+    .addSeparator()
+    .addItem('⬆️ שמור Ingestion לגיטהאב', 'testSyncIngestion')
+    .addItem('⬆️ שמור MenuLab לגיטהאב', 'testSyncMenuLab')
+    .addItem('⬆️ שמור Main לגיטהאב', 'testSyncMain')
+    .addItem('⬆️ שמור GitHubSync לגיטהאב', 'testSyncGitHubSync')
+    .addItem('⬆️ שמור EditorToGitHub לגיטהאב', 'testSyncEditorToGitHub')
+    .addItem('⬆️ שמור ServiceFolders לגיטהאב', 'testSyncServiceFolders')
+    .addItem('⬆️ שמור AuthCheck לגיטהאב', 'testSyncAuthCheck');
   menu.addSubMenu(subMenuDev);
 
   menu.addToUi();
 }
 
-function buildLabMenu_v97_5() {
-  buildLabMenu_v97_7();
-}
+function buildLabMenu_v97_7() { buildLabMenu_v97_8(); }
+function buildLabMenu_v97_5() { buildLabMenu_v97_8(); }
 
 function buildLabMenu_v96_9_1() {
   const ui = SpreadsheetApp.getUi();
