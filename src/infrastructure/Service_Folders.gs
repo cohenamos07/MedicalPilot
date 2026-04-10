@@ -1,26 +1,56 @@
 /**
- * MedicalPilot — Service_Folders.gs
- * שירות S04 — סריקת Drive וניהול ספריות
- * @version 97.7 | @updated 10/04/2026 | @service S04
- */
-
-/**
+ * ------------------------------------------------------------
  * פונקציה: getProjectFolders
- * גרסה: 1.1 | תאריך: 30-03-2026
- * מחזירה מערך של כל הספריות בשורש הדרייב + קבציהן.
+ * גרסה: 1.1
+ * תאריך: 30-03-2026
+ * קטגוריה: פונקציות שירות (Service Layer)
+ * קובץ: Service_Folders.gs
+ * ------------------------------------------------------------
+ * תיאור:
+ * פונקציה זו סורקת את ספריית השורש של Google Drive
+ * ומחזירה מערך של כל הספריות + רשימת הקבצים בכל אחת.
+ *
+ * עקרונות מערכת:
+ * ✔ עבודה בפרוסות – פונקציה עצמאית, לא תלויה בקוד אחר
+ * ✔ תיעוד מלא – גרסה, תאריך, הסבר
+ * ✔ מיועדת לשימוש ע"י פונקציות LAB וייצור
+ * ✔ לא מבצעת לוגיקה עסקית – רק שירות
+ * ------------------------------------------------------------
+ * מחזירה:
+ * [
+ *   {
+ *     name: "שם ספרייה",
+ *     id: "מזהה",
+ *     files: [File, File, ...]
+ *   },
+ *   ...
+ * ]
+ * ------------------------------------------------------------
+ * בדיקת תקינות:
+ * בעת הרצה יש לכתוב לוג עם מספר הספריות שנמצאו.
+ * ------------------------------------------------------------
  */
-function getProjectFolders() {
-  const root = DriveApp.getRootFolder();
-  const folders = [];
-  const iterator = root.getFolders();
 
+function getProjectFolders() {
+  // שלב 1: קבלת ספריית השורש
+  const root = DriveApp.getRootFolder();
+
+  // שלב 2: יצירת מערך תוצאות
+  const folders = [];
+
+  // שלב 3: מעבר על כל הספריות בשורש
+  const iterator = root.getFolders();
   while (iterator.hasNext()) {
     const folder = iterator.next();
     const files = [];
+
+    // שלב 4: איסוף כל הקבצים בתוך הספרייה
     const fileIterator = folder.getFiles();
     while (fileIterator.hasNext()) {
       files.push(fileIterator.next());
     }
+
+    // שלב 5: הוספת הספרייה למערך התוצאות
     folders.push({
       name: folder.getName(),
       id: folder.getId(),
@@ -28,6 +58,9 @@ function getProjectFolders() {
     });
   }
 
+  // שלב 6: לוג בדיקה (לא דורש עריכה מצדך)
   Logger.log("נמצאו " + folders.length + " ספריות בדרייב.");
+
+  // שלב 7: החזרת התוצאה
   return folders;
 }
