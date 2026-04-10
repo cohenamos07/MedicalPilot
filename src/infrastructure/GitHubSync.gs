@@ -1,6 +1,7 @@
 /**
- * MedicalPilot — GitHub Synchronization Module
- * גרסה: v97.6 | תאריך: 09/04/2026
+ * MedicalPilot — GitHubSync.gs
+ * שירות סנכרון גיטהאב
+ * @version 97.9 | @updated 10/04/2026 | @service S10
  */
 
 function pushContextToGitHub() {
@@ -10,10 +11,10 @@ function pushContextToGitHub() {
   const branch = "main";
   try {
     const token = PropertiesService.getScriptProperties().getProperty("GITHUB_PAT");
-    if (!token) throw new Error("GITHUB_PAT לא נמצא ב-PropertiesService.");
+    if (!token) throw new Error("GITHUB_PAT לא נמצא.");
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName("תיעוד מערכת AI");
-    if (!sheet) throw new Error("הגיליון 'תיעוד מערכת AI' לא נמצא.");
+    if (!sheet) throw new Error("גיליון תיעוד מערכת AI לא נמצא.");
     const servicesData = sheet.getRange("A5:E19").getValues();
     const nextMission = sheet.getRange("B20").getValue();
     const now = Utilities.formatDate(new Date(), "GMT+3", "dd/MM/yyyy HH:mm");
@@ -32,7 +33,7 @@ function pushContextToGitHub() {
     md += "- גיטהאב: https://github.com/cohenamos07/MedicalPilot\n";
     md += "- אינדקס: https://github.com/cohenamos07/MedicalPilot/blob/main/INDEX.md\n\n";
     md += "## מצב המערכת\n";
-    md += "- גרסה: v97.6\n";
+    md += "- גרסה: v97.9\n";
     md += "- פלטפורמה: Google Apps Script + Google Sheets + Google Drive + Gemini API\n\n";
     md += "## 15 שירותים\n";
     md += "| מזהה | שם שירות | קובץ | סטטוס | הערה |\n";
@@ -40,7 +41,6 @@ function pushContextToGitHub() {
     servicesData.forEach(function(row) { md += "| " + row.join(" | ") + " |\n"; });
     md += "\n## בעיות קריטיות\n";
     md += "- System_Logger.gs תלוי שורה 6 — אסור לגעת במבנה הגיליון\n";
-    md += "- S07 מתבלבל בין מסמכים רפואיים לחשבונאיים\n";
     md += "- גיליונות דוגמאות_למידה ויומן_אירועים_רפואי ריקים\n\n";
     md += "## משימה הבאה\n";
     md += nextMission + "\n\n";
@@ -78,7 +78,8 @@ function endSessionSync() {
     if (typeof updateSystemContext === 'function') { updateSystemContext(); }
     pushContextToGitHub();
     pushIndexToGitHub();
-    SpreadsheetApp.getUi().alert("סנכרון סשן הושלם — גיליון, CONTEXT.md ו-INDEX.md עודכנו");
+    if (typeof syncAllFilesToGitHub === 'function') { syncAllFilesToGitHub(); }
+    SpreadsheetApp.getUi().alert("סנכרון סשן הושלם — גיליון, גיטהאב וכל הקבצים עודכנו");
   } catch (e) {
     Logger.log("שגיאה ב-endSessionSync: " + e.message);
     SpreadsheetApp.getUi().alert("שגיאה בסנכרון סשן: " + e.message);
@@ -96,11 +97,39 @@ function testGitHubConnection() {
       muteHttpExceptions: true
     });
     if (response.getResponseCode() === 200) {
-      ui.alert("חיבור לגיטהאב תקין — הריפוזיטורי נגיש");
+      ui.alert("חיבור לגיטהאב תקין");
     } else {
-      ui.alert("שגיאת חיבור! קוד: " + response.getResponseCode());
+      ui.alert("שגיאת חיבור: " + response.getResponseCode());
     }
   } catch (e) { ui.alert("שגיאה: " + e.message); }
+}
+
+function testGitHubWrite() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const token = PropertiesService.getScriptProperties().getProperty('GITHUB_PAT');
+    if (!token) { ui.alert("שגיאה: טוקן לא נמצא"); return; }
+    const url = "https://api.github.com/repos/cohenamos07/MedicalPilot/contents/TEST_WRITE.md";
+    const headers = { "Authorization": "token " + token, "Accept": "application/vnd.github.v3+json" };
+    let sha = null;
+    const getResponse = UrlFetchApp.fetch(url, { method: "get", headers: headers, muteHttpExceptions: true });
+    const getCode = getResponse.getResponseCode();
+    ui.alert("שלב 1 — קריאה: קוד " + getCode);
+    if (getCode === 200) { sha = JSON.parse(getResponse.getContentText()).sha; }
+    const payload = { message: "test write from Apps Script", content: Utilities.base64Encode("test"), branch: "main" };
+    if (sha) payload.sha = sha;
+    const putResponse = UrlFetchApp.fetch(url, { method: "put", headers: headers, contentType: "application/json", payload: JSON.stringify(payload), muteHttpExceptions: true });
+    const putCode = putResponse.getResponseCode();
+    ui.alert("שלב 2 — כתיבה: קוד " + putCode);
+    if (putCode === 200 || putCode === 201) {
+      ui.alert("כתיבה לגיטהאב הצליחה");
+    } else {
+      ui.alert("כתיבה נכשלה: " + putResponse.getContentText());
+    }
+  } catch (e) {
+    Logger.log("Error in testGitHubWrite: " + e.toString());
+    ui.alert("שגיאה: " + e.message);
+  }
 }
 
 function pushIndexToGitHub() {
@@ -124,8 +153,13 @@ function pushIndexToGitHub() {
       "- [NetworkDiagnostics.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/NetworkDiagnostics.gs)\n" +
       "- [Auth_Check.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Auth_Check.gs)\n" +
       "- [GitHubSync.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/GitHubSync.gs)\n" +
+      "- [GitToEditor.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/GitToEditor.gs)\n" +
+      "- [EditorToGitHub.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/EditorToGitHub.gs)\n" +
       "- [Menu_PROD.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Menu_PROD.gs)\n" +
-      "- [Menu_LAB.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Menu_LAB.gs)\n\n" +
+      "- [Menu_LAB.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Menu_LAB.gs)\n" +
+      "- [Main.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Main.gs)\n" +
+      "- [Mod_Ingestion.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Mod_Ingestion.gs)\n" +
+      "- [Service_Folders.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Service_Folders.gs)\n\n" +
       "## שורש הריפוזיטורי\n" +
       "- [CONTEXT.md](https://github.com/cohenamos07/MedicalPilot/blob/main/CONTEXT.md)\n" +
       "- [INDEX.md](https://github.com/cohenamos07/MedicalPilot/blob/main/INDEX.md)\n" +
@@ -138,7 +172,7 @@ function pushIndexToGitHub() {
     let sha = null;
     const getResponse = UrlFetchApp.fetch(url, { method: "get", headers: headers, muteHttpExceptions: true });
     if (getResponse.getResponseCode() === 200) { sha = JSON.parse(getResponse.getContentText()).sha; }
-    const payload = { message: "Update INDEX.md - added appsscript.json", content: Utilities.base64Encode(contentString, Utilities.Charset.UTF_8), branch: branch };
+    const payload = { message: "Auto-update INDEX.md", content: Utilities.base64Encode(contentString, Utilities.Charset.UTF_8), branch: branch };
     if (sha) payload.sha = sha;
     const putResponse = UrlFetchApp.fetch(url, { method: "put", headers: headers, contentType: "application/json", payload: JSON.stringify(payload), muteHttpExceptions: true });
     if (putResponse.getResponseCode() === 200 || putResponse.getResponseCode() === 201) {
