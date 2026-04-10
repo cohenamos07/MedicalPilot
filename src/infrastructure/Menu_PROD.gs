@@ -3,6 +3,10 @@
  * תפריט ייצור (PR)
  */
 
+function buildProdMenu() {
+  buildProdMenu_v97_5();
+}
+
 function buildProdMenu_v97_5() {
   var ui = SpreadsheetApp.getUi();
   var menu = ui.createMenu('PR v97.5');
