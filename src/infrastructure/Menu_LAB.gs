@@ -36,24 +36,31 @@ function buildLabMenu_v97_8() {
   menu.addSubMenu(subMenuAdmin);
   menu.addSeparator();
 
+  var subMenuSync = ui.createMenu('⬇️ משיכה מגיטהאב לעורך')
+    .addItem('משוך Logger', 'testSyncLogger');
+  menu.addSubMenu(subMenuSync);
+  menu.addSeparator();
+
+  var subMenuPush = ui.createMenu('⬆️ שמירה לגיטהאב')
+    .addItem('שמור Ingestion', 'testSyncIngestion')
+    .addItem('שמור MenuLab', 'testSyncMenuLab')
+    .addItem('שמור MenuProd', 'testSyncMenuProd')
+    .addItem('שמור Main', 'testSyncMain')
+    .addItem('שמור GitHubSync', 'testSyncGitHubSync')
+    .addItem('שמור EditorToGitHub', 'testSyncEditorToGitHub')
+    .addItem('שמור ServiceFolders', 'testSyncServiceFolders')
+    .addItem('שמור AuthCheck', 'testSyncAuthCheck');
+  menu.addSubMenu(subMenuPush);
+  menu.addSeparator();
+
   var subMenuDev = ui.createMenu('🔬 כלי פיתוח')
     .addItem('משימות פיתוח', 'refreshDevDashboard')
     .addItem('אבחון AI', 'testAiResponse')
     .addItem('בדיקות QA', 'runAllTests')
     .addSeparator()
-    .addItem('🧪 בדיקת כתיבה לגיטהאב', 'testGitHubWrite')
-    .addItem('📤 עדכון CONTEXT.md בגיטהאב', 'pushContextToGitHub')
-    .addItem('🔄 סנכרון סיום סשן', 'endSessionSync')
-    .addSeparator()
-    .addItem('⬇️ סנכרון מגיטהאב לעורך', 'testSyncLogger')
-    .addSeparator()
-    .addItem('⬆️ שמור Ingestion לגיטהאב', 'testSyncIngestion')
-    .addItem('⬆️ שמור MenuLab לגיטהאב', 'testSyncMenuLab')
-    .addItem('⬆️ שמור Main לגיטהאב', 'testSyncMain')
-    .addItem('⬆️ שמור GitHubSync לגיטהאב', 'testSyncGitHubSync')
-    .addItem('⬆️ שמור EditorToGitHub לגיטהאב', 'testSyncEditorToGitHub')
-    .addItem('⬆️ שמור ServiceFolders לגיטהאב', 'testSyncServiceFolders')
-    .addItem('⬆️ שמור AuthCheck לגיטהאב', 'testSyncAuthCheck');
+    .addItem('בדיקת כתיבה לגיטהאב', 'testGitHubWrite')
+    .addItem('עדכון CONTEXT.md', 'pushContextToGitHub')
+    .addItem('סנכרון סיום סשן', 'endSessionSync');
   menu.addSubMenu(subMenuDev);
 
   menu.addToUi();
@@ -65,11 +72,11 @@ function buildLabMenu_v97_5() { buildLabMenu_v97_8(); }
 function buildLabMenu_v96_9_1() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('LA v96.9.1')
-    .addItem('🔬 ניסוי חילוץ כותרת', 'runAiHeaderExtraction_v96_8_1')
-    .addItem('🧪 בדיקת סריקת PDF', 'testPdfProcessing')
+    .addItem('ניסוי חילוץ כותרת', 'runAiHeaderExtraction_v96_8_1')
+    .addItem('בדיקת סריקת PDF', 'testPdfProcessing')
     .addSeparator()
-    .addItem('🛠️ הרצת אבחון עמודה U', 'runFullDiagnosticToColumnU')
+    .addItem('הרצת אבחון עמודה U', 'runFullDiagnosticToColumnU')
     .addSeparator()
-    .addItem('💾 ניסוי: תיעוד סוף יום', 'runEndOfDayBackup')
+    .addItem('תיעוד סוף יום', 'runEndOfDayBackup')
     .addToUi();
 }
