@@ -1,10 +1,10 @@
 /**
  * MedicalPilot — Mod_Ingestion.gs
  * שירות S03 — סריקת Gmail וקליטת קבצים
- * @version 97.9 | @updated 11/04/2026 | @service S03
+ * @version 97.9.1 | @updated 11/04/2026 | @service S03
  */
 
-const GMAIL_INBOX_FOLDER_ID = "1HSzOwL7YlzC8FvgGtuxCKYzfKk0RsHO5";
+const GMAIL_INBOX_FOLDER_ID = "1HSzOwL7YIzC8FvgGtuxCKYzfKk0RsHO5";
 
 function runMedicalProcess() {
   const SHEET_NAME = 'ניהול_מיילים';
