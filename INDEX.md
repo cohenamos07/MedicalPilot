@@ -1,5 +1,5 @@
 # MedicalPilot — INDEX
-עדכון אחרון: 10/04/2026 11:26
+עדכון אחרון: 12/04/2026 21:26
 
 ## תיקיית src/infrastructure
 - [appsscript.json](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/appsscript.json)
@@ -9,8 +9,13 @@
 - [NetworkDiagnostics.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/NetworkDiagnostics.gs)
 - [Auth_Check.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Auth_Check.gs)
 - [GitHubSync.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/GitHubSync.gs)
+- [GitToEditor.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/GitToEditor.gs)
+- [EditorToGitHub.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/EditorToGitHub.gs)
 - [Menu_PROD.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Menu_PROD.gs)
 - [Menu_LAB.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Menu_LAB.gs)
+- [Main.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Main.gs)
+- [Mod_Ingestion.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Mod_Ingestion.gs)
+- [Service_Folders.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Service_Folders.gs)
 
 ## שורש הריפוזיטורי
 - [CONTEXT.md](https://github.com/cohenamos07/MedicalPilot/blob/main/CONTEXT.md)
