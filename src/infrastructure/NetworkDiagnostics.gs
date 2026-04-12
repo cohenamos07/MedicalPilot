@@ -1,11 +1,12 @@
 /**
  * MedicalPilot — NetworkDiagnostics.gs
  * שירות S01 — בדיקות רשת ונגישות
- * גרסה: v97.5 | תאריך: 09/04/2026
+ * גרסה: v97.7 | תאריך: 12/04/2026
+ * שינויים: הוספת בדיקות Gmail ו-Drive, הוספת נתונים סטטיסטיים ל-alert
  */
 
 function checkExternalNetwork() {
-  const url = "https://httpbin.org/get";
+  const url = "https://www.google.com";
   try {
     const response = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true });
     const code = response.getResponseCode();
@@ -22,7 +23,7 @@ function checkExternalNetwork() {
   }
 }
 
-function checkGitHubAccess() {
+function checkGitHubConnectivity() {
   const url = "https://api.github.com";
   try {
     const response = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true });
@@ -43,11 +44,42 @@ function checkGitHubAccess() {
 function runSystemHealthCheck() {
   try {
     const networkOk = checkExternalNetwork();
-    const githubOk = checkGitHubAccess();
-    const networkStatus = networkOk ? "תקין ✓" : "נכשל ✗";
-    const githubStatus = githubOk ? "נגיש ✓" : "לא נגיש ✗";
-    const message = "רשת חיצונית: " + networkStatus + "\nגישה לגיטהאב: " + githubStatus;
-    SpreadsheetApp.getUi().alert("בדיקת תקינות מערכת — v97.5", message, SpreadsheetApp.getUi().ButtonSet.OK);
+    const githubOk  = checkGitHubConnectivity();
+
+    let gmailOk = false;
+    try { GmailApp.getInboxThreads(0, 1); gmailOk = true; } catch (e) {}
+
+    let driveOk = false;
+    try { DriveApp.getRootFolder(); driveOk = true; } catch (e) {}
+
+    const now = Utilities.formatDate(new Date(), "GMT+3", "dd/MM/yyyy HH:mm");
+
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
+    const rowCount = sheet ? Math.max(sheet.getLastRow() - 1, 0) : 0;
+
+    const lastRun = PropertiesService.getScriptProperties().getProperty("DRIVE_SYNC_LAST_RUN");
+    let driveStatus = "טרם בוצעה";
+    if (lastRun) {
+      try { driveStatus = Utilities.formatDate(new Date(lastRun), "GMT+3", "dd/MM/yyyy HH:mm"); }
+      catch (e) { driveStatus = lastRun; }
+    }
+
+    const message =
+      "רשת חיצונית: "    + (networkOk ? "תקין ✓" : "נכשל ✗") + "\n" +
+      "גישה לגיטהאב: "   + (githubOk  ? "נגיש ✓" : "לא נגיש ✗") + "\n" +
+      "חיבור Gmail: "    + (gmailOk   ? "תקין ✓" : "נכשל ✗") + "\n" +
+      "חיבור Drive: "    + (driveOk   ? "תקין ✓" : "נכשל ✗") + "\n" +
+      "──────────────\n" +
+      "זמן: "            + now + "\n" +
+      "שורות בגליון: "   + rowCount + "\n" +
+      "סריקת Drive אחרונה: " + driveStatus;
+
+    SpreadsheetApp.getUi().alert(
+      "בדיקת תקינות מערכת — v97.7",
+      message,
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+
   } catch (e) {
     Logger.log("שגיאה ב-runSystemHealthCheck: " + e.message);
     SpreadsheetApp.getUi().alert("שגיאה בהרצת בדיקת תקינות: " + e.message);
