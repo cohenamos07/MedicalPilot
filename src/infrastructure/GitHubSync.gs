@@ -1,7 +1,8 @@
 /**
  * MedicalPilot — GitHubSync.gs
  * שירות סנכרון גיטהאב
- * @version 97.9 | @updated 10/04/2026 | @service S10
+ * @version 98.0 | @updated 13/04/2026 | @service S10
+ * שינוי: עדכון INDEX.md לכתובות raw + הוספת קבצים חדשים
  */
 
 function pushContextToGitHub() {
@@ -31,9 +32,9 @@ function pushContextToGitHub() {
     md += "- גיליון: https://docs.google.com/spreadsheets/d/1uYnt-wleYpuk1ZrX7fTn2HDZ12PNWBEFRDGqHQN_U4I\n";
     md += "- עורך: https://script.google.com/u/0/home/projects/1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf\n";
     md += "- גיטהאב: https://github.com/cohenamos07/MedicalPilot\n";
-    md += "- אינדקס: https://github.com/cohenamos07/MedicalPilot/blob/main/INDEX.md\n\n";
+    md += "- אינדקס: https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/INDEX.md\n\n";
     md += "## מצב המערכת\n";
-    md += "- גרסה: v97.9\n";
+    md += "- גרסה: v98.0\n";
     md += "- פלטפורמה: Google Apps Script + Google Sheets + Google Drive + Gemini API\n\n";
     md += "## 15 שירותים\n";
     md += "| מזהה | שם שירות | קובץ | סטטוס | הערה |\n";
@@ -50,7 +51,7 @@ function pushContextToGitHub() {
     md += "- Claude = ארכיטקט, Gemini = כותב קוד, עמוס = מאשר ומפרס\n\n";
     md += "## איך לפתוח שיחה חדשה\n";
     md += "כתוב: \"אני עמוס. ממשיכים MedicalPilot.\"\n";
-    md += "קישור אינדקס: https://github.com/cohenamos07/MedicalPilot/blob/main/INDEX.md\n";
+    md += "קישור אינדקס: https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/INDEX.md\n";
     const apiUrl = "https://api.github.com/repos/" + repoOwner + "/" + repoName + "/contents/" + path;
     const headers = { "Authorization": "token " + token, "Accept": "application/vnd.github.v3+json" };
     let sha = null;
@@ -140,30 +141,34 @@ function pushIndexToGitHub() {
     const repo = "MedicalPilot";
     const path = "INDEX.md";
     const branch = "main";
+    const rawBase = "https://raw.githubusercontent.com/" + owner + "/" + repo + "/main/src/infrastructure/";
     const url = "https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + path;
     const now = Utilities.formatDate(new Date(), "GMT+3", "dd/MM/yyyy HH:mm");
     const contentString =
       "# MedicalPilot — INDEX\n" +
       "עדכון אחרון: " + now + "\n\n" +
       "## תיקיית src/infrastructure\n" +
-      "- [appsscript.json](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/appsscript.json)\n" +
-      "- [System_Logger.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/System_Logger.gs)\n" +
-      "- [System_Doc_Builder.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/System_Doc_Builder.gs)\n" +
-      "- [System_HealthCheck.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/System_HealthCheck.gs)\n" +
-      "- [NetworkDiagnostics.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/NetworkDiagnostics.gs)\n" +
-      "- [Auth_Check.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Auth_Check.gs)\n" +
-      "- [GitHubSync.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/GitHubSync.gs)\n" +
-      "- [GitToEditor.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/GitToEditor.gs)\n" +
-      "- [EditorToGitHub.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/EditorToGitHub.gs)\n" +
-      "- [Menu_PROD.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Menu_PROD.gs)\n" +
-      "- [Menu_LAB.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Menu_LAB.gs)\n" +
-      "- [Main.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Main.gs)\n" +
-      "- [Mod_Ingestion.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Mod_Ingestion.gs)\n" +
-      "- [Service_Folders.gs](https://github.com/cohenamos07/MedicalPilot/blob/main/src/infrastructure/Service_Folders.gs)\n\n" +
+      "- [appsscript.json](" + rawBase + "appsscript.json)\n" +
+      "- [Auth_Check.gs](" + rawBase + "Auth_Check.gs)\n" +
+      "- [EditorToGitHub.gs](" + rawBase + "EditorToGitHub.gs)\n" +
+      "- [GitHubSync.gs](" + rawBase + "GitHubSync.gs)\n" +
+      "- [GitToEditor.gs](" + rawBase + "GitToEditor.gs)\n" +
+      "- [Main.gs](" + rawBase + "Main.gs)\n" +
+      "- [Menu_LAB.gs](" + rawBase + "Menu_LAB.gs)\n" +
+      "- [Menu_PROD.gs](" + rawBase + "Menu_PROD.gs)\n" +
+      "- [Mod_Brain_OCR.gs](" + rawBase + "Mod_Brain_OCR.gs)\n" +
+      "- [Mod_Ingestion.gs](" + rawBase + "Mod_Ingestion.gs)\n" +
+      "- [NetworkDiagnostics.gs](" + rawBase + "NetworkDiagnostics.gs)\n" +
+      "- [S04_DriveSync.gs](" + rawBase + "S04_DriveSync.gs)\n" +
+      "- [S05_MetaExtract.gs](" + rawBase + "S05_MetaExtract.gs)\n" +
+      "- [Service_Folders.gs](" + rawBase + "Service_Folders.gs)\n" +
+      "- [System_Doc_Builder.gs](" + rawBase + "System_Doc_Builder.gs)\n" +
+      "- [System_HealthCheck.gs](" + rawBase + "System_HealthCheck.gs)\n" +
+      "- [System_Logger.gs](" + rawBase + "System_Logger.gs)\n\n" +
       "## שורש הריפוזיטורי\n" +
-      "- [CONTEXT.md](https://github.com/cohenamos07/MedicalPilot/blob/main/CONTEXT.md)\n" +
-      "- [INDEX.md](https://github.com/cohenamos07/MedicalPilot/blob/main/INDEX.md)\n" +
-      "- [README.md](https://github.com/cohenamos07/MedicalPilot/blob/main/README.md)\n\n" +
+      "- [CONTEXT.md](https://raw.githubusercontent.com/" + owner + "/" + repo + "/main/CONTEXT.md)\n" +
+      "- [INDEX.md](https://raw.githubusercontent.com/" + owner + "/" + repo + "/main/INDEX.md)\n" +
+      "- [README.md](https://raw.githubusercontent.com/" + owner + "/" + repo + "/main/README.md)\n\n" +
       "## פרטי ריפוזיטורי\n" +
       "- בעלים: " + owner + "\n" +
       "- שם: " + repo + "\n" +
