@@ -1,30 +1,30 @@
 /**
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
- * גרסה: v97.8 | תאריך: 12/04/2026
- * שינוי: סריקת Drive מחוברת לגרסת LAB
+ * גרסה: v98.1 | תאריך: 13/04/2026
+ * שינוי: ארגון מחדש של תפריטים — חילוץ מטא-דאטה ומיון בקליטה, המרת OCR בעיבוד AI
  */
 
 function buildLabMenu() {
-  buildLabMenu_v97_8();
+  buildLabMenu_v98_1();
 }
 
-function buildLabMenu_v97_8() {
+function buildLabMenu_v98_1() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('LA v97.8');
+  var menu = ui.createMenu('LA v98.1');
 
   var subMenuIngestion = ui.createMenu('🔄 קליטת נתונים')
     .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
     .addItem('בדיקת הרשאות', 'checkUserAccess')
     .addItem('סריקת Gmail', 'runEmailIngestion')
     .addItem('סריקת Drive', 'syncDriveFiles_LAB')
-    .addItem('חילוץ מטא-דאטה', 'getFormatDetails');
+    .addItem('חילוץ מטא-דאטה ומיון', 'extractMetaData_LAB');
   menu.addSubMenu(subMenuIngestion);
 
   menu.addSeparator();
 
   var subMenuAI = ui.createMenu('🧠 עיבוד AI')
-    .addItem('הכנה ל-OCR', 'processDocumentOCR')
+    .addItem('המרת קבצים ל-OCR', 'runBatchOCR_Test')
     .addItem('סיווג מסמכים', 'classifyDocument')
     .addItem('אימות ידני ולמידה', 'showMainSidebar')
     .addItem('חילוץ שדות מלא', 'extractMedicalHeaders');
@@ -55,13 +55,11 @@ function buildLabMenu_v97_8() {
   menu.addToUi();
 }
 
-function buildLabMenu_v97_7() {
-  buildLabMenu_v97_8();
-}
-
-function buildLabMenu_v97_5() {
-  buildLabMenu_v97_8();
-}
+function buildLabMenu_v98_0() { buildLabMenu_v98_1(); }
+function buildLabMenu_v97_9() { buildLabMenu_v98_1(); }
+function buildLabMenu_v97_8() { buildLabMenu_v98_1(); }
+function buildLabMenu_v97_7() { buildLabMenu_v98_1(); }
+function buildLabMenu_v97_5() { buildLabMenu_v98_1(); }
 
 function buildLabMenu_v96_9_1() {
   const ui = SpreadsheetApp.getUi();
