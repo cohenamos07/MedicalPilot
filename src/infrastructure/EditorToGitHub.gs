@@ -1,7 +1,8 @@
 /**
  * MedicalPilot — EditorToGitHub.gs
  * שירות סנכרון — דחיפת קוד מהעורך לגיטהאב
- * @version 97.9 | @updated 10/04/2026 | @service S10
+ * @version 98.0 | @updated 13/04/2026 | @service S10
+ * שינוי: הוספת S04_DriveSync, Mod_Brain_OCR, S05_MetaExtract לרשימת הסנכרון
  */
 
 function getFileContentFromEditor(fileName) {
@@ -81,19 +82,22 @@ function syncEditorFileToGitHub(fileName, githubPath) {
 function syncAllFilesToGitHub() {
   try {
     const files = [
-      { name: "Mod_Ingestion",    path: "src/infrastructure/Mod_Ingestion.gs" },
-      { name: "Menu_LAB",         path: "src/infrastructure/Menu_LAB.gs" },
-      { name: "Menu_PROD",        path: "src/infrastructure/Menu_PROD.gs" },
-      { name: "Main",             path: "src/infrastructure/Main.gs" },
-      { name: "GitHubSync",       path: "src/infrastructure/GitHubSync.gs" },
-      { name: "GitToEditor",      path: "src/infrastructure/GitToEditor.gs" },
-      { name: "EditorToGitHub",   path: "src/infrastructure/EditorToGitHub.gs" },
-      { name: "Service_Folders",  path: "src/infrastructure/Service_Folders.gs" },
-      { name: "Auth_Check",       path: "src/infrastructure/Auth_Check.gs" },
+      { name: "Mod_Ingestion",      path: "src/infrastructure/Mod_Ingestion.gs" },
+      { name: "Mod_Brain_OCR",      path: "src/infrastructure/Mod_Brain_OCR.gs" },
+      { name: "Menu_LAB",           path: "src/infrastructure/Menu_LAB.gs" },
+      { name: "Menu_PROD",          path: "src/infrastructure/Menu_PROD.gs" },
+      { name: "Main",               path: "src/infrastructure/Main.gs" },
+      { name: "GitHubSync",         path: "src/infrastructure/GitHubSync.gs" },
+      { name: "GitToEditor",        path: "src/infrastructure/GitToEditor.gs" },
+      { name: "EditorToGitHub",     path: "src/infrastructure/EditorToGitHub.gs" },
+      { name: "Service_Folders",    path: "src/infrastructure/Service_Folders.gs" },
+      { name: "Auth_Check",         path: "src/infrastructure/Auth_Check.gs" },
       { name: "System_HealthCheck", path: "src/infrastructure/System_HealthCheck.gs" },
       { name: "NetworkDiagnostics", path: "src/infrastructure/NetworkDiagnostics.gs" },
       { name: "System_Doc_Builder", path: "src/infrastructure/System_Doc_Builder.gs" },
-      { name: "System_Logger",    path: "src/infrastructure/System_Logger.gs" }
+      { name: "System_Logger",      path: "src/infrastructure/System_Logger.gs" },
+      { name: "S04_DriveSync",      path: "src/infrastructure/S04_DriveSync.gs" },
+      { name: "S05_MetaExtract",    path: "src/infrastructure/S05_MetaExtract.gs" }
     ];
     let success = 0;
     let failed = 0;
