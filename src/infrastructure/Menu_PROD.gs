@@ -1,31 +1,35 @@
 /**
- * MedicalPilot — Menu_PROD.gs v97.5
+ * MedicalPilot — Menu_PROD.gs
  * תפריט ייצור (PR)
+ * גרסה: v97.8 | תאריך: 13/04/2026
+ * שינוי: ארגון מחדש של תפריטים — חילוץ מטא-דאטה ומיון בקליטה, המרת OCR בעיבוד AI
  */
 
 function buildProdMenu() {
-  buildProdMenu_v97_5();
+  buildProdMenu_v97_8();
 }
 
-function buildProdMenu_v97_5() {
+function buildProdMenu_v97_8() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('PR v97.5');
+  var menu = ui.createMenu('PR v97.8');
 
   var subMenuIngestion = ui.createMenu('🔄 קליטת נתונים')
     .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
-    .addItem('בדיקת הרשאות', 'msgBlocked')
+    .addItem('בדיקת הרשאות', 'checkUserAccess')
     .addItem('סריקת Gmail', 'runEmailIngestion')
     .addItem('סריקת Drive', 'syncDriveFiles')
-    .addItem('חילוץ מטא-דאטה', 'msgBlocked');
+    .addItem('חילוץ מטא-דאטה ומיון', 'extractMetaData');
   menu.addSubMenu(subMenuIngestion);
+
   menu.addSeparator();
 
   var subMenuAI = ui.createMenu('🧠 עיבוד AI')
-    .addItem('הכנה ל-OCR', 'msgBlocked')
+    .addItem('המרת קבצים ל-OCR', 'runBatchOCR_Test')
     .addItem('סיווג מסמכים', 'msgBlocked')
     .addItem('אימות ידני ולמידה', 'showMainSidebar')
     .addItem('חילוץ שדות מלא', 'msgBlocked');
   menu.addSubMenu(subMenuAI);
+
   menu.addSeparator();
 
   var subMenuAdmin = ui.createMenu('⚙️ ניהול מערכת')
@@ -36,6 +40,10 @@ function buildProdMenu_v97_5() {
 
   menu.addToUi();
 }
+
+function buildProdMenu_v97_7() { buildProdMenu_v97_8(); }
+function buildProdMenu_v97_6() { buildProdMenu_v97_8(); }
+function buildProdMenu_v97_5() { buildProdMenu_v97_8(); }
 
 function msgBlocked() {
   SpreadsheetApp.getUi().alert('⏳ שירות זה בבדיקה בסביבת LAB\nיפתח בייצור לאחר אישור.');
