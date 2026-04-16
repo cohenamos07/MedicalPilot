@@ -1,30 +1,36 @@
 /**
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
- * גרסה: v98.1 | תאריך: 13/04/2026
- * שינוי: ארגון מחדש של תפריטים — חילוץ מטא-דאטה ומיון בקליטה, המרת OCR בעיבוד AI
+ * גרסה: v98.2 | תאריך: 15/04/2026
+ * שינוי: ארגון מחדש — הכנת מערכת, קליטה, עיבוד AI
  */
 
 function buildLabMenu() {
-  buildLabMenu_v98_1();
+  buildLabMenu_v98_2();
 }
 
-function buildLabMenu_v98_1() {
+function buildLabMenu_v98_2() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('LA v98.1');
+  var menu = ui.createMenu('LA v98.2');
+
+  var subMenuSetup = ui.createMenu('⚙️ הכנת מערכת')
+    .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
+    .addItem('בדיקת הרשאות', 'checkUserAccess');
+  menu.addSubMenu(subMenuSetup);
+
+  menu.addSeparator();
 
   var subMenuIngestion = ui.createMenu('🔄 קליטת נתונים')
-    .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
-    .addItem('בדיקת הרשאות', 'checkUserAccess')
     .addItem('סריקת Gmail', 'runEmailIngestion')
     .addItem('סריקת Drive', 'syncDriveFiles_LAB')
-    .addItem('חילוץ מטא-דאטה ומיון', 'extractMetaData_LAB');
+    .addItem('חילוץ מטא-דאטה ומיון', 'extractMetaData_LAB')
+    .addItem('סנכרון סטטוסים', 'syncStatusBeforeOCR')
+    .addItem('המרת קבצים ל-OCR', 'runBatchOCR_Test');
   menu.addSubMenu(subMenuIngestion);
 
   menu.addSeparator();
 
   var subMenuAI = ui.createMenu('🧠 עיבוד AI')
-    .addItem('המרת קבצים ל-OCR', 'runBatchOCR_Test')
     .addItem('סיווג מסמכים', 'classifyDocument')
     .addItem('אימות ידני ולמידה', 'showMainSidebar')
     .addItem('חילוץ שדות מלא', 'extractMedicalHeaders');
@@ -32,7 +38,7 @@ function buildLabMenu_v98_1() {
 
   menu.addSeparator();
 
-  var subMenuAdmin = ui.createMenu('⚙️ ניהול מערכת')
+  var subMenuAdmin = ui.createMenu('🗂️ ניהול מערכת')
     .addItem('גיבוי GitHub', 'uploadToGitHub')
     .addItem('ניהול לוגים', 'logSystemEvent')
     .addItem('הגדרות תשתית', 'getConfig');
@@ -55,11 +61,12 @@ function buildLabMenu_v98_1() {
   menu.addToUi();
 }
 
-function buildLabMenu_v98_0() { buildLabMenu_v98_1(); }
-function buildLabMenu_v97_9() { buildLabMenu_v98_1(); }
-function buildLabMenu_v97_8() { buildLabMenu_v98_1(); }
-function buildLabMenu_v97_7() { buildLabMenu_v98_1(); }
-function buildLabMenu_v97_5() { buildLabMenu_v98_1(); }
+function buildLabMenu_v98_1() { buildLabMenu_v98_2(); }
+function buildLabMenu_v98_0() { buildLabMenu_v98_2(); }
+function buildLabMenu_v97_9() { buildLabMenu_v98_2(); }
+function buildLabMenu_v97_8() { buildLabMenu_v98_2(); }
+function buildLabMenu_v97_7() { buildLabMenu_v98_2(); }
+function buildLabMenu_v97_5() { buildLabMenu_v98_2(); }
 
 function buildLabMenu_v96_9_1() {
   const ui = SpreadsheetApp.getUi();
