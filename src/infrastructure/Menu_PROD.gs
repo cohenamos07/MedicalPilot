@@ -1,30 +1,36 @@
 /**
  * MedicalPilot — Menu_PROD.gs
  * תפריט ייצור (PR)
- * גרסה: v97.8 | תאריך: 13/04/2026
- * שינוי: ארגון מחדש של תפריטים — חילוץ מטא-דאטה ומיון בקליטה, המרת OCR בעיבוד AI
+ * גרסה: v97.9 | תאריך: 15/04/2026
+ * שינוי: ארגון מחדש — הכנת מערכת, קליטה, עיבוד AI
  */
 
 function buildProdMenu() {
-  buildProdMenu_v97_8();
+  buildProdMenu_v97_9();
 }
 
-function buildProdMenu_v97_8() {
+function buildProdMenu_v97_9() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('PR v97.8');
+  var menu = ui.createMenu('PR v97.9');
+
+  var subMenuSetup = ui.createMenu('⚙️ הכנת מערכת')
+    .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
+    .addItem('בדיקת הרשאות', 'checkUserAccess');
+  menu.addSubMenu(subMenuSetup);
+
+  menu.addSeparator();
 
   var subMenuIngestion = ui.createMenu('🔄 קליטת נתונים')
-    .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
-    .addItem('בדיקת הרשאות', 'checkUserAccess')
     .addItem('סריקת Gmail', 'runEmailIngestion')
     .addItem('סריקת Drive', 'syncDriveFiles')
-    .addItem('חילוץ מטא-דאטה ומיון', 'extractMetaData');
+    .addItem('חילוץ מטא-דאטה ומיון', 'extractMetaData')
+    .addItem('סנכרון סטטוסים', 'syncStatusBeforeOCR')
+    .addItem('המרת קבצים ל-OCR', 'runBatchOCR_Test');
   menu.addSubMenu(subMenuIngestion);
 
   menu.addSeparator();
 
   var subMenuAI = ui.createMenu('🧠 עיבוד AI')
-    .addItem('המרת קבצים ל-OCR', 'runBatchOCR_Test')
     .addItem('סיווג מסמכים', 'msgBlocked')
     .addItem('אימות ידני ולמידה', 'showMainSidebar')
     .addItem('חילוץ שדות מלא', 'msgBlocked');
@@ -32,7 +38,7 @@ function buildProdMenu_v97_8() {
 
   menu.addSeparator();
 
-  var subMenuAdmin = ui.createMenu('⚙️ ניהול מערכת')
+  var subMenuAdmin = ui.createMenu('🗂️ ניהול מערכת')
     .addItem('גיבוי GitHub', 'uploadToGitHub')
     .addItem('ניהול לוגים', 'msgBlocked')
     .addItem('הגדרות תשתית', 'getConfig');
@@ -41,9 +47,10 @@ function buildProdMenu_v97_8() {
   menu.addToUi();
 }
 
-function buildProdMenu_v97_7() { buildProdMenu_v97_8(); }
-function buildProdMenu_v97_6() { buildProdMenu_v97_8(); }
-function buildProdMenu_v97_5() { buildProdMenu_v97_8(); }
+function buildProdMenu_v97_8() { buildProdMenu_v97_9(); }
+function buildProdMenu_v97_7() { buildProdMenu_v97_9(); }
+function buildProdMenu_v97_6() { buildProdMenu_v97_9(); }
+function buildProdMenu_v97_5() { buildProdMenu_v97_9(); }
 
 function msgBlocked() {
   SpreadsheetApp.getUi().alert('⏳ שירות זה בבדיקה בסביבת LAB\nיפתח בייצור לאחר אישור.');
