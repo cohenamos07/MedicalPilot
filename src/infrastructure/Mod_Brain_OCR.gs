@@ -1,8 +1,9 @@
 /**
  * Module: Mod_Brain_OCR
- * Version: 1.2.0
- * Date: 13/04/2026
+ * Version: 1.3.0
+ * Date: 15/04/2026
  * שינוי: עדכון עמודה M לאחר OCR + טיפול בשגיאות לעמודה T + קפיצה לעמודה M
+ * שינוי נוסף: הוספת syncStatusBeforeOCR לסנכרון סטטוסים לפני עיבוד
  */
 
 /**
@@ -118,4 +119,58 @@ function clearOCRErrors_LAB() {
       sheet.getRange(i + 1, 22).clearContent();
     }
   }
+}
+
+/**
+ * מסנכרנת את עמודה M (סטטוס חילוץ) בהתאם לנתונים הקיימים בעמודות U ו-V.
+ * מונעת כפילויות עיבוד במקרה שהלינק כבר קיים אך הסטטוס לא עודכן.
+ */
+function syncStatusBeforeOCR() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('ניהול_מיילים');
+  if (!sheet) return;
+
+  const data = sheet.getDataRange().getValues();
+  let updatedCount = 0;
+
+  for (let i = 1; i < data.length; i++) {
+    try {
+      const fileId = data[i][0];   // עמודה A
+      if (!fileId) continue;
+
+      const currentM = data[i][12]; // עמודה M (סטטוס נוכחי)
+      const typeU = data[i][20];    // עמודה U (סוג קובץ)
+      const linkV = data[i][21];    // עמודה V (לינק OCR)
+      
+      let newStatus = "";
+
+      // בדיקת התנאים לסנכרון
+      if (linkV && linkV.toString().trim() !== "" && !linkV.toString().includes("שגיאה")) {
+        // אם יש לינק תקין - הסטטוס חייב להיות "עבר OCR"
+        newStatus = "עבר OCR";
+      } else if (!linkV || linkV.toString().trim() === "") {
+        // אם אין לינק - קובעים סטטוס לפי סוג הקובץ
+        if (typeU === "PDF/IMG") {
+          newStatus = "ממתין ל-OCR";
+        } else if (typeU === "GDOC") {
+          newStatus = "טקסט זמין";
+        } else if (typeU === "OFFICE") {
+          newStatus = "ממתין להמרה";
+        }
+      }
+
+      // עדכון הגיליון רק אם הסטטוס השתנה
+      if (newStatus !== "" && newStatus !== currentM) {
+        sheet.getRange(i + 1, 13).setValue(newStatus);
+        updatedCount++;
+      }
+
+    } catch (e) {
+      Logger.log("שגיאה בסנכרון שורה " + (i + 1) + ": " + e.message);
+    }
+  }
+
+  // סיום: קפיצה לעמודה M והצגת הודעה
+  sheet.getRange(2, 13).activate();
+  ss.toast("בוצע סנכרון ל-" + updatedCount + " שורות.", "סנכרון סטטוס", 5);
 }
