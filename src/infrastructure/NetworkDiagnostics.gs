@@ -1,10 +1,22 @@
 /**
  * MedicalPilot — NetworkDiagnostics.gs
  * שירות S01 — בדיקות רשת ונגישות
- * גרסה: v97.7 | תאריך: 12/04/2026
- * שינויים: הוספת בדיקות Gmail ו-Drive, הוספת נתונים סטטיסטיים ל-alert
+ * @version v97.9 | @updated 18/04/2026 | @service S01
+ *
+ * שינויים בהוטפיקס זה:
+ *  - הסרת שורות AI מה-Alert (עברו לחלון 2 — checkPermissions ב-System_HealthCheck.gs)
+ *  - כל שאר הלוגיקה שמורה ללא שינוי
  */
 
+// ─────────────────────────────────────────────────────────────────────────────
+// בדיקת רשת חיצונית
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * checkExternalNetwork
+ * בודק נגישות לאינטרנט על-ידי פינג ל-google.com.
+ * @returns {boolean}
+ */
 function checkExternalNetwork() {
   const url = "https://www.google.com";
   try {
@@ -23,6 +35,15 @@ function checkExternalNetwork() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// בדיקת נגישות GitHub
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * checkGitHubConnectivity
+ * בודק נגישות ל-GitHub API. קוד 403 נחשב תקין.
+ * @returns {boolean}
+ */
 function checkGitHubConnectivity() {
   const url = "https://api.github.com";
   try {
@@ -41,8 +62,18 @@ function checkGitHubConnectivity() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// בדיקת תקינות מלאה — חלון 1
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * runSystemHealthCheck
+ * חלון 1: Alert כללי עם סטטוס רשת, GitHub, Gmail ו-Drive.
+ * סטטוס AI מוצג בנפרד דרך checkPermissions (חלון 2).
+ */
 function runSystemHealthCheck() {
   try {
+    // ── בדיקות רשת ושירותי Google ─────────────────────────────────────────
     const networkOk = checkExternalNetwork();
     const githubOk  = checkGitHubConnectivity();
 
@@ -52,30 +83,35 @@ function runSystemHealthCheck() {
     let driveOk = false;
     try { DriveApp.getRootFolder(); driveOk = true; } catch (e) {}
 
+    // ── נתוני זמן וגליון ──────────────────────────────────────────────────
     const now = Utilities.formatDate(new Date(), "GMT+3", "dd/MM/yyyy HH:mm");
 
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
+    const sheet    = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
     const rowCount = sheet ? Math.max(sheet.getLastRow() - 1, 0) : 0;
 
     const lastRun = PropertiesService.getScriptProperties().getProperty("DRIVE_SYNC_LAST_RUN");
     let driveStatus = "טרם בוצעה";
     if (lastRun) {
-      try { driveStatus = Utilities.formatDate(new Date(lastRun), "GMT+3", "dd/MM/yyyy HH:mm"); }
-      catch (e) { driveStatus = lastRun; }
+      try {
+        driveStatus = Utilities.formatDate(new Date(lastRun), "GMT+3", "dd/MM/yyyy HH:mm");
+      } catch (e) {
+        driveStatus = lastRun;
+      }
     }
 
+    // ── מחרוזת הפלט (ללא שורות AI — עברו לחלון 2) ────────────────────────
     const message =
-      "רשת חיצונית: "    + (networkOk ? "תקין ✓" : "נכשל ✗") + "\n" +
-      "גישה לגיטהאב: "   + (githubOk  ? "נגיש ✓" : "לא נגיש ✗") + "\n" +
-      "חיבור Gmail: "    + (gmailOk   ? "תקין ✓" : "נכשל ✗") + "\n" +
-      "חיבור Drive: "    + (driveOk   ? "תקין ✓" : "נכשל ✗") + "\n" +
-      "──────────────\n" +
-      "זמן: "            + now + "\n" +
-      "שורות בגליון: "   + rowCount + "\n" +
+      "רשת חיצונית: "        + (networkOk ? "תקין ✓" : "נכשל ✗")    + "\n" +
+      "גישה לגיטהאב: "       + (githubOk  ? "נגיש ✓" : "לא נגיש ✗") + "\n" +
+      "חיבור Gmail: "        + (gmailOk   ? "תקין ✓" : "נכשל ✗")    + "\n" +
+      "חיבור Drive: "        + (driveOk   ? "תקין ✓" : "נכשל ✗")    + "\n" +
+      "──────────────\n"                                                      +
+      "זמן: "                + now                                     + "\n" +
+      "שורות בגליון: "       + rowCount                                + "\n" +
       "סריקת Drive אחרונה: " + driveStatus;
 
     SpreadsheetApp.getUi().alert(
-      "בדיקת תקינות מערכת — v97.7",
+      "בדיקת תקינות מערכת — v97.9",
       message,
       SpreadsheetApp.getUi().ButtonSet.OK
     );
