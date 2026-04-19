@@ -1,9 +1,12 @@
 /**
  * Module: S07_Classify
- * Version: 1.3.0
+ * Version: 1.3.1
  * Updated: 19/04/2026
  * Service: S07
  */
+
+// גשר לתפריט — התפריט קורא classifyDocument
+function classifyDocument() { classifyActiveRow(); }
 
 function classifyActiveRow() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -35,8 +38,7 @@ function classifyActiveRow() {
     Logger.log("docId: " + docId);
 
     if (!docId) throw new Error("לא ניתן לחלץ מזהה מסמך מהלינק");
-    
-    // תיקון 1: שימוש בפונקציה החדשה מבוססת REST API
+
     const docText = _getDocTextViaRestApi(docId);
 
     let examplesText = "";
@@ -87,31 +89,28 @@ function classifyActiveRow() {
  * @return {string} טקסט המסמך (עד 3000 תווים).
  */
 function _getDocTextViaRestApi(docId) {
-  const url = `https://docs.googleapis.com/v1/documents/${docId}`;
+  const url = "https://docs.googleapis.com/v1/documents/" + docId;
   const options = {
-    "method": "get",
-    "headers": {
-      "Authorization": "Bearer " + ScriptApp.getOAuthToken()
-    },
-    "muteHttpExceptions": true
+    method: "get",
+    headers: { "Authorization": "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
   };
 
   const response = UrlFetchApp.fetch(url, options);
   const responseCode = response.getResponseCode();
-  const responseData = JSON.parse(response.getContentText());
 
   if (responseCode !== 200) {
-    throw new Error(`שגיאת API בגישה למסמך: ${responseCode}`);
+    throw new Error("שגיאת API בגישה למסמך: " + responseCode);
   }
 
+  const responseData = JSON.parse(response.getContentText());
   let fullText = "";
   const content = responseData.body.content;
 
-  // סריקה של מבנה המסמך וחילוץ טקסט מכל פסקה
   if (content) {
-    content.forEach(element => {
+    content.forEach(function(element) {
       if (element.paragraph) {
-        element.paragraph.elements.forEach(subElement => {
+        element.paragraph.elements.forEach(function(subElement) {
           if (subElement.textRun && subElement.textRun.content) {
             fullText += subElement.textRun.content;
           }
@@ -121,7 +120,7 @@ function _getDocTextViaRestApi(docId) {
   }
 
   const resultText = fullText.substring(0, 3000);
-  Logger.log(`טקסט חולץ בהצלחה. אורך שהתקבל: ${resultText.length} תווים.`);
+  Logger.log("טקסט חולץ בהצלחה. אורך: " + resultText.length + " תווים.");
   return resultText;
 }
 
@@ -129,7 +128,6 @@ function _callGemini_S07(text, examples) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) throw new Error("מפתח GEMINI_API_KEY לא נמצא ב-Properties.");
 
-  // תיקון 2: שינוי המודל ל-gemini-2.0-flash
   const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + apiKey;
 
   const prompt =
@@ -142,18 +140,26 @@ function _callGemini_S07(text, examples) {
     "  \"classification\": \"מסמך רפואי\" או \"מסמך חשבונאי\" או \"ביטוח\" או \"אחר\",\n" +
     "  \"complexity\": \"פשוט\" או \"מורכב\"\n" +
     "}\n\n" +
+    "כללי סיווג:\n" +
+    "מסמך רפואי: בדיקות, סיכומי ביקור, מרשמים, הפניות\n" +
+    "מסמך חשבונאי: חשבוניות, אישורי תשלום, דפי חשבון\n" +
+    "ביטוח: פוליסות, תביעות, אישורי ביטוח\n" +
+    "אחר: כל דבר אחר\n\n" +
+    "כללי מורכבות:\n" +
+    "פשוט: מסמך עם שדות סטנדרטיים\n" +
+    "מורכב: טבלאות, ערכים מספריים רבים, מסמך רב עמודי\n\n" +
     "טקסט המסמך:\n" + text;
 
   const payload = {
-    "contents": [{"parts": [{"text": prompt}]}],
-    "generationConfig": {"responseMimeType": "application/json"}
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: "application/json" }
   };
 
   const options = {
-    "method": "post",
-    "contentType": "application/json",
-    "payload": JSON.stringify(payload),
-    "muteHttpExceptions": true
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
   };
 
   const response = UrlFetchApp.fetch(url, options);
