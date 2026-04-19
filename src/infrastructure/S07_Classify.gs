@@ -1,11 +1,12 @@
 /**
  * Module: S07_Classify
- * Version: 1.3.1
+ * Version: 1.3.3
  * Updated: 19/04/2026
  * Service: S07
+ * תיקון: fallback אוטומטי ממודל 2.0 ל-1.5 בעת חריגת מכסה
  */
 
-// גשר לתפריט — התפריט קורא classifyDocument
+// גשר לתפריט
 function classifyDocument() { classifyActiveRow(); }
 
 function classifyActiveRow() {
@@ -39,7 +40,7 @@ function classifyActiveRow() {
 
     if (!docId) throw new Error("לא ניתן לחלץ מזהה מסמך מהלינק");
 
-    const docText = _getDocTextViaRestApi(docId);
+    const docText = _getDocTextViaDriveExport(docId);
 
     let examplesText = "";
     const learningSheet = ss.getSheetByName("דוגמאות_למידה");
@@ -47,7 +48,7 @@ function classifyActiveRow() {
       const lastRow = learningSheet.getLastRow();
       if (lastRow > 1) {
         const learnData = learningSheet.getRange(2, 1, Math.min(lastRow - 1, 10), 3).getValues();
-        examplesText = learnData.map(r => `כותרת: ${r[0]} | מנפיק: ${r[1]} | סיווג: ${r[2]}`).join("\n");
+        examplesText = learnData.map(r => "כותרת: " + r[0] + " | מנפיק: " + r[1] + " | סיווג: " + r[2]).join("\n");
       }
     }
 
@@ -84,51 +85,90 @@ function classifyActiveRow() {
 }
 
 /**
- * מחלצת טקסט ממסמך Google Docs באמצעות Google Docs REST API.
- * @param {string} docId מזהה המסמך.
- * @return {string} טקסט המסמך (עד 3000 תווים).
+ * _getDocTextViaDriveExport
+ * מייצא טקסט מגוגל דוק דרך Drive Export API.
+ * @param {string} docId מזהה המסמך
+ * @returns {string} טקסט המסמך עד 3000 תווים
  */
-function _getDocTextViaRestApi(docId) {
-  const url = "https://docs.googleapis.com/v1/documents/" + docId;
-  const options = {
+function _getDocTextViaDriveExport(docId) {
+  const url = "https://www.googleapis.com/drive/v3/files/" + docId + "/export?mimeType=text/plain";
+
+  const response = UrlFetchApp.fetch(url, {
     method: "get",
     headers: { "Authorization": "Bearer " + ScriptApp.getOAuthToken() },
     muteHttpExceptions: true
-  };
+  });
 
-  const response = UrlFetchApp.fetch(url, options);
-  const responseCode = response.getResponseCode();
+  const code = response.getResponseCode();
+  Logger.log("Drive Export קוד תגובה: " + code);
 
-  if (responseCode !== 200) {
-    throw new Error("שגיאת API בגישה למסמך: " + responseCode);
+  if (code !== 200) {
+    throw new Error("שגיאת Drive Export למסמך: " + code);
   }
 
-  const responseData = JSON.parse(response.getContentText());
-  let fullText = "";
-  const content = responseData.body.content;
-
-  if (content) {
-    content.forEach(function(element) {
-      if (element.paragraph) {
-        element.paragraph.elements.forEach(function(subElement) {
-          if (subElement.textRun && subElement.textRun.content) {
-            fullText += subElement.textRun.content;
-          }
-        });
-      }
-    });
-  }
-
-  const resultText = fullText.substring(0, 3000);
-  Logger.log("טקסט חולץ בהצלחה. אורך: " + resultText.length + " תווים.");
-  return resultText;
+  const text = response.getContentText().substring(0, 3000);
+  Logger.log("טקסט חולץ בהצלחה. אורך: " + text.length + " תווים.");
+  return text;
 }
 
+/**
+ * _callGeminiWithModel
+ * שליחה למודל גמיני ספציפי.
+ * @param {string} model שם המודל
+ * @param {string} prompt הפרומפט
+ * @param {string} apiKey מפתח API
+ * @returns {{ok: boolean, data: object|null, quotaExceeded: boolean}}
+ */
+function _callGeminiWithModel(model, prompt, apiKey) {
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/" +
+              model + ":generateContent?key=" + apiKey;
+
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: "application/json" }
+  };
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+
+  const code = response.getResponseCode();
+  const responseData = JSON.parse(response.getContentText());
+
+  // זיהוי חריגת מכסה — קוד 429
+  if (code === 429) {
+    Logger.log("מכסה מוצתה למודל: " + model);
+    return { ok: false, data: null, quotaExceeded: true };
+  }
+
+  if (code !== 200) {
+    const errMsg = responseData.error ? responseData.error.message : "קוד " + code;
+    Logger.log("שגיאה במודל " + model + ": " + errMsg);
+    return { ok: false, data: null, quotaExceeded: false };
+  }
+
+  try {
+    const aiText = responseData.candidates[0].content.parts[0].text;
+    return { ok: true, data: JSON.parse(aiText), quotaExceeded: false };
+  } catch (e) {
+    return { ok: false, data: null, quotaExceeded: false };
+  }
+}
+
+/**
+ * _callGemini_S07
+ * שולח לגמיני עם fallback אוטומטי:
+ * מנסה gemini-2.0-flash → אם מכסה מוצתה עובר ל-gemini-1.5-flash.
+ * @param {string} text טקסט המסמך
+ * @param {string} examples דוגמאות למידה
+ * @returns {object} תוצאת ניתוח AI
+ */
 function _callGemini_S07(text, examples) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) throw new Error("מפתח GEMINI_API_KEY לא נמצא ב-Properties.");
-
-  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + apiKey;
 
   const prompt =
     "אתה מנתח מסמכים רפואיים ופיננסיים בעברית.\n" +
@@ -150,29 +190,27 @@ function _callGemini_S07(text, examples) {
     "מורכב: טבלאות, ערכים מספריים רבים, מסמך רב עמודי\n\n" +
     "טקסט המסמך:\n" + text;
 
-  const payload = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { responseMimeType: "application/json" }
-  };
-
-  const options = {
-    method: "post",
-    contentType: "application/json",
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  };
-
-  const response = UrlFetchApp.fetch(url, options);
-  const responseData = JSON.parse(response.getContentText());
-
-  if (response.getResponseCode() !== 200) {
-    throw new Error("שגיאת API: " + (responseData.error ? responseData.error.message : "לא ידוע"));
+  // ניסיון ראשון — gemini-2.0-flash
+  Logger.log("מנסה gemini-2.0-flash...");
+  const result20 = _callGeminiWithModel("gemini-2.0-flash", prompt, apiKey);
+  if (result20.ok) {
+    Logger.log("הצליח עם gemini-2.0-flash");
+    return result20.data;
   }
 
-  try {
-    const aiText = responseData.candidates[0].content.parts[0].text;
-    return JSON.parse(aiText);
-  } catch (e) {
-    throw new Error("נכשלה קריאת ה-JSON מה-AI.");
+  // fallback — gemini-1.5-flash
+  if (result20.quotaExceeded) {
+    Logger.log("עובר ל-fallback: gemini-1.5-flash");
+    const result15 = _callGeminiWithModel("gemini-1.5-flash", prompt, apiKey);
+    if (result15.ok) {
+      Logger.log("הצליח עם gemini-1.5-flash (fallback)");
+      return result15.data;
+    }
+    if (result15.quotaExceeded) {
+      throw new Error("מכסה מוצתה גם ב-2.0 וגם ב-1.5 Flash — נסה מחר");
+    }
+    throw new Error("שגיאת Gemini 1.5 Flash בלתי צפויה");
   }
+
+  throw new Error("שגיאת Gemini 2.0 Flash בלתי צפויה");
 }
