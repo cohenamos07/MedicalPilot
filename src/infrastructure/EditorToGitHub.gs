@@ -32,17 +32,38 @@ function pushFileToGitHub(fileName, filePath, content) {
   try {
     const token = PropertiesService.getScriptProperties().getProperty('GITHUB_PAT');
     if (!token) { Logger.log("Error: GITHUB_PAT not found."); return false; }
+
     const url = "https://api.github.com/repos/cohenamos07/MedicalPilot/contents/" + filePath;
-    const headers = { "Authorization": "token " + token, "Accept": "application/vnd.github.v3+json" };
+    const headers = {
+      "Authorization": "token " + token,
+      "Accept": "application/vnd.github.v3+json"
+    };
+
+    // שלב א — קבל SHA קיים (אם הקובץ כבר קיים)
     let sha = null;
-    const getResponse = UrlFetchApp.fetch(url, { method: "get", headers: headers, muteHttpExceptions: true });
-    if (getResponse.getResponseCode() === 200) { sha = JSON.parse(getResponse.getContentText()).sha; }
+    const getResponse = UrlFetchApp.fetch(url, {
+      method: "get",
+      headers: headers,
+      muteHttpExceptions: true
+    });
+    const getCode = getResponse.getResponseCode();
+    if (getCode === 200) {
+      sha = JSON.parse(getResponse.getContentText()).sha;
+      Logger.log("SHA נמצא עבור " + fileName + ": " + sha);
+    } else if (getCode === 404) {
+      Logger.log("קובץ חדש — לא נמצא SHA עבור " + fileName);
+    } else {
+      Logger.log("שגיאה בשליפת SHA עבור " + fileName + ": קוד " + getCode);
+    }
+
+    // שלב ב — דחוף עם SHA (אם קיים)
     const payload = {
       message: "Auto-update [" + fileName + "] from Editor",
       content: Utilities.base64Encode(content, Utilities.Charset.UTF_8),
       branch: "main"
     };
     if (sha) payload.sha = sha;
+
     const putResponse = UrlFetchApp.fetch(url, {
       method: "put",
       headers: headers,
@@ -50,11 +71,46 @@ function pushFileToGitHub(fileName, filePath, content) {
       payload: JSON.stringify(payload),
       muteHttpExceptions: true
     });
-    if (putResponse.getResponseCode() === 200 || putResponse.getResponseCode() === 201) { return true; }
-    Logger.log("GitHub Push Failed: " + putResponse.getContentText());
+
+    const putCode = putResponse.getResponseCode();
+    if (putCode === 200 || putCode === 201) {
+      Logger.log("✅ " + fileName + " עודכן בהצלחה");
+      return true;
+    }
+
+    // טיפול ב-409 — נסה שוב עם SHA מרוענן
+    if (putCode === 409) {
+      Logger.log("409 עבור " + fileName + " — מנסה לרענן SHA ולנסות שוב");
+      const retryGet = UrlFetchApp.fetch(url, {
+        method: "get",
+        headers: headers,
+        muteHttpExceptions: true
+      });
+      if (retryGet.getResponseCode() === 200) {
+        const freshSha = JSON.parse(retryGet.getContentText()).sha;
+        payload.sha = freshSha;
+        const retryPut = UrlFetchApp.fetch(url, {
+          method: "put",
+          headers: headers,
+          contentType: "application/json",
+          payload: JSON.stringify(payload),
+          muteHttpExceptions: true
+        });
+        const retryCode = retryPut.getResponseCode();
+        if (retryCode === 200 || retryCode === 201) {
+          Logger.log("✅ " + fileName + " עודכן בהצלחה אחרי retry");
+          return true;
+        }
+        Logger.log("❌ retry נכשל עבור " + fileName + ": " + retryCode);
+        return false;
+      }
+    }
+
+    Logger.log("❌ GitHub Push נכשל עבור " + fileName + ": קוד " + putCode);
     return false;
+
   } catch (e) {
-    Logger.log("Error in pushFileToGitHub: " + e.toString());
+    Logger.log("Error in pushFileToGitHub [" + fileName + "]: " + e.toString());
     return false;
   }
 }
@@ -68,9 +124,9 @@ function syncEditorFileToGitHub(fileName, githubPath) {
     }
     const success = pushFileToGitHub(fileName, githubPath, content);
     if (success) {
-      SpreadsheetApp.getUi().alert("הקובץ [" + fileName + "] עודכן בגיטהאב בהצלחה");
+      SpreadsheetApp.getUi().alert("הקובץ [" + fileName + "] עודכן בגיטהאב בהצלחה ✅");
     } else {
-      SpreadsheetApp.getUi().alert("שגיאה בעדכון [" + fileName + "] בגיטהאב");
+      SpreadsheetApp.getUi().alert("שגיאה בעדכון [" + fileName + "] בגיטהאב ❌");
     }
   } catch (e) {
     Logger.log("Error in syncEditorFileToGitHub: " + e.toString());
@@ -98,16 +154,38 @@ function syncAllFilesToGitHub() {
       { name: "S05_MetaExtract",    path: "src/infrastructure/S05_MetaExtract.gs" },
       { name: "S07_Classify",       path: "src/infrastructure/S07_Classify.gs" }
     ];
+
     let success = 0;
     let failed = 0;
+    const failedFiles = [];
+
     files.forEach(function(file) {
       const content = getFileContentFromEditor(file.name);
       if (content) {
         const ok = pushFileToGitHub(file.name, file.path, content);
-        if (ok) { success++; } else { failed++; }
-      } else { failed++; }
+        if (ok) {
+          success++;
+        } else {
+          failed++;
+          failedFiles.push(file.name);
+        }
+      } else {
+        failed++;
+        failedFiles.push(file.name + " (לא נמצא בעורך)");
+      }
     });
-    SpreadsheetApp.getUi().alert("סנכרון הושלם: " + success + " קבצים עודכנו, " + failed + " נכשלו.");
+
+    const failMsg = failedFiles.length > 0
+      ? "\n\nנכשלו:\n" + failedFiles.join("\n")
+      : "";
+
+    SpreadsheetApp.getUi().alert(
+      "סנכרון הושלם ✅\n" +
+      success + " קבצים עודכנו\n" +
+      failed + " נכשלו" +
+      failMsg
+    );
+
   } catch (e) {
     Logger.log("Error in syncAllFilesToGitHub: " + e.toString());
     SpreadsheetApp.getUi().alert("שגיאה קריטית: " + e.message);
