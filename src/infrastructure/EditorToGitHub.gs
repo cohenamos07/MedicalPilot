@@ -1,8 +1,7 @@
 /**
  * MedicalPilot — EditorToGitHub.gs
  * שירות סנכרון — דחיפת קוד מהעורך לגיטהאב
- * @version 98.0 | @updated 13/04/2026 | @service S10
- * שינוי: הוספת S04_DriveSync, Mod_Brain_OCR, S05_MetaExtract לרשימת הסנכרון
+ * @version 97.9 | @updated 19/04/2026 | @service S10
  */
 
 function getFileContentFromEditor(fileName) {
@@ -83,7 +82,6 @@ function syncAllFilesToGitHub() {
   try {
     const files = [
       { name: "Mod_Ingestion",      path: "src/infrastructure/Mod_Ingestion.gs" },
-      { name: "Mod_Brain_OCR",      path: "src/infrastructure/Mod_Brain_OCR.gs" },
       { name: "Menu_LAB",           path: "src/infrastructure/Menu_LAB.gs" },
       { name: "Menu_PROD",          path: "src/infrastructure/Menu_PROD.gs" },
       { name: "Main",               path: "src/infrastructure/Main.gs" },
@@ -97,7 +95,8 @@ function syncAllFilesToGitHub() {
       { name: "System_Doc_Builder", path: "src/infrastructure/System_Doc_Builder.gs" },
       { name: "System_Logger",      path: "src/infrastructure/System_Logger.gs" },
       { name: "S04_DriveSync",      path: "src/infrastructure/S04_DriveSync.gs" },
-      { name: "S05_MetaExtract",    path: "src/infrastructure/S05_MetaExtract.gs" }
+      { name: "S05_MetaExtract",    path: "src/infrastructure/S05_MetaExtract.gs" },
+      { name: "S07_Classify",       path: "src/infrastructure/S07_Classify.gs" }
     ];
     let success = 0;
     let failed = 0;
@@ -115,11 +114,14 @@ function syncAllFilesToGitHub() {
   }
 }
 
-function testSyncIngestion() { syncEditorFileToGitHub("Mod_Ingestion", "src/infrastructure/Mod_Ingestion.gs"); }
-function testSyncMenuLab() { syncEditorFileToGitHub("Menu_LAB", "src/infrastructure/Menu_LAB.gs"); }
-function testSyncMenuProd() { syncEditorFileToGitHub("Menu_PROD", "src/infrastructure/Menu_PROD.gs"); }
-function testSyncMain() { syncEditorFileToGitHub("Main", "src/infrastructure/Main.gs"); }
-function testSyncGitHubSync() { syncEditorFileToGitHub("GitHubSync", "src/infrastructure/GitHubSync.gs"); }
-function testSyncEditorToGitHub() { syncEditorFileToGitHub("EditorToGitHub", "src/infrastructure/EditorToGitHub.gs"); }
-function testSyncServiceFolders() { syncEditorFileToGitHub("Service_Folders", "src/infrastructure/Service_Folders.gs"); }
-function testSyncAuthCheck() { syncEditorFileToGitHub("Auth_Check", "src/infrastructure/Auth_Check.gs"); }
+function testSyncIngestion()      { syncEditorFileToGitHub("Mod_Ingestion",      "src/infrastructure/Mod_Ingestion.gs"); }
+function testSyncMenuLab()        { syncEditorFileToGitHub("Menu_LAB",           "src/infrastructure/Menu_LAB.gs"); }
+function testSyncMenuProd()       { syncEditorFileToGitHub("Menu_PROD",          "src/infrastructure/Menu_PROD.gs"); }
+function testSyncMain()           { syncEditorFileToGitHub("Main",               "src/infrastructure/Main.gs"); }
+function testSyncGitHubSync()     { syncEditorFileToGitHub("GitHubSync",         "src/infrastructure/GitHubSync.gs"); }
+function testSyncEditorToGitHub() { syncEditorFileToGitHub("EditorToGitHub",     "src/infrastructure/EditorToGitHub.gs"); }
+function testSyncServiceFolders() { syncEditorFileToGitHub("Service_Folders",    "src/infrastructure/Service_Folders.gs"); }
+function testSyncAuthCheck()      { syncEditorFileToGitHub("Auth_Check",         "src/infrastructure/Auth_Check.gs"); }
+function testSyncS04()            { syncEditorFileToGitHub("S04_DriveSync",      "src/infrastructure/S04_DriveSync.gs"); }
+function testSyncS05()            { syncEditorFileToGitHub("S05_MetaExtract",    "src/infrastructure/S05_MetaExtract.gs"); }
+function testSyncS07()            { syncEditorFileToGitHub("S07_Classify",       "src/infrastructure/S07_Classify.gs"); }
