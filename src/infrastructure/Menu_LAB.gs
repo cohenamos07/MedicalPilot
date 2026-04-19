@@ -1,36 +1,30 @@
 /**
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
- * גרסה: v98.2 | תאריך: 15/04/2026
- * שינוי: ארגון מחדש — הכנת מערכת, קליטה, עיבוד AI
+ * גרסה: v98.0 | תאריך: 19/04/2026
+ * שינוי: הוספת שורות עדכון קוד מגיט לעורך
  */
 
 function buildLabMenu() {
-  buildLabMenu_v98_2();
+  buildLabMenu_v98_0();
 }
 
-function buildLabMenu_v98_2() {
+function buildLabMenu_v98_0() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('LA v98.2');
-
-  var subMenuSetup = ui.createMenu('⚙️ הכנת מערכת')
-    .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
-    .addItem('בדיקת הרשאות', 'checkUserAccess');
-  menu.addSubMenu(subMenuSetup);
-
-  menu.addSeparator();
+  var menu = ui.createMenu('LA v98.0');
 
   var subMenuIngestion = ui.createMenu('🔄 קליטת נתונים')
+    .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
+    .addItem('בדיקת הרשאות', 'checkUserAccess')
     .addItem('סריקת Gmail', 'runEmailIngestion')
     .addItem('סריקת Drive', 'syncDriveFiles_LAB')
-    .addItem('חילוץ מטא-דאטה ומיון', 'extractMetaData_LAB')
-    .addItem('סנכרון סטטוסים', 'syncStatusBeforeOCR')
-    .addItem('המרת קבצים ל-OCR', 'runBatchOCR_Test');
+    .addItem('חילוץ מטא-דאטה', 'getFormatDetails');
   menu.addSubMenu(subMenuIngestion);
 
   menu.addSeparator();
 
   var subMenuAI = ui.createMenu('🧠 עיבוד AI')
+    .addItem('הכנה ל-OCR', 'processDocumentOCR')
     .addItem('סיווג מסמכים', 'classifyDocument')
     .addItem('אימות ידני ולמידה', 'showMainSidebar')
     .addItem('חילוץ שדות מלא', 'extractMedicalHeaders');
@@ -38,7 +32,7 @@ function buildLabMenu_v98_2() {
 
   menu.addSeparator();
 
-  var subMenuAdmin = ui.createMenu('🗂️ ניהול מערכת')
+  var subMenuAdmin = ui.createMenu('⚙️ ניהול מערכת')
     .addItem('גיבוי GitHub', 'uploadToGitHub')
     .addItem('ניהול לוגים', 'logSystemEvent')
     .addItem('הגדרות תשתית', 'getConfig');
@@ -55,18 +49,16 @@ function buildLabMenu_v98_2() {
     .addItem('📤 עדכון CONTEXT.md בגיטהאב', 'pushContextToGitHub')
     .addItem('🔄 סנכרון סיום סשן', 'endSessionSync')
     .addSeparator()
-    .addItem('⬇️ סנכרון Logger מגיטהאב לעורך', 'testSyncLogger');
+    .addItem('⬇️ עדכון קובץ בודד מגיט לעורך', 'syncFromGitByChoice')
+    .addItem('⬇️ עדכון מלא של הקבצים מגיט לעורך', 'syncAllFromGit');
   menu.addSubMenu(subMenuDev);
 
   menu.addToUi();
 }
 
-function buildLabMenu_v98_1() { buildLabMenu_v98_2(); }
-function buildLabMenu_v98_0() { buildLabMenu_v98_2(); }
-function buildLabMenu_v97_9() { buildLabMenu_v98_2(); }
-function buildLabMenu_v97_8() { buildLabMenu_v98_2(); }
-function buildLabMenu_v97_7() { buildLabMenu_v98_2(); }
-function buildLabMenu_v97_5() { buildLabMenu_v98_2(); }
+function buildLabMenu_v97_8() { buildLabMenu_v98_0(); }
+function buildLabMenu_v97_7() { buildLabMenu_v98_0(); }
+function buildLabMenu_v97_5() { buildLabMenu_v98_0(); }
 
 function buildLabMenu_v96_9_1() {
   const ui = SpreadsheetApp.getUi();
