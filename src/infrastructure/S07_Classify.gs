@@ -1,9 +1,8 @@
 /**
  * Module: S07_Classify
- * Version: 1.2.0
- * Updated: 16/04/2026
+ * Version: 1.3.0
+ * Updated: 19/04/2026
  * Service: S07
- * שינוי: הוספת לוג לאבחון ID ולינק לפני פתיחת מסמך
  */
 
 function classifyActiveRow() {
@@ -28,18 +27,18 @@ function classifyActiveRow() {
   }
 
   try {
-    sheet.getRange(row, 11).setValue("⏳ מעבד..."); // עמודה K
+    sheet.getRange(row, 11).setValue("⏳ מעבד...");
 
-    // שלב 2 — חילוץ מזהה המסמך ופתיחתו
     const docId = ocrLink.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
     Logger.log("שורה: " + row);
     Logger.log("ocrLink: " + ocrLink);
     Logger.log("docId: " + docId);
 
     if (!docId) throw new Error("לא ניתן לחלץ מזהה מסמך מהלינק");
-    const docText = DocumentApp.openById(docId).getBody().getText().substring(0, 3000);
+    
+    // תיקון 1: שימוש בפונקציה החדשה מבוססת REST API
+    const docText = _getDocTextViaRestApi(docId);
 
-    // שלב 3 — איסוף דוגמאות מגיליון דוגמאות_למידה
     let examplesText = "";
     const learningSheet = ss.getSheetByName("דוגמאות_למידה");
     if (learningSheet) {
@@ -50,10 +49,8 @@ function classifyActiveRow() {
       }
     }
 
-    // שלב 4 — שליחה לגמיני
     const aiResult = _callGemini_S07(docText, examplesText);
 
-    // שלב 5 — זיהוי חשד לכפול
     let duplicateInfo = "";
     const allData = sheet.getDataRange().getValues();
     const duplicateRows = [];
@@ -67,31 +64,73 @@ function classifyActiveRow() {
       duplicateInfo = "חשוד ככפול — שורות: " + duplicateRows.join(", ");
     }
 
-    // שלב 6 — כתיבה לגליון
-    sheet.getRange(row, 9).setValue(aiResult.title);           // עמודה I
-    sheet.getRange(row, 10).setValue(aiResult.issuer);         // עמודה J
-    sheet.getRange(row, 11).setValue("סווג בהצלחה");           // עמודה K
-    sheet.getRange(row, 12).setValue(aiResult.classification); // עמודה L
-    sheet.getRange(row, 20).clearContent();                    // עמודה T
-    sheet.getRange(row, 25).setValue(aiResult.complexity);     // עמודה Y
-    sheet.getRange(row, 26).setValue(duplicateInfo);           // עמודה Z
-
-    // קפיצה לעמודה I בהצלחה
+    sheet.getRange(row, 9).setValue(aiResult.title);
+    sheet.getRange(row, 10).setValue(aiResult.issuer);
+    sheet.getRange(row, 11).setValue("סווג בהצלחה");
+    sheet.getRange(row, 12).setValue(aiResult.classification);
+    sheet.getRange(row, 20).clearContent();
+    sheet.getRange(row, 25).setValue(aiResult.complexity);
+    sheet.getRange(row, 26).setValue(duplicateInfo);
     sheet.getRange(row, 9).activate();
 
   } catch (e) {
-    sheet.getRange(row, 11).setValue("נכשל");                  // עמודה K
-    sheet.getRange(row, 20).setValue("שגיאה: " + e.message);  // עמודה T
-    sheet.getRange(row, 20).activate();                        // קפיצה לעמודה T בכשל
+    sheet.getRange(row, 11).setValue("נכשל");
+    sheet.getRange(row, 20).setValue("שגיאה: " + e.message);
+    sheet.getRange(row, 20).activate();
     Logger.log("שגיאה בשורה " + row + ": " + e.message);
   }
+}
+
+/**
+ * מחלצת טקסט ממסמך Google Docs באמצעות Google Docs REST API.
+ * @param {string} docId מזהה המסמך.
+ * @return {string} טקסט המסמך (עד 3000 תווים).
+ */
+function _getDocTextViaRestApi(docId) {
+  const url = `https://docs.googleapis.com/v1/documents/${docId}`;
+  const options = {
+    "method": "get",
+    "headers": {
+      "Authorization": "Bearer " + ScriptApp.getOAuthToken()
+    },
+    "muteHttpExceptions": true
+  };
+
+  const response = UrlFetchApp.fetch(url, options);
+  const responseCode = response.getResponseCode();
+  const responseData = JSON.parse(response.getContentText());
+
+  if (responseCode !== 200) {
+    throw new Error(`שגיאת API בגישה למסמך: ${responseCode}`);
+  }
+
+  let fullText = "";
+  const content = responseData.body.content;
+
+  // סריקה של מבנה המסמך וחילוץ טקסט מכל פסקה
+  if (content) {
+    content.forEach(element => {
+      if (element.paragraph) {
+        element.paragraph.elements.forEach(subElement => {
+          if (subElement.textRun && subElement.textRun.content) {
+            fullText += subElement.textRun.content;
+          }
+        });
+      }
+    });
+  }
+
+  const resultText = fullText.substring(0, 3000);
+  Logger.log(`טקסט חולץ בהצלחה. אורך שהתקבל: ${resultText.length} תווים.`);
+  return resultText;
 }
 
 function _callGemini_S07(text, examples) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) throw new Error("מפתח GEMINI_API_KEY לא נמצא ב-Properties.");
 
-  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey;
+  // תיקון 2: שינוי המודל ל-gemini-2.0-flash
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + apiKey;
 
   const prompt =
     "אתה מנתח מסמכים רפואיים ופיננסיים בעברית.\n" +
@@ -103,14 +142,6 @@ function _callGemini_S07(text, examples) {
     "  \"classification\": \"מסמך רפואי\" או \"מסמך חשבונאי\" או \"ביטוח\" או \"אחר\",\n" +
     "  \"complexity\": \"פשוט\" או \"מורכב\"\n" +
     "}\n\n" +
-    "כללי סיווג:\n" +
-    "מסמך רפואי: בדיקות, סיכומי ביקור, מרשמים, הפניות\n" +
-    "מסמך חשבונאי: חשבוניות, אישורי תשלום, דפי חשבון\n" +
-    "ביטוח: פוליסות, תביעות, אישורי ביטוח\n" +
-    "אחר: כל דבר אחר\n\n" +
-    "כללי מורכבות:\n" +
-    "פשוט: מסמך עם שדות סטנדרטיים\n" +
-    "מורכב: טבלאות, ערכים מספריים רבים, מסמך רב עמודי\n\n" +
     "טקסט המסמך:\n" + text;
 
   const payload = {
@@ -129,7 +160,7 @@ function _callGemini_S07(text, examples) {
   const responseData = JSON.parse(response.getContentText());
 
   if (response.getResponseCode() !== 200) {
-    throw new Error("שגיאת API: " + responseData.error.message);
+    throw new Error("שגיאת API: " + (responseData.error ? responseData.error.message : "לא ידוע"));
   }
 
   try {
