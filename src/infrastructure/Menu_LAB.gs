@@ -2,7 +2,7 @@
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
  * @version v98.0 | @updated 19/04/2026
- * שינוי: הוספת שורת דחיפת קובץ בודד מהעורך לגיט
+ * שינוי: הוספת שורת סיכום ומסמך חפיפה
  */
 
 function buildLabMenu() {
@@ -52,7 +52,9 @@ function buildLabMenu_v98_0() {
     .addItem('⬇️ עדכון קובץ בודד מגיט לעורך', 'syncFromGitByChoice')
     .addItem('⬇️ עדכון מלא של הקבצים מגיט לעורך', 'syncAllFromGit')
     .addSeparator()
-    .addItem('⬆️ עדכון קובץ בודד מהעורך לגיט', 'syncToGitByChoice');
+    .addItem('⬆️ עדכון קובץ בודד מהעורך לגיט', 'syncToGitByChoice')
+    .addSeparator()
+    .addItem('📋 סיכום ומסמך חפיפה', 'syncSessionDocs');
   menu.addSubMenu(subMenuDev);
 
   menu.addToUi();
