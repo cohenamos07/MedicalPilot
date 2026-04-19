@@ -1,9 +1,90 @@
 /**
  * MedicalPilot — EditorToGitHub.gs
  * שירות סנכרון — דחיפת קוד מהעורך לגיטהאב
- * @version 97.9 | @updated 19/04/2026 | @service S10
+ * @version 98.0 | @updated 19/04/2026 | @service S10
+ * שינוי: הוספת syncToGitByChoice — דחיפת קובץ בודד לפי בחירה
  */
 
+// ─────────────────────────────────────────────────────────────────────────────
+// REGISTRY — רשימת קבצי הפרויקט (מסונכרן עם GitToEditor.gs)
+// ─────────────────────────────────────────────────────────────────────────────
+const EDITOR_REGISTRY = [
+  { num: 1,  name: "EditorToGitHub",     path: "src/infrastructure/EditorToGitHub.gs" },
+  { num: 2,  name: "GitHubSync",         path: "src/infrastructure/GitHubSync.gs" },
+  { num: 3,  name: "GitToEditor",        path: "src/infrastructure/GitToEditor.gs" },
+  { num: 4,  name: "Auth_Check",         path: "src/infrastructure/Auth_Check.gs" },
+  { num: 5,  name: "Main",               path: "src/infrastructure/Main.gs" },
+  { num: 6,  name: "Menu_LAB",           path: "src/infrastructure/Menu_LAB.gs" },
+  { num: 7,  name: "Menu_PROD",          path: "src/infrastructure/Menu_PROD.gs" },
+  { num: 8,  name: "Mod_Brain_OCR",      path: "src/infrastructure/Mod_Brain_OCR.gs" },
+  { num: 9,  name: "Mod_Ingestion",      path: "src/infrastructure/Mod_Ingestion.gs" },
+  { num: 10, name: "NetworkDiagnostics", path: "src/infrastructure/NetworkDiagnostics.gs" },
+  { num: 11, name: "S04_DriveSync",      path: "src/infrastructure/S04_DriveSync.gs" },
+  { num: 12, name: "S05_MetaExtract",    path: "src/infrastructure/S05_MetaExtract.gs" },
+  { num: 13, name: "S07_Classify",       path: "src/infrastructure/S07_Classify.gs" },
+  { num: 14, name: "Service_Folders",    path: "src/infrastructure/Service_Folders.gs" },
+  { num: 15, name: "System_Doc_Builder", path: "src/infrastructure/System_Doc_Builder.gs" },
+  { num: 16, name: "System_HealthCheck", path: "src/infrastructure/System_HealthCheck.gs" },
+  { num: 17, name: "System_Logger",      path: "src/infrastructure/System_Logger.gs" }
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLIC — דחיפת קובץ בודד לגיט לפי בחירה
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * syncToGitByChoice
+ * מציגה רשימת קבצים ← המשתמש מקליד שם ← דוחפת מהעורך לגיט.
+ */
+function syncToGitByChoice() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    let listText = "בחר קובץ לדחיפה מהעורך לגיטהאב:\n\n";
+    EDITOR_REGISTRY.forEach(function(item) {
+      listText += item.num + ". " + item.name + "\n";
+    });
+    listText += "\nהכנס שם קובץ מדויק מהרשימה (לדוגמה: S07_Classify)";
+
+    const response = ui.prompt("דחיפת קובץ לגיט", listText, ui.ButtonSet.OK_CANCEL);
+
+    if (response.getSelectedButton() !== ui.Button.OK) {
+      Logger.log("הפעולה בוטלה.");
+      return;
+    }
+
+    const inputName = response.getResponseText().trim();
+    if (!inputName) {
+      ui.alert("לא הוזן שם קובץ. הפעולה בוטלה.");
+      return;
+    }
+
+    const selectedFile = EDITOR_REGISTRY.find(function(f) {
+      return f.name.toLowerCase() === inputName.toLowerCase();
+    });
+
+    if (!selectedFile) {
+      ui.alert("שגיאה: הקובץ '" + inputName + "' לא נמצא ב-Registry.\nנא לבדוק את השם ולנסות שוב.");
+      Logger.log("חיפוש נכשל: '" + inputName + "' לא נמצא.");
+      return;
+    }
+
+    Logger.log("נמצא: " + selectedFile.name + " — מתחיל דחיפה לגיט.");
+    syncEditorFileToGitHub(selectedFile.name, selectedFile.path);
+
+  } catch (e) {
+    Logger.log("Error in syncToGitByChoice: " + e.toString());
+    ui.alert("שגיאה: " + e.message);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRIVATE — פונקציות עזר
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * getFileContentFromEditor
+ * קוראת את תוכן קובץ מהעורך דרך Apps Script API.
+ */
 function getFileContentFromEditor(fileName) {
   try {
     const scriptId = "1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf";
@@ -18,7 +99,7 @@ function getFileContentFromEditor(fileName) {
       return null;
     }
     const scriptContent = JSON.parse(response.getContentText());
-    const file = scriptContent.files.find(f => f.name === fileName);
+    const file = scriptContent.files.find(function(f) { return f.name === fileName; });
     if (file) { return file.source; }
     Logger.log("File " + fileName + " not found in editor.");
     return null;
@@ -28,93 +109,66 @@ function getFileContentFromEditor(fileName) {
   }
 }
 
+/**
+ * pushFileToGitHub
+ * דוחפת קובץ לגיטהאב עם טיפול ב-SHA וב-409.
+ */
 function pushFileToGitHub(fileName, filePath, content) {
   try {
     const token = PropertiesService.getScriptProperties().getProperty('GITHUB_PAT');
     if (!token) { Logger.log("Error: GITHUB_PAT not found."); return false; }
-
     const url = "https://api.github.com/repos/cohenamos07/MedicalPilot/contents/" + filePath;
-    const headers = {
-      "Authorization": "token " + token,
-      "Accept": "application/vnd.github.v3+json"
-    };
-
-    // שלב א — קבל SHA קיים (אם הקובץ כבר קיים)
+    const headers = { "Authorization": "token " + token, "Accept": "application/vnd.github.v3+json" };
     let sha = null;
-    const getResponse = UrlFetchApp.fetch(url, {
-      method: "get",
-      headers: headers,
-      muteHttpExceptions: true
-    });
-    const getCode = getResponse.getResponseCode();
-    if (getCode === 200) {
-      sha = JSON.parse(getResponse.getContentText()).sha;
-      Logger.log("SHA נמצא עבור " + fileName + ": " + sha);
-    } else if (getCode === 404) {
-      Logger.log("קובץ חדש — לא נמצא SHA עבור " + fileName);
-    } else {
-      Logger.log("שגיאה בשליפת SHA עבור " + fileName + ": קוד " + getCode);
-    }
-
-    // שלב ב — דחוף עם SHA (אם קיים)
+    const getResponse = UrlFetchApp.fetch(url, { method: "get", headers: headers, muteHttpExceptions: true });
+    if (getResponse.getResponseCode() === 200) { sha = JSON.parse(getResponse.getContentText()).sha; }
     const payload = {
       message: "Auto-update [" + fileName + "] from Editor",
       content: Utilities.base64Encode(content, Utilities.Charset.UTF_8),
       branch: "main"
     };
     if (sha) payload.sha = sha;
-
     const putResponse = UrlFetchApp.fetch(url, {
-      method: "put",
-      headers: headers,
+      method: "put", headers: headers,
       contentType: "application/json",
       payload: JSON.stringify(payload),
       muteHttpExceptions: true
     });
-
     const putCode = putResponse.getResponseCode();
     if (putCode === 200 || putCode === 201) {
-      Logger.log("✅ " + fileName + " עודכן בהצלחה");
+      Logger.log("✅ עודכן בהצלחה: " + fileName);
       return true;
     }
-
-    // טיפול ב-409 — נסה שוב עם SHA מרוענן
+    // טיפול ב-409 — retry עם SHA מרוענן
     if (putCode === 409) {
-      Logger.log("409 עבור " + fileName + " — מנסה לרענן SHA ולנסות שוב");
-      const retryGet = UrlFetchApp.fetch(url, {
-        method: "get",
-        headers: headers,
-        muteHttpExceptions: true
-      });
+      Logger.log("409 — מנסה retry עם SHA מרוענן עבור: " + fileName);
+      const retryGet = UrlFetchApp.fetch(url, { method: "get", headers: headers, muteHttpExceptions: true });
       if (retryGet.getResponseCode() === 200) {
-        const freshSha = JSON.parse(retryGet.getContentText()).sha;
-        payload.sha = freshSha;
+        payload.sha = JSON.parse(retryGet.getContentText()).sha;
         const retryPut = UrlFetchApp.fetch(url, {
-          method: "put",
-          headers: headers,
+          method: "put", headers: headers,
           contentType: "application/json",
           payload: JSON.stringify(payload),
           muteHttpExceptions: true
         });
-        const retryCode = retryPut.getResponseCode();
-        if (retryCode === 200 || retryCode === 201) {
-          Logger.log("✅ " + fileName + " עודכן בהצלחה אחרי retry");
+        if (retryPut.getResponseCode() === 200 || retryPut.getResponseCode() === 201) {
+          Logger.log("✅ עודכן אחרי retry: " + fileName);
           return true;
         }
-        Logger.log("❌ retry נכשל עבור " + fileName + ": " + retryCode);
-        return false;
       }
     }
-
-    Logger.log("❌ GitHub Push נכשל עבור " + fileName + ": קוד " + putCode);
+    Logger.log("❌ נכשל: " + fileName + " | קוד: " + putCode);
     return false;
-
   } catch (e) {
-    Logger.log("Error in pushFileToGitHub [" + fileName + "]: " + e.toString());
+    Logger.log("Error in pushFileToGitHub: " + e.toString());
     return false;
   }
 }
 
+/**
+ * syncEditorFileToGitHub
+ * מסנכרנת קובץ בודד מהעורך לגיט עם התראה.
+ */
 function syncEditorFileToGitHub(fileName, githubPath) {
   try {
     const content = getFileContentFromEditor(fileName);
@@ -130,68 +184,40 @@ function syncEditorFileToGitHub(fileName, githubPath) {
     }
   } catch (e) {
     Logger.log("Error in syncEditorFileToGitHub: " + e.toString());
-    SpreadsheetApp.getUi().alert("שגיאה קריטית בסנכרון: " + e.message);
+    SpreadsheetApp.getUi().alert("שגיאה קריטית: " + e.message);
   }
 }
 
+/**
+ * syncAllFilesToGitHub
+ * דוחפת את כל הקבצים מהעורך לגיט.
+ */
 function syncAllFilesToGitHub() {
   try {
-    const files = [
-      { name: "Mod_Ingestion",      path: "src/infrastructure/Mod_Ingestion.gs" },
-      { name: "Menu_LAB",           path: "src/infrastructure/Menu_LAB.gs" },
-      { name: "Menu_PROD",          path: "src/infrastructure/Menu_PROD.gs" },
-      { name: "Main",               path: "src/infrastructure/Main.gs" },
-      { name: "GitHubSync",         path: "src/infrastructure/GitHubSync.gs" },
-      { name: "GitToEditor",        path: "src/infrastructure/GitToEditor.gs" },
-      { name: "EditorToGitHub",     path: "src/infrastructure/EditorToGitHub.gs" },
-      { name: "Service_Folders",    path: "src/infrastructure/Service_Folders.gs" },
-      { name: "Auth_Check",         path: "src/infrastructure/Auth_Check.gs" },
-      { name: "System_HealthCheck", path: "src/infrastructure/System_HealthCheck.gs" },
-      { name: "NetworkDiagnostics", path: "src/infrastructure/NetworkDiagnostics.gs" },
-      { name: "System_Doc_Builder", path: "src/infrastructure/System_Doc_Builder.gs" },
-      { name: "System_Logger",      path: "src/infrastructure/System_Logger.gs" },
-      { name: "S04_DriveSync",      path: "src/infrastructure/S04_DriveSync.gs" },
-      { name: "S05_MetaExtract",    path: "src/infrastructure/S05_MetaExtract.gs" },
-      { name: "S07_Classify",       path: "src/infrastructure/S07_Classify.gs" }
-    ];
-
     let success = 0;
     let failed = 0;
     const failedFiles = [];
-
-    files.forEach(function(file) {
+    EDITOR_REGISTRY.forEach(function(file) {
       const content = getFileContentFromEditor(file.name);
       if (content) {
         const ok = pushFileToGitHub(file.name, file.path, content);
-        if (ok) {
-          success++;
-        } else {
-          failed++;
-          failedFiles.push(file.name);
-        }
+        if (ok) { success++; } else { failed++; failedFiles.push(file.name); }
       } else {
         failed++;
         failedFiles.push(file.name + " (לא נמצא בעורך)");
       }
     });
-
-    const failMsg = failedFiles.length > 0
-      ? "\n\nנכשלו:\n" + failedFiles.join("\n")
-      : "";
-
-    SpreadsheetApp.getUi().alert(
-      "סנכרון הושלם ✅\n" +
-      success + " קבצים עודכנו\n" +
-      failed + " נכשלו" +
-      failMsg
-    );
-
+    const failMsg = failedFiles.length > 0 ? "\n\nנכשלו:\n" + failedFiles.join("\n") : "";
+    SpreadsheetApp.getUi().alert("סנכרון הושלם ✅\n" + success + " קבצים עודכנו\n" + failed + " נכשלו" + failMsg);
   } catch (e) {
     Logger.log("Error in syncAllFilesToGitHub: " + e.toString());
     SpreadsheetApp.getUi().alert("שגיאה קריטית: " + e.message);
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// פונקציות בדיקה מהירה לקבצים בודדים
+// ─────────────────────────────────────────────────────────────────────────────
 function testSyncIngestion()      { syncEditorFileToGitHub("Mod_Ingestion",      "src/infrastructure/Mod_Ingestion.gs"); }
 function testSyncMenuLab()        { syncEditorFileToGitHub("Menu_LAB",           "src/infrastructure/Menu_LAB.gs"); }
 function testSyncMenuProd()       { syncEditorFileToGitHub("Menu_PROD",          "src/infrastructure/Menu_PROD.gs"); }
@@ -202,4 +228,4 @@ function testSyncServiceFolders() { syncEditorFileToGitHub("Service_Folders",   
 function testSyncAuthCheck()      { syncEditorFileToGitHub("Auth_Check",         "src/infrastructure/Auth_Check.gs"); }
 function testSyncS04()            { syncEditorFileToGitHub("S04_DriveSync",      "src/infrastructure/S04_DriveSync.gs"); }
 function testSyncS05()            { syncEditorFileToGitHub("S05_MetaExtract",    "src/infrastructure/S05_MetaExtract.gs"); }
-function testSyncS07()            { syncEditorFileToGitHub("S07_Classify",       "src/infrastructure/S07_Classify.gs"); }
+function testSyncS07()            { syncEditorFileToGitHub("S07_Classify",       "src/infrastructure/S07_Classify.gs"); } 
