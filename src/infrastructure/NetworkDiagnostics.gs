@@ -1,22 +1,9 @@
 /**
  * MedicalPilot — NetworkDiagnostics.gs
  * שירות S01 — בדיקות רשת ונגישות
- * @version v97.9 | @updated 18/04/2026 | @service S01
- *
- * שינויים בהוטפיקס זה:
- *  - הסרת שורות AI מה-Alert (עברו לחלון 2 — checkPermissions ב-System_HealthCheck.gs)
- *  - כל שאר הלוגיקה שמורה ללא שינוי
+ * @version v97.9 | @updated 19/04/2026 | @service S01
  */
 
-// ─────────────────────────────────────────────────────────────────────────────
-// בדיקת רשת חיצונית
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * checkExternalNetwork
- * בודק נגישות לאינטרנט על-ידי פינג ל-google.com.
- * @returns {boolean}
- */
 function checkExternalNetwork() {
   const url = "https://www.google.com";
   try {
@@ -35,15 +22,6 @@ function checkExternalNetwork() {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// בדיקת נגישות GitHub
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * checkGitHubConnectivity
- * בודק נגישות ל-GitHub API. קוד 403 נחשב תקין.
- * @returns {boolean}
- */
 function checkGitHubConnectivity() {
   const url = "https://api.github.com";
   try {
@@ -62,18 +40,8 @@ function checkGitHubConnectivity() {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// בדיקת תקינות מלאה — חלון 1
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * runSystemHealthCheck
- * חלון 1: Alert כללי עם סטטוס רשת, GitHub, Gmail ו-Drive.
- * סטטוס AI מוצג בנפרד דרך checkPermissions (חלון 2).
- */
 function runSystemHealthCheck() {
   try {
-    // ── בדיקות רשת ושירותי Google ─────────────────────────────────────────
     const networkOk = checkExternalNetwork();
     const githubOk  = checkGitHubConnectivity();
 
@@ -83,7 +51,6 @@ function runSystemHealthCheck() {
     let driveOk = false;
     try { DriveApp.getRootFolder(); driveOk = true; } catch (e) {}
 
-    // ── נתוני זמן וגליון ──────────────────────────────────────────────────
     const now = Utilities.formatDate(new Date(), "GMT+3", "dd/MM/yyyy HH:mm");
 
     const sheet    = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
@@ -99,7 +66,9 @@ function runSystemHealthCheck() {
       }
     }
 
-    // ── מחרוזת הפלט (ללא שורות AI — עברו לחלון 2) ────────────────────────
+    const aiConnStatus = _checkAiConnectivity();
+    const aiAuthStatus = _checkAiAuthorization();
+
     const message =
       "רשת חיצונית: "        + (networkOk ? "תקין ✓" : "נכשל ✗")    + "\n" +
       "גישה לגיטהאב: "       + (githubOk  ? "נגיש ✓" : "לא נגיש ✗") + "\n" +
@@ -108,7 +77,10 @@ function runSystemHealthCheck() {
       "──────────────\n"                                                      +
       "זמן: "                + now                                     + "\n" +
       "שורות בגליון: "       + rowCount                                + "\n" +
-      "סריקת Drive אחרונה: " + driveStatus;
+      "סריקת Drive אחרונה: " + driveStatus                            + "\n" +
+      "──────────────\n"                                                      +
+      "חיבור שירות AI: "     + aiConnStatus                           + "\n" +
+      "הרשאת שירות AI: "     + aiAuthStatus;
 
     SpreadsheetApp.getUi().alert(
       "בדיקת תקינות מערכת — v97.9",
@@ -119,5 +91,61 @@ function runSystemHealthCheck() {
   } catch (e) {
     Logger.log("שגיאה ב-runSystemHealthCheck: " + e.message);
     SpreadsheetApp.getUi().alert("שגיאה בהרצת בדיקת תקינות: " + e.message);
+  }
+}
+
+function _checkAiConnectivity() {
+  try {
+    const endpoint = "https://generativelanguage.googleapis.com/v1beta/models?key=PING_TEST_ONLY";
+    const response = UrlFetchApp.fetch(endpoint, {
+      method: "get",
+      muteHttpExceptions: true,
+      followRedirects: true
+    });
+    const code = response.getResponseCode();
+    if (code === 200 || code === 400 || code === 401 || code === 403) {
+      return "תקין ✓";
+    }
+    return "נכשל ✗ (קוד: " + code + ")";
+  } catch (e) {
+    return "נכשל ✗ (" + e.message + ")";
+  }
+}
+
+function _checkAiAuthorization() {
+  try {
+    const apiKey = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY");
+
+    if (!apiKey || apiKey.trim() === "") {
+      return "לא מורשה ✗ (מפתח חסר)";
+    }
+
+    const endpoint = "https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey;
+    const response = UrlFetchApp.fetch(endpoint, {
+      method: "get",
+      muteHttpExceptions: true,
+      followRedirects: true
+    });
+    const code = response.getResponseCode();
+
+    if (code === 200) {
+      return "מורשה ✓";
+    } else if (code === 400) {
+      const body = response.getContentText();
+      if (body.indexOf("API_KEY_INVALID") !== -1 || body.indexOf("invalid") !== -1) {
+        return "לא מורשה ✗ (מפתח לא תקין)";
+      }
+      return "לא מורשה ✗ (שגיאה 400)";
+    } else if (code === 401) {
+      return "לא מורשה ✗ (401 — אימות נכשל)";
+    } else if (code === 403) {
+      return "לא מורשה ✗ (403 — גישה נדחתה)";
+    } else if (code === 429) {
+      return "מורשה ✓ (429 — מכסה מוצתה, מפתח תקין)";
+    } else {
+      return "לא מורשה ✗ (קוד: " + code + ")";
+    }
+  } catch (e) {
+    return "לא מורשה ✗ (" + e.message + ")";
   }
 }
