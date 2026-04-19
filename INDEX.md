@@ -1,5 +1,5 @@
 # MedicalPilot — INDEX
-עדכון אחרון: 19/04/2026 19:00
+עדכון אחרון: 19/04/2026 21:23
 
 ## תיקיית src/infrastructure
 - [appsscript.json](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/appsscript.json)
@@ -15,6 +15,7 @@
 - [NetworkDiagnostics.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/NetworkDiagnostics.gs)
 - [S04_DriveSync.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S04_DriveSync.gs)
 - [S05_MetaExtract.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S05_MetaExtract.gs)
+- [S07_Classify.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S07_Classify.gs)
 - [Service_Folders.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Service_Folders.gs)
 - [System_Doc_Builder.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/System_Doc_Builder.gs)
 - [System_HealthCheck.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/System_HealthCheck.gs)
