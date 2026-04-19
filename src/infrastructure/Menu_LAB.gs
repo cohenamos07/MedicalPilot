@@ -1,8 +1,8 @@
 /**
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
- * גרסה: v98.0 | תאריך: 19/04/2026
- * שינוי: הוספת שורות עדכון קוד מגיט לעורך
+ * @version v98.0 | @updated 19/04/2026
+ * שינוי: הוספת שורת דחיפת קובץ בודד מהעורך לגיט
  */
 
 function buildLabMenu() {
@@ -24,7 +24,7 @@ function buildLabMenu_v98_0() {
   menu.addSeparator();
 
   var subMenuAI = ui.createMenu('🧠 עיבוד AI')
-    .addItem('הכנה ל-OCR', 'processDocumentOCR')
+    .addItem('הכנה ל-OCR', 'runBatchOCR_Test')
     .addItem('סיווג מסמכים', 'classifyDocument')
     .addItem('אימות ידני ולמידה', 'showMainSidebar')
     .addItem('חילוץ שדות מלא', 'extractMedicalHeaders');
@@ -50,7 +50,9 @@ function buildLabMenu_v98_0() {
     .addItem('🔄 סנכרון סיום סשן', 'endSessionSync')
     .addSeparator()
     .addItem('⬇️ עדכון קובץ בודד מגיט לעורך', 'syncFromGitByChoice')
-    .addItem('⬇️ עדכון מלא של הקבצים מגיט לעורך', 'syncAllFromGit');
+    .addItem('⬇️ עדכון מלא של הקבצים מגיט לעורך', 'syncAllFromGit')
+    .addSeparator()
+    .addItem('⬆️ עדכון קובץ בודד מהעורך לגיט', 'syncToGitByChoice');
   menu.addSubMenu(subMenuDev);
 
   menu.addToUi();
