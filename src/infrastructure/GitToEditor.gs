@@ -1,34 +1,34 @@
 /**
  * MedicalPilot — GitToEditor.gs
  * שירות סנכרון — משיכת קוד מגיטהאב לעורך
- * גרסה: v98.1 | תאריך: 19/04/2026
- * שינוי: בחירת קובץ לפי שם במקום מספר
+ * גרסה: v98.2 | תאריך: 19/04/2026
+ * תיקון: יצירת קובץ חדש בעורך אם לא קיים
  */
 
 const REGISTRY = [
-  { num: 1,  name: "EditorToGitHub",    path: "src/infrastructure/EditorToGitHub.gs" },
-  { num: 2,  name: "GitHubSync",        path: "src/infrastructure/GitHubSync.gs" },
-  { num: 3,  name: "GitToEditor",       path: "src/infrastructure/GitToEditor.gs" },
-  { num: 4,  name: "Auth_Check",        path: "src/infrastructure/Auth_Check.gs" },
-  { num: 5,  name: "Main",              path: "src/infrastructure/Main.gs" },
-  { num: 6,  name: "Menu_LAB",          path: "src/infrastructure/Menu_LAB.gs" },
-  { num: 7,  name: "Menu_PROD",         path: "src/infrastructure/Menu_PROD.gs" },
-  { num: 8,  name: "Mod_Brain_OCR",     path: "src/infrastructure/Mod_Brain_OCR.gs" },
-  { num: 9,  name: "Mod_Ingestion",     path: "src/infrastructure/Mod_Ingestion.gs" },
-  { num: 10, name: "NetworkDiagnostics",path: "src/infrastructure/NetworkDiagnostics.gs" },
-  { num: 11, name: "S04_DriveSync",     path: "src/infrastructure/S04_DriveSync.gs" },
-  { num: 12, name: "S05_MetaExtract",   path: "src/infrastructure/S05_MetaExtract.gs" },
-  { num: 13, name: "S07_Classify",      path: "src/infrastructure/S07_Classify.gs" },
-  { num: 14, name: "Service_Folders",   path: "src/infrastructure/Service_Folders.gs" },
-  { num: 15, name: "System_Doc_Builder",path: "src/infrastructure/System_Doc_Builder.gs" },
-  { num: 16, name: "System_HealthCheck",path: "src/infrastructure/System_HealthCheck.gs" },
-  { num: 17, name: "System_Logger",     path: "src/infrastructure/System_Logger.gs" }
+  { num: 1,  name: "EditorToGitHub",     path: "src/infrastructure/EditorToGitHub.gs" },
+  { num: 2,  name: "GitHubSync",         path: "src/infrastructure/GitHubSync.gs" },
+  { num: 3,  name: "GitToEditor",        path: "src/infrastructure/GitToEditor.gs" },
+  { num: 4,  name: "Auth_Check",         path: "src/infrastructure/Auth_Check.gs" },
+  { num: 5,  name: "Main",               path: "src/infrastructure/Main.gs" },
+  { num: 6,  name: "Menu_LAB",           path: "src/infrastructure/Menu_LAB.gs" },
+  { num: 7,  name: "Menu_PROD",          path: "src/infrastructure/Menu_PROD.gs" },
+  { num: 8,  name: "Mod_Brain_OCR",      path: "src/infrastructure/Mod_Brain_OCR.gs" },
+  { num: 9,  name: "Mod_Ingestion",      path: "src/infrastructure/Mod_Ingestion.gs" },
+  { num: 10, name: "NetworkDiagnostics", path: "src/infrastructure/NetworkDiagnostics.gs" },
+  { num: 11, name: "S04_DriveSync",      path: "src/infrastructure/S04_DriveSync.gs" },
+  { num: 12, name: "S05_MetaExtract",    path: "src/infrastructure/S05_MetaExtract.gs" },
+  { num: 13, name: "S07_Classify",       path: "src/infrastructure/S07_Classify.gs" },
+  { num: 14, name: "Service_Folders",    path: "src/infrastructure/Service_Folders.gs" },
+  { num: 15, name: "System_Doc_Builder", path: "src/infrastructure/System_Doc_Builder.gs" },
+  { num: 16, name: "System_HealthCheck", path: "src/infrastructure/System_HealthCheck.gs" },
+  { num: 17, name: "System_Logger",      path: "src/infrastructure/System_Logger.gs" }
 ];
 
 const SCRIPT_ID = "1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf";
 
 /**
- * מציגה תפריט בחירה לסנכרון קובץ ספציפי מגיטהאב לעורך לפי שם הקובץ.
+ * מציגה תפריט בחירה לסנכרון קובץ ספציפי מגיטהאב לעורך לפי שם.
  */
 function syncFromGitByChoice() {
   const ui = SpreadsheetApp.getUi();
@@ -42,12 +42,11 @@ function syncFromGitByChoice() {
     const response = ui.prompt("סנכרון קובץ לפי שם", listText, ui.ButtonSet.OK_CANCEL);
 
     if (response.getSelectedButton() !== ui.Button.OK) {
-      Logger.log("הפעולה בוטלה על ידי המשתמש.");
+      Logger.log("הפעולה בוטלה.");
       return;
     }
 
     const inputName = response.getResponseText().trim();
-
     if (!inputName) {
       ui.alert("לא הוזן שם קובץ. הפעולה בוטלה.");
       return;
@@ -59,21 +58,21 @@ function syncFromGitByChoice() {
 
     if (!selectedFile) {
       ui.alert("שגיאה: הקובץ '" + inputName + "' לא נמצא ב-Registry.\nנא לבדוק את השם ולנסות שוב.");
-      Logger.log("חיפוש נכשל: המשתמש הזין '" + inputName + "' אך לא נמצאה התאמה.");
+      Logger.log("חיפוש נכשל: '" + inputName + "' לא נמצא.");
       return;
     }
 
-    Logger.log("נמצאה התאמה: " + selectedFile.name + ". מתחיל סנכרון מהנתיב: " + selectedFile.path);
+    Logger.log("נמצא: " + selectedFile.name + " — מתחיל סנכרון.");
     syncFileFromGitToEditor(selectedFile.path, selectedFile.name);
 
   } catch (e) {
     Logger.log("Error in syncFromGitByChoice: " + e.toString());
-    ui.alert("שגיאה בתהליך הבחירה: " + e.message);
+    ui.alert("שגיאה: " + e.message);
   }
 }
 
 /**
- * מסנכרנת את כל הקבצים מגיטהאב לעורך בבת אחת.
+ * מסנכרנת את כל הקבצים מגיטהאב לעורך.
  */
 function syncAllFromGit() {
   const ui = SpreadsheetApp.getUi();
@@ -96,7 +95,7 @@ function syncAllFromGit() {
     } catch (e) {
       failCount++;
       failedFiles.push(file.name + " (Error)");
-      Logger.log("שגיאה בסנכרון " + file.name + ": " + e.message);
+      Logger.log("שגיאה: " + file.name + " — " + e.message);
     }
   });
 
@@ -108,12 +107,12 @@ function syncAllFromGit() {
 }
 
 /**
- * מושכת תוכן קובץ מ-GitHub API.
+ * מושכת תוכן קובץ מ-GitHub.
  */
 function fetchFileFromGitHub(filePath) {
   try {
     const token = PropertiesService.getScriptProperties().getProperty('GITHUB_PAT');
-    if (!token) { Logger.log("Error: GITHUB_PAT not found."); return null; }
+    if (!token) { Logger.log("GITHUB_PAT לא נמצא."); return null; }
     const url = "https://api.github.com/repos/cohenamos07/MedicalPilot/contents/" + filePath;
     const response = UrlFetchApp.fetch(url, {
       method: "get",
@@ -124,7 +123,7 @@ function fetchFileFromGitHub(filePath) {
       const json = JSON.parse(response.getContentText());
       return Utilities.newBlob(Utilities.base64Decode(json.content)).getDataAsString();
     }
-    Logger.log("GitHub Fetch Failed for " + filePath + ": Code " + response.getResponseCode());
+    Logger.log("Fetch נכשל עבור " + filePath + ": קוד " + response.getResponseCode());
     return null;
   } catch (e) {
     Logger.log("Error in fetchFileFromGitHub: " + e.toString());
@@ -133,41 +132,61 @@ function fetchFileFromGitHub(filePath) {
 }
 
 /**
- * מעדכנת קובץ בעורך Apps Script דרך REST API.
+ * מעדכנת קובץ קיים בעורך — או יוצרת אותו חדש אם לא קיים.
+ * זהו התיקון המרכזי — פותר את בעיית "לא נמצא בעורך".
  */
 function updateEditorFile(scriptId, fileName, newContent) {
   try {
     const baseUrl = "https://script.googleapis.com/v1/projects/" + scriptId + "/content";
     const headers = { "Authorization": "Bearer " + ScriptApp.getOAuthToken() };
+
     const getResponse = UrlFetchApp.fetch(baseUrl, {
       method: "get", headers: headers, muteHttpExceptions: true
     });
+
     if (getResponse.getResponseCode() !== 200) {
-      Logger.log("Failed to fetch script content: " + getResponse.getContentText());
+      Logger.log("נכשל לקרוא את העורך: " + getResponse.getContentText());
       return false;
     }
+
     let scriptContent = JSON.parse(getResponse.getContentText());
     let fileFound = false;
+
     for (let i = 0; i < scriptContent.files.length; i++) {
       if (scriptContent.files[i].name === fileName) {
         scriptContent.files[i].source = newContent;
         fileFound = true;
+        Logger.log("קובץ קיים — מעדכן: " + fileName);
         break;
       }
     }
-    if (!fileFound) { Logger.log("File " + fileName + " not found in editor."); return false; }
+
+    // תיקון — אם הקובץ לא קיים בעורך, יוצרים אותו
+    if (!fileFound) {
+      Logger.log("קובץ לא קיים בעורך — יוצר חדש: " + fileName);
+      scriptContent.files.push({
+        name: fileName,
+        type: "SERVER_JS",
+        source: newContent
+      });
+    }
+
     const putResponse = UrlFetchApp.fetch(baseUrl, {
-      method: "put", headers: headers,
+      method: "put",
+      headers: headers,
       contentType: "application/json",
       payload: JSON.stringify(scriptContent),
       muteHttpExceptions: true
     });
+
     if (putResponse.getResponseCode() === 200) {
-      Logger.log("עודכן בהצלחה: " + fileName);
+      Logger.log((fileFound ? "עודכן" : "נוצר") + " בהצלחה: " + fileName);
       return true;
     }
-    Logger.log("Failed to update " + fileName + ": " + putResponse.getContentText());
+
+    Logger.log("נכשל לעדכן/ליצור " + fileName + ": " + putResponse.getContentText());
     return false;
+
   } catch (e) {
     Logger.log("Error in updateEditorFile: " + e.toString());
     return false;
@@ -175,7 +194,7 @@ function updateEditorFile(scriptId, fileName, newContent) {
 }
 
 /**
- * מסנכרנת קובץ בודד מגיט לעורך עם התראות.
+ * מסנכרנת קובץ בודד מגיט לעורך עם התראה.
  */
 function syncFileFromGitToEditor(filePath, fileName) {
   try {
