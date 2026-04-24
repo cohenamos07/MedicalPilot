@@ -1,154 +1,10 @@
 /**
- * Module: S05_MetaExtract
- * Version: 1.1.0
- * Date: 13/04/2026
- * תיעוד: חילוץ מטא-דאטה של קבצים מ-Drive ועדכון סטטוסים בגיליון "ניהול_מיילים".
- * שינוי: זיהוי שורות מסומנות + קפיצה לעמודה M
+ * MedicalPilot — S05_MetaExtract.gs
+ * @version 2.1.0 | @updated 24/04/2026 | @service S05
+ * תיקון: סטטוס M מבוסס על עמודה V בלבד
  */
 
-/**
- * פונקציה 1: גרסת PROD - סריקה ועדכון מטא-דאטה
- */
 function extractMetaData() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("ניהול_מיילים");
-  if (!sheet) return;
-
-  const ui = SpreadsheetApp.getUi();
-  const selection = sheet.getActiveRange();
-  const selFirstRow = selection.getRow();
-  const selLastRow = selection.getLastRow();
-  
-  // הגדרת טווח עבודה: אם סומנה שורה (שאינה כותרת), עבוד על הבחירה. אחרת, על כל הגיליון.
-  const isSelectionMode = (selFirstRow > 1);
-  const startRow = isSelectionMode ? selFirstRow : 2;
-  const endRow = isSelectionMode ? selLastRow : sheet.getLastRow();
-  
-  let processedCount = 0;
-
-  for (let i = startRow; i <= endRow; i++) {
-    try {
-      const rowData = sheet.getRange(i, 1, 1, 23).getValues()[0];
-      const fileId = rowData[0];  // עמודה A
-      if (!fileId) continue;
-
-      let updatedU = rowData[20]; // עמודה U
-      let updatedW = rowData[22]; // עמודה W
-      
-      // במצב "כל הגיליון" - דלג אם הנתונים כבר קיימים
-      if (!isSelectionMode && updatedU && updatedW) continue;
-
-      const file = DriveApp.getFileById(fileId);
-
-      // שלב א: גודל קובץ
-      const sizeKB = Math.round(file.getSize() / 1024) + " KB";
-      sheet.getRange(i, 23).setValue(sizeKB);
-
-      // שלב ב: סוג קובץ
-      const mime = file.getMimeType().toLowerCase();
-      let typeStr = "OTHER";
-      if (mime.includes("pdf") || mime.includes("image")) typeStr = "PDF/IMG";
-      else if (mime.includes("google-apps.document")) typeStr = "GDOC";
-      else if (mime.includes("officedocument") || mime.includes("msword") || mime.includes("ms-excel")) typeStr = "OFFICE";
-      
-      sheet.getRange(i, 21).setValue(typeStr);
-
-      // שלב ג: סטטוס חילוץ
-      const linkOcr = sheet.getRange(i, 22).getValue(); // עמודה V
-      let statusM = "לא ידוע";
-      if (linkOcr) statusM = "עבר OCR";
-      else if (typeStr === "GDOC") statusM = "טקסט זמין";
-      else if (typeStr === "PDF/IMG") statusM = "ממתין ל-OCR";
-      else if (typeStr === "OFFICE") statusM = "ממתין להמרה";
-      
-      sheet.getRange(i, 13).setValue(statusM);
-      processedCount++;
-
-    } catch (e) {
-      Logger.log("שגיאה בשורה " + i + ": " + e.message);
-      sheet.getRange(i, 21).setValue("שגיאת גישה");
-    }
-  }
-
-  // קפיצה לעמודה M בסיום
-  sheet.getRange(2, 13).activate();
-  ui.alert("חילוץ מטא-דאטה הושלם.\nשורות שעובדו: " + processedCount);
-}
-
-/**
- * פונקציה 2: גרסת LAB - עם לוגים מפורטים ו-Toast
- */
-function extractMetaData_LAB() {
-  Logger.log("--- תחילת ריצת LAB: MetaExtract ---");
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("ניהול_מיילים");
-  if (!sheet) return;
-
-  const selection = sheet.getActiveRange();
-  const selFirstRow = selection.getRow();
-  const selLastRow = selection.getLastRow();
-  
-  const isSelectionMode = (selFirstRow > 1);
-  const startRow = isSelectionMode ? selFirstRow : 2;
-  const endRow = isSelectionMode ? selLastRow : sheet.getLastRow();
-  
-  let processedCount = 0;
-
-  for (let i = startRow; i <= endRow; i++) {
-    try {
-      const rowData = sheet.getRange(i, 1, 1, 23).getValues()[0];
-      const fileId = rowData[0];
-      if (!fileId) continue;
-
-      let updatedU = rowData[20];
-      let updatedW = rowData[22];
-      
-      if (!isSelectionMode && updatedU && updatedW) continue;
-
-      const file = DriveApp.getFileById(fileId);
-
-      // גודל
-      const sizeKB = Math.round(file.getSize() / 1024) + " KB";
-      sheet.getRange(i, 23).setValue(sizeKB);
-
-      // סוג
-      const mime = file.getMimeType().toLowerCase();
-      let typeStr = "OTHER";
-      if (mime.includes("pdf") || mime.includes("image")) typeStr = "PDF/IMG";
-      else if (mime.includes("google-apps.document")) typeStr = "GDOC";
-      else if (mime.includes("officedocument") || mime.includes("msword") || mime.includes("ms-excel")) typeStr = "OFFICE";
-      sheet.getRange(i, 21).setValue(typeStr);
-
-      // סטטוס
-      const linkOcr = sheet.getRange(i, 22).getValue();
-      let statusM = "לא ידוע";
-      if (linkOcr) statusM = "עבר OCR";
-      else if (typeStr === "GDOC") statusM = "טקסט זמין";
-      else if (typeStr === "PDF/IMG") statusM = "ממתין ל-OCR";
-      else if (typeStr === "OFFICE") statusM = "ממתין להמרה";
-      
-      sheet.getRange(i, 13).setValue(statusM);
-      
-      Logger.log("שורה " + i + ": ID=" + fileId + " | סוג=" + typeStr + " | סטטוס=" + statusM);
-      processedCount++;
-
-    } catch (e) {
-      Logger.log("שגיאה בשורה " + i + ": " + e.message);
-      sheet.getRange(i, 21).setValue("שגיאת גישה");
-    }
-  }
-  
-  // קפיצה לעמודה M בסיום
-  sheet.getRange(2, 13).activate();
-  Logger.log("--- סיום ריצת LAB: עובדו " + processedCount + " שורות ---");
-  ss.toast("הושלמו " + processedCount + " שורות בגרסת LAB", "MetaExtract LAB", 5);
-}
-
-/**
- * פונקציה 3: ניקוי נתונים לצרכי בדיקות (LAB)
- * ללא שינוי
- */
-function clearMetaData_LAB() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("ניהול_מיילים");
   if (!sheet) return;
@@ -156,10 +12,109 @@ function clearMetaData_LAB() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
 
-  // ניקוי עמודה M (13), U (21), W (23)
-  sheet.getRange(2, 13, lastRow - 1).clearContent(); 
-  sheet.getRange(2, 21, lastRow - 1).clearContent(); 
-  sheet.getRange(2, 23, lastRow - 1).clearContent(); 
+  const allData = sheet.getRange(2, 1, lastRow - 1, 23).getValues();
+  const sizeTypeMap = {};
+  let processed = 0;
+  let errors = 0;
 
-  ss.toast("עמודות המטא-דאטה נוקו בהצלחה", "איפוס LAB", 5);
+  for (let i = 0; i < allData.length; i++) {
+    const rowNum = i + 2;
+    const fileId = allData[i][0];
+    if (!fileId) continue;
+
+    try {
+      const file = DriveApp.getFileById(fileId);
+      const mimeType = file.getMimeType();
+      const sizeKB = Math.round(file.getSize() / 1024);
+      const sizeFormatted = sizeKB + " KB";
+
+      // שלב א — סיווג סוג קובץ
+      let systemType = "לא נתמך";
+      const mime = mimeType.toLowerCase();
+
+      if (mime === "application/pdf") {
+        systemType = "SYSTEM_PDF";
+      } else if (mime === "image/jpeg" || mime === "image/png" || mime.includes("image/")) {
+        systemType = "SYSTEM_IMG";
+      } else if (mime === "application/vnd.google-apps.document") {
+        systemType = "SYSTEM_GDOC";
+      } else if (
+        mime === "application/vnd.google-apps.spreadsheet" ||
+        mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+        mime === "application/vnd.ms-excel"
+      ) {
+        systemType = "SYSTEM_SHEET";
+      } else if (
+        mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+        mime === "application/msword"
+      ) {
+        systemType = "SYSTEM_DOCX";
+      } else if (mime === "text/plain" || mime === "text/csv" || mime.includes("text/")) {
+        systemType = "SYSTEM_TXT";
+      }
+
+      // שלב ב — סטטוס M — מבוסס על עמודה V בלבד
+      const linkV = allData[i][21]; // עמודה V
+      let statusM = "";
+
+      if (linkV && linkV.toString().trim() !== "") {
+        statusM = "הומר ל-TXT";           // יש לינק → כבר הומר
+      } else if (systemType === "לא נתמך") {
+        statusM = "לא נתמך";              // סוג לא נתמך
+      } else {
+        statusM = "נדרש המרה";            // אין לינק → ממתין
+      }
+
+      // שלב ג — התראות עמודה R
+      let alertR = "";
+      if (sizeKB < 10) {
+        alertR = "חשוד כלוגו/ריק";
+      } else {
+        const dupKey = sizeKB + "_" + systemType;
+        if (sizeTypeMap[dupKey] !== undefined) {
+          alertR = "חשוד ככפול — שורה " + sizeTypeMap[dupKey];
+        } else {
+          sizeTypeMap[dupKey] = rowNum;
+        }
+      }
+
+      // כתיבה לגליון
+      sheet.getRange(rowNum, 23).setValue(sizeFormatted); // W
+      sheet.getRange(rowNum, 21).setValue(systemType);    // U
+      sheet.getRange(rowNum, 13).setValue(statusM);       // M
+      sheet.getRange(rowNum, 18).setValue(alertR);        // R
+      sheet.getRange(rowNum, 20).clearContent();          // T
+
+      processed++;
+
+    } catch (e) {
+      sheet.getRange(rowNum, 20).setValue("שגיאת גישה: " + e.message.substring(0, 80));
+      errors++;
+    }
+  }
+
+  sheet.getRange(2, 13).activate();
+  ss.toast(
+    "הושלמו: " + processed + " | שגיאות: " + errors,
+    "S05 MetaExtract v2.1", 5
+  );
+}
+
+function extractMetaData_LAB() {
+  Logger.log("--- תחילת ריצת LAB: MetaExtract v2.1 ---");
+  extractMetaData();
+  Logger.log("--- סיום ---");
+}
+
+function clearMetaData_LAB() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("ניהול_מיילים");
+  if (!sheet) return;
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  sheet.getRange(2, 13, lastRow - 1).clearContent(); // M
+  sheet.getRange(2, 18, lastRow - 1).clearContent(); // R
+  sheet.getRange(2, 21, lastRow - 1).clearContent(); // U
+  sheet.getRange(2, 23, lastRow - 1).clearContent(); // W
+  ss.toast("עמודות המטא-דאטה נוקו", "איפוס LAB", 5);
 }
