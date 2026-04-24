@@ -1,17 +1,16 @@
 /**
  * MedicalPilot — Menu_PROD.gs
  * תפריט ייצור (PR)
- * גרסה: v97.9 | תאריך: 15/04/2026
- * שינוי: ארגון מחדש — הכנת מערכת, קליטה, עיבוד AI
+ * @version 99.0 | @updated 24/04/2026
  */
 
 function buildProdMenu() {
-  buildProdMenu_v97_9();
+  buildProdMenu_v99_0();
 }
 
-function buildProdMenu_v97_9() {
+function buildProdMenu_v99_0() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('PR v97.9');
+  var menu = ui.createMenu('PR v99.0');
 
   var subMenuSetup = ui.createMenu('⚙️ הכנת מערכת')
     .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
@@ -24,13 +23,13 @@ function buildProdMenu_v97_9() {
     .addItem('סריקת Gmail', 'runEmailIngestion')
     .addItem('סריקת Drive', 'syncDriveFiles')
     .addItem('חילוץ מטא-דאטה ומיון', 'extractMetaData')
-    .addItem('סנכרון סטטוסים', 'syncStatusBeforeOCR')
-    .addItem('המרת קבצים ל-OCR', 'runBatchOCR_Test');
+    .addItem('סנכרון סטטוסים', 'syncStatusBeforeOCR');
   menu.addSubMenu(subMenuIngestion);
 
   menu.addSeparator();
 
   var subMenuAI = ui.createMenu('🧠 עיבוד AI')
+    .addItem('המרה ל-TXT', 'run_MedicalPilot_V2_6_2')
     .addItem('סיווג מסמכים', 'msgBlocked')
     .addItem('אימות ידני ולמידה', 'showMainSidebar')
     .addItem('חילוץ שדות מלא', 'msgBlocked');
@@ -47,10 +46,11 @@ function buildProdMenu_v97_9() {
   menu.addToUi();
 }
 
-function buildProdMenu_v97_8() { buildProdMenu_v97_9(); }
-function buildProdMenu_v97_7() { buildProdMenu_v97_9(); }
-function buildProdMenu_v97_6() { buildProdMenu_v97_9(); }
-function buildProdMenu_v97_5() { buildProdMenu_v97_9(); }
+function buildProdMenu_v97_9() { buildProdMenu_v99_0(); }
+function buildProdMenu_v97_8() { buildProdMenu_v99_0(); }
+function buildProdMenu_v97_7() { buildProdMenu_v99_0(); }
+function buildProdMenu_v97_6() { buildProdMenu_v99_0(); }
+function buildProdMenu_v97_5() { buildProdMenu_v99_0(); }
 
 function msgBlocked() {
   SpreadsheetApp.getUi().alert('⏳ שירות זה בבדיקה בסביבת LAB\nיפתח בייצור לאחר אישור.');
