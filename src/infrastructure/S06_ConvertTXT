@@ -1,15 +1,13 @@
 /**
  * MedicalPilot — S06_ConvertTXT.gs
  * המרת קבצים לפורמט TXT מובנה — 6 מסלולים
- * @version 1.1.0 | @updated 24/04/2026 | @service S06
- * תיקון: 429 ידידותי, 503 מנסה gemini-2.0-flash כגיבוי
+ * @version 1.2.0 | @updated 26/04/2026 | @service S06
+ * תיקון: עמודות מעודכנות לפי COLUMN_MAP v1.0
+ * O=15 סוג | P=16 גודל | S=19 שגיאה | T=20 פירוט | X=24 לינק TXT | W=23 מקור
  */
 
 function _callGemini(apiKey, payload, callerName) {
-  const models = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash"
-  ];
+  const models = ["gemini-2.5-flash", "gemini-2.0-flash"];
 
   for (let i = 0; i < models.length; i++) {
     const model = models[i];
@@ -30,19 +28,23 @@ function _callGemini(apiKey, payload, callerName) {
       Utilities.sleep(2000);
       continue;
     }
-    // כל שגיאה אחרת — זרוק
     throw new Error(callerName + " נכשל (" + code + "): " + response.getContentText());
   }
 }
 
 function _writeError(sheet, row, msg) {
   const isOverload = msg.includes("503") || msg.includes("UNAVAILABLE");
-  const isQuota   = msg.includes("429") || msg.includes("quota");
-  sheet.getRange(row, 20).setValue(
-    isOverload ? "עומס — דולג" :
-    isQuota    ? "מכסה יומית מוצתה — נסה מחר" :
-                 "שגיאה: " + msg.substring(0, 100)
-  );
+  const isQuota    = msg.includes("429") || msg.includes("quota");
+
+  const errorCode = isOverload ? "503" :
+                    isQuota    ? "429" : "UNKNOWN";
+
+  const errorDetail = isOverload ? "עומס — דולג לעכשיו" :
+                      isQuota    ? "מכסה יומית מוצתה — נסה מחר" :
+                                   "שגיאה: " + msg.substring(0, 100);
+
+  sheet.getRange(row, 19).setValue(errorCode);   // S = Error_Code
+  sheet.getRange(row, 20).setValue(errorDetail);  // T = Error_Detail
 }
 
 function run_MedicalPilot_V2_6_2() {
@@ -50,9 +52,11 @@ function run_MedicalPilot_V2_6_2() {
   const activeRow = sheet.getActiveCell().getRow();
 
   if (activeRow > 1) {
-    const existingLink = sheet.getRange(activeRow, 22).getValue();
+    // שורה בודדת — בדוק אם כבר טופלה
+    const existingLink = sheet.getRange(activeRow, 24).getValue(); // X = TXT_URL
     if (existingLink && existingLink.toString().trim() !== "") {
-      sheet.getRange(activeRow, 20).setValue("כבר טופלה — יש לינק ב-V");
+      sheet.getRange(activeRow, 19).setValue("SKIP");
+      sheet.getRange(activeRow, 20).setValue("כבר טופלה — יש לינק ב-X");
       return;
     }
     _processRow(sheet, activeRow);
@@ -67,10 +71,12 @@ function _processBatch(sheet, batchSize) {
   let processed = 0;
 
   for (let i = 2; i <= lastRow && processed < batchSize; i++) {
-    const fileId = sheet.getRange(i, 1).getValue();
+    const fileId = sheet.getRange(i, 1).getValue(); // A
     if (!fileId) continue;
-    const existingLink = sheet.getRange(i, 22).getValue();
+
+    const existingLink = sheet.getRange(i, 24).getValue(); // X = TXT_URL
     if (existingLink && existingLink.toString().trim() !== "") continue;
+
     _processRow(sheet, i);
     processed++;
     SpreadsheetApp.flush();
@@ -86,9 +92,17 @@ function _processRow(sheet, row) {
   console.log("--- שורה: " + row + " ---");
 
   try {
+    // קריאת File ID מעמודה A, גיבוי מעמודה W (Source_URL)
     const fileId = sheet.getRange(row, 1).getValue() ||
-                   (sheet.getRange(row, 15).getValue() ? sheet.getRange(row, 15).getValue().match(/[-\w]{25,}/)[0] : null);
-    if (!fileId) { sheet.getRange(row, 20).setValue("לא נמצא ID"); return; }
+                   (sheet.getRange(row, 23).getValue() ?
+                    sheet.getRange(row, 23).getValue().match(/[-\w]{25,}/) ?
+                    sheet.getRange(row, 23).getValue().match(/[-\w]{25,}/)[0] : null : null);
+
+    if (!fileId) {
+      sheet.getRange(row, 19).setValue("NO_ID");
+      sheet.getRange(row, 20).setValue("לא נמצא File ID — בדוק עמודה A");
+      return;
+    }
 
     const file = DriveApp.getFileById(fileId);
     const mimeType = file.getMimeType();
@@ -134,6 +148,7 @@ function _processRow(sheet, row) {
       resultData = execute_Sheet_Path(file, apiKey, mimeType);
 
     } else {
+      sheet.getRange(row, 19).setValue("UNSUPPORTED");
       sheet.getRange(row, 20).setValue("לא נתמך: " + mimeType);
       return;
     }
@@ -389,10 +404,13 @@ function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet)
   const fileName = sourceFile.getName().split('.')[0] + "_" + timeStamp + ".txt";
   const newFile = targetFolder.createFile(fileName, textContent, MimeType.PLAIN_TEXT);
 
-  sheet.getRange(row, 13).setValue("הומר ל-TXT");
-  sheet.getRange(row, 21).setValue(sysType);
-  sheet.getRange(row, 23).setValue(size);
-  sheet.getRange(row, 22).setValue(newFile.getUrl());
-  sheet.getRange(row, 20).clearContent();
+  // כתיבה לגליון — לפי COLUMN_MAP
+  sheet.getRange(row, 13).setValue("הומר ל-TXT");  // M = Pipeline_Status
+  sheet.getRange(row, 15).setValue(sysType);        // O = File_Type
+  sheet.getRange(row, 16).setValue(size);           // P = File_Size
+  sheet.getRange(row, 24).setValue(newFile.getUrl()); // X = TXT_URL
+  sheet.getRange(row, 19).clearContent();           // S = Error_Code
+  sheet.getRange(row, 20).clearContent();           // T = Error_Detail
+
   console.log("finalize: הושלם — " + fileName);
 }
