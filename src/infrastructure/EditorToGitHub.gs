@@ -1,7 +1,7 @@
 /**
  * MedicalPilot — EditorToGitHub.gs
  * שירות סנכרון — דחיפת קוד מהעורך לגיטהאב
- * @version 98.0 | @updated 26/04/2026 | @service S10
+ * @version 99.0 | @updated 26/04/2026 | @service S10
  */
 
 function getFileContentFromEditor(fileName) {
@@ -25,6 +25,27 @@ function getFileContentFromEditor(fileName) {
   } catch (e) {
     Logger.log("Error in getFileContentFromEditor: " + e.toString());
     return null;
+  }
+}
+
+function getAllEditorFiles() {
+  try {
+    const scriptId = "1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf";
+    const url = "https://script.googleapis.com/v1/projects/" + scriptId + "/content";
+    const response = UrlFetchApp.fetch(url, {
+      method: "get",
+      headers: { "Authorization": "Bearer " + ScriptApp.getOAuthToken() },
+      muteHttpExceptions: true
+    });
+    if (response.getResponseCode() !== 200) return [];
+    const scriptContent = JSON.parse(response.getContentText());
+    return scriptContent.files
+      .filter(f => f.type === "SERVER_JS")
+      .map(f => f.name)
+      .sort();
+  } catch (e) {
+    Logger.log("Error in getAllEditorFiles: " + e.toString());
+    return [];
   }
 }
 
@@ -97,7 +118,8 @@ function syncAllFilesToGitHub() {
       { name: "NetworkDiagnostics", path: "src/infrastructure/NetworkDiagnostics.gs" },
       { name: "System_Doc_Builder", path: "src/infrastructure/System_Doc_Builder.gs" },
       { name: "System_Logger",      path: "src/infrastructure/System_Logger.gs" },
-      { name: "COLUMN_MAP",         path: "src/infrastructure/COLUMN_MAP.gs" }
+      { name: "COLUMN_MAP",         path: "src/infrastructure/COLUMN_MAP.gs" },
+      { name: "QA_Tests",           path: "src/infrastructure/QA_Tests.gs" }
     ];
     let success = 0;
     let failed = 0;
@@ -116,33 +138,28 @@ function syncAllFilesToGitHub() {
 }
 
 function syncToGitByChoice() {
-  const files = [
-    { name: "Mod_Ingestion",      path: "src/infrastructure/Mod_Ingestion.gs" },
-    { name: "S04_DriveSync",      path: "src/infrastructure/S04_DriveSync.gs" },
-    { name: "S05_MetaExtract",    path: "src/infrastructure/S05_MetaExtract.gs" },
-    { name: "S06_ConvertTXT",     path: "src/infrastructure/S06_ConvertTXT.gs" },
-    { name: "Menu_LAB",           path: "src/infrastructure/Menu_LAB.gs" },
-    { name: "Menu_PROD",          path: "src/infrastructure/Menu_PROD.gs" },
-    { name: "Main",               path: "src/infrastructure/Main.gs" },
-    { name: "GitHubSync",         path: "src/infrastructure/GitHubSync.gs" },
-    { name: "GitToEditor",        path: "src/infrastructure/GitToEditor.gs" },
-    { name: "EditorToGitHub",     path: "src/infrastructure/EditorToGitHub.gs" },
-    { name: "Service_Folders",    path: "src/infrastructure/Service_Folders.gs" },
-    { name: "Auth_Check",         path: "src/infrastructure/Auth_Check.gs" },
-    { name: "System_HealthCheck", path: "src/infrastructure/System_HealthCheck.gs" },
-    { name: "NetworkDiagnostics", path: "src/infrastructure/NetworkDiagnostics.gs" },
-    { name: "System_Doc_Builder", path: "src/infrastructure/System_Doc_Builder.gs" },
-    { name: "System_Logger",      path: "src/infrastructure/System_Logger.gs" },
-    { name: "COLUMN_MAP",         path: "src/infrastructure/COLUMN_MAP.gs" }
-  ];
   const ui = SpreadsheetApp.getUi();
-  const names = files.map(f => f.name).join("\n");
-  const result = ui.prompt("בחר קובץ לסנכרון", "קבצים זמינים:\n" + names + "\n\nהכנס שם קובץ:", ui.ButtonSet.OK_CANCEL);
+  const editorFiles = getAllEditorFiles();
+  if (editorFiles.length === 0) {
+    ui.alert("שגיאה: לא ניתן לקרוא את רשימת הקבצים מהעורך.");
+    return;
+  }
+  const result = ui.prompt(
+    "בחר קובץ לסנכרון",
+    "קבצים זמינים בעורך:\n" + editorFiles.join("\n") + "\n\nהכנס שם קובץ:",
+    ui.ButtonSet.OK_CANCEL
+  );
   if (result.getSelectedButton() !== ui.Button.OK) return;
   const chosen = result.getResponseText().trim();
-  const file = files.find(f => f.name === chosen);
-  if (!file) { ui.alert("קובץ לא נמצא ברשימה: " + chosen); return; }
-  syncEditorFileToGitHub(file.name, file.path);
+  if (!chosen) { ui.alert("לא הוכנס שם קובץ."); return; }
+  const githubPath = "src/infrastructure/" + chosen + ".gs";
+  const confirm = ui.alert(
+    "אישור סנכרון",
+    "לסנכרן את [" + chosen + "] לגיטהאב?\nנתיב: " + githubPath,
+    ui.ButtonSet.YES_NO
+  );
+  if (confirm !== ui.Button.YES) return;
+  syncEditorFileToGitHub(chosen, githubPath);
 }
 
 function testSyncIngestion()      { syncEditorFileToGitHub("Mod_Ingestion",      "src/infrastructure/Mod_Ingestion.gs"); }
@@ -154,3 +171,4 @@ function testSyncEditorToGitHub() { syncEditorFileToGitHub("EditorToGitHub",    
 function testSyncServiceFolders() { syncEditorFileToGitHub("Service_Folders",    "src/infrastructure/Service_Folders.gs"); }
 function testSyncAuthCheck()      { syncEditorFileToGitHub("Auth_Check",         "src/infrastructure/Auth_Check.gs"); }
 function testSyncColumnMap()      { syncEditorFileToGitHub("COLUMN_MAP",         "src/infrastructure/COLUMN_MAP.gs"); }
+function testSyncQATests()        { syncEditorFileToGitHub("QA_Tests",           "src/infrastructure/QA_Tests.gs"); }
