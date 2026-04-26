@@ -1,7 +1,8 @@
-/**
+/** 
  * MedicalPilot — S05_MetaExtract.gs
- * @version 2.1.0 | @updated 24/04/2026 | @service S05
- * תיקון: סטטוס M מבוסס על עמודה V בלבד
+ * @version 2.2.0 | @updated 26/04/2026 | @service S05
+ * תיקון: עמודות מעודכנות לפי COLUMN_MAP v1.0
+ * O=15 סוג קובץ | P=16 גודל | R=18 כפולים | S=19 שגיאה | X=24 לינק TXT
  */
 
 function extractMetaData() {
@@ -12,14 +13,14 @@ function extractMetaData() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
 
-  const allData = sheet.getRange(2, 1, lastRow - 1, 23).getValues();
+  const allData = sheet.getRange(2, 1, lastRow - 1, 26).getValues();
   const sizeTypeMap = {};
   let processed = 0;
   let errors = 0;
 
   for (let i = 0; i < allData.length; i++) {
     const rowNum = i + 2;
-    const fileId = allData[i][0];
+    const fileId = allData[i][0]; // A = עמודה 1
     if (!fileId) continue;
 
     try {
@@ -53,19 +54,19 @@ function extractMetaData() {
         systemType = "SYSTEM_TXT";
       }
 
-      // שלב ב — סטטוס M — מבוסס על עמודה V בלבד
-      const linkV = allData[i][21]; // עמודה V
+      // שלב ב — סטטוס M — לפי עמודה X (24)
+      const linkX = allData[i][23]; // X = עמודה 24
       let statusM = "";
 
-      if (linkV && linkV.toString().trim() !== "") {
-        statusM = "הומר ל-TXT";           // יש לינק → כבר הומר
+      if (linkX && linkX.toString().trim() !== "") {
+        statusM = "הומר ל-TXT";
       } else if (systemType === "לא נתמך") {
-        statusM = "לא נתמך";              // סוג לא נתמך
+        statusM = "לא נתמך";
       } else {
-        statusM = "נדרש המרה";            // אין לינק → ממתין
+        statusM = "ממתין להמרה ל-TXT";
       }
 
-      // שלב ג — התראות עמודה R
+      // שלב ג — כפולים ולוגו לעמודה R (18)
       let alertR = "";
       if (sizeKB < 10) {
         alertR = "חשוד כלוגו/ריק";
@@ -78,16 +79,18 @@ function extractMetaData() {
         }
       }
 
-      // כתיבה לגליון
-      sheet.getRange(rowNum, 23).setValue(sizeFormatted); // W
-      sheet.getRange(rowNum, 21).setValue(systemType);    // U
-      sheet.getRange(rowNum, 13).setValue(statusM);       // M
-      sheet.getRange(rowNum, 18).setValue(alertR);        // R
-      sheet.getRange(rowNum, 20).clearContent();          // T
+      // כתיבה לגליון — לפי COLUMN_MAP
+      sheet.getRange(rowNum, 15).setValue(systemType);   // O = File_Type
+      sheet.getRange(rowNum, 16).setValue(sizeFormatted);// P = File_Size
+      sheet.getRange(rowNum, 13).setValue(statusM);      // M = Pipeline_Status
+      sheet.getRange(rowNum, 18).setValue(alertR);       // R = Duplicate_Flag
+      sheet.getRange(rowNum, 19).clearContent();         // S = Error_Code
+      sheet.getRange(rowNum, 20).clearContent();         // T = Error_Detail
 
       processed++;
 
     } catch (e) {
+      sheet.getRange(rowNum, 19).setValue("ACCESS");
       sheet.getRange(rowNum, 20).setValue("שגיאת גישה: " + e.message.substring(0, 80));
       errors++;
     }
@@ -96,12 +99,12 @@ function extractMetaData() {
   sheet.getRange(2, 13).activate();
   ss.toast(
     "הושלמו: " + processed + " | שגיאות: " + errors,
-    "S05 MetaExtract v2.1", 5
+    "S05 MetaExtract v2.2", 5
   );
 }
 
 function extractMetaData_LAB() {
-  Logger.log("--- תחילת ריצת LAB: MetaExtract v2.1 ---");
+  Logger.log("--- תחילת ריצת LAB: MetaExtract v2.2 ---");
   extractMetaData();
   Logger.log("--- סיום ---");
 }
@@ -113,8 +116,10 @@ function clearMetaData_LAB() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
   sheet.getRange(2, 13, lastRow - 1).clearContent(); // M
+  sheet.getRange(2, 15, lastRow - 1).clearContent(); // O
+  sheet.getRange(2, 16, lastRow - 1).clearContent(); // P
   sheet.getRange(2, 18, lastRow - 1).clearContent(); // R
-  sheet.getRange(2, 21, lastRow - 1).clearContent(); // U
-  sheet.getRange(2, 23, lastRow - 1).clearContent(); // W
+  sheet.getRange(2, 19, lastRow - 1).clearContent(); // S
+  sheet.getRange(2, 20, lastRow - 1).clearContent(); // T
   ss.toast("עמודות המטא-דאטה נוקו", "איפוס LAB", 5);
 }
