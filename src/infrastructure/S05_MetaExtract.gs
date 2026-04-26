@@ -1,8 +1,8 @@
-/** 
+/**
  * MedicalPilot — S05_MetaExtract.gs
- * @version 2.2.0 | @updated 26/04/2026 | @service S05
- * תיקון: עמודות מעודכנות לפי COLUMN_MAP v1.0
- * O=15 סוג קובץ | P=16 גודל | R=18 כפולים | S=19 שגיאה | X=24 לינק TXT
+ * @version 2.3.0 | @updated 26/04/2026 | @service S05
+ * תיקון: דילוג על שורות שכבר הומרו ויש להן לינק TXT
+ * עמודות: O=15 סוג | P=16 גודל | R=18 כפולים | S=19 שגיאה | T=20 פירוט | X=24 לינק TXT
  */
 
 function extractMetaData() {
@@ -16,6 +16,7 @@ function extractMetaData() {
   const allData = sheet.getRange(2, 1, lastRow - 1, 26).getValues();
   const sizeTypeMap = {};
   let processed = 0;
+  let skipped = 0;
   let errors = 0;
 
   for (let i = 0; i < allData.length; i++) {
@@ -24,9 +25,18 @@ function extractMetaData() {
     if (!fileId) continue;
 
     try {
-      const file = DriveApp.getFileById(fileId);
+      const currentM = (allData[i][12] || "").toString().trim(); // M = עמודה 13
+      const linkX    = (allData[i][23] || "").toString().trim(); // X = עמודה 24
+
+      // דלג על שורות שכבר הומרו ויש להן לינק TXT תקין
+      if (currentM === "הומר ל-TXT" && linkX !== "") {
+        skipped++;
+        continue;
+      }
+
+      const file     = DriveApp.getFileById(fileId);
       const mimeType = file.getMimeType();
-      const sizeKB = Math.round(file.getSize() / 1024);
+      const sizeKB   = Math.round(file.getSize() / 1024);
       const sizeFormatted = sizeKB + " KB";
 
       // שלב א — סיווג סוג קובץ
@@ -54,11 +64,9 @@ function extractMetaData() {
         systemType = "SYSTEM_TXT";
       }
 
-      // שלב ב — סטטוס M — לפי עמודה X (24)
-      const linkX = allData[i][23]; // X = עמודה 24
+      // שלב ב — סטטוס M
       let statusM = "";
-
-      if (linkX && linkX.toString().trim() !== "") {
+      if (linkX !== "") {
         statusM = "הומר ל-TXT";
       } else if (systemType === "לא נתמך") {
         statusM = "לא נתמך";
@@ -66,7 +74,7 @@ function extractMetaData() {
         statusM = "ממתין להמרה ל-TXT";
       }
 
-      // שלב ג — כפולים ולוגו לעמודה R (18)
+      // שלב ג — כפולים ולוגו לעמודה R
       let alertR = "";
       if (sizeKB < 10) {
         alertR = "חשוד כלוגו/ריק";
@@ -80,12 +88,12 @@ function extractMetaData() {
       }
 
       // כתיבה לגליון — לפי COLUMN_MAP
-      sheet.getRange(rowNum, 15).setValue(systemType);   // O = File_Type
-      sheet.getRange(rowNum, 16).setValue(sizeFormatted);// P = File_Size
-      sheet.getRange(rowNum, 13).setValue(statusM);      // M = Pipeline_Status
-      sheet.getRange(rowNum, 18).setValue(alertR);       // R = Duplicate_Flag
-      sheet.getRange(rowNum, 19).clearContent();         // S = Error_Code
-      sheet.getRange(rowNum, 20).clearContent();         // T = Error_Detail
+      sheet.getRange(rowNum, 15).setValue(systemType);    // O = File_Type
+      sheet.getRange(rowNum, 16).setValue(sizeFormatted); // P = File_Size
+      sheet.getRange(rowNum, 13).setValue(statusM);       // M = Pipeline_Status
+      sheet.getRange(rowNum, 18).setValue(alertR);        // R = Duplicate_Flag
+      sheet.getRange(rowNum, 19).clearContent();          // S = Error_Code
+      sheet.getRange(rowNum, 20).clearContent();          // T = Error_Detail
 
       processed++;
 
@@ -98,13 +106,13 @@ function extractMetaData() {
 
   sheet.getRange(2, 13).activate();
   ss.toast(
-    "הושלמו: " + processed + " | שגיאות: " + errors,
-    "S05 MetaExtract v2.2", 5
+    "עובדו: " + processed + " | דולגו: " + skipped + " | שגיאות: " + errors,
+    "S05 MetaExtract v2.3", 5
   );
 }
 
 function extractMetaData_LAB() {
-  Logger.log("--- תחילת ריצת LAB: MetaExtract v2.2 ---");
+  Logger.log("--- תחילת ריצת LAB: MetaExtract v2.3 ---");
   extractMetaData();
   Logger.log("--- סיום ---");
 }
