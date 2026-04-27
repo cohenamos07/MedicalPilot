@@ -1,16 +1,17 @@
 /**
  * MedicalPilot — Menu_LAB.gs
- * @version 10.0 | @updated 27/04/2026 11:00 | @service MENU_LAB
+ * @version 10.1 | @updated 27/04/2026 19:30 | @service MENU_LAB
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Menu_LAB.gs
+ * שינוי: הוספת מפת עמודות + שחזור כותרות + בדיקת הרשאות כתיבה
  */
 
 function buildLabMenu() {
-  buildLabMenu_v10_0();
+  buildLabMenu_v10_1();
 }
 
-function buildLabMenu_v10_0() {
+function buildLabMenu_v10_1() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('LA v10.0');
+  var menu = ui.createMenu('LA v10.1');
 
   // 🔄 קליטת נתונים
   var subIngestion = ui.createMenu('🔄 קליטת נתונים')
@@ -48,6 +49,9 @@ function buildLabMenu_v10_0() {
     .addSubMenu(subInfraTests)
     .addSubMenu(subDataTests)
     .addSeparator()
+    .addItem('שחזור כותרות', 'restoreHeaders')
+    .addItem('בדיקת הרשאות כתיבה', 'checkWritePermissions')
+    .addSeparator()
     .addItem('ניהול לוגים', 'logSystemEvent');
   menu.addSubMenu(subAdmin);
 
@@ -55,15 +59,18 @@ function buildLabMenu_v10_0() {
 
   // 🔬 כלי פיתוח
   var subGitSync = ui.createMenu('🔄 סנכרון גיט')
-    .addItem('גיט ← עורך (קובץ בודד)', 'syncFromGitByChoice')
-    .addItem('גיט ← עורך (הכל)', 'syncAllFromGit')
-    .addItem('עורך ← גיט (קובץ בודד)', 'syncToGitByChoice')
+    .addItem('גיט → עורך (קובץ בודד)', 'syncFromGitByChoice')
+    .addItem('גיט → עורך (הכל)', 'syncAllFromGit')
+    .addItem('עורך → גיט (קובץ בודד)', 'syncToGitByChoice')
     .addItem('גיבוי מלא', 'syncAllFilesToGitHub');
 
   var subDocs = ui.createMenu('📝 תיעוד')
     .addItem('עדכון CONTEXT.md', 'pushContextToGitHub')
     .addItem('סיכום ומסמך חפיפה', 'syncSessionDocs')
-    .addItem('סנכרון Logger', 'testSyncLogger');
+    .addItem('סנכרון Logger', 'testSyncLogger')
+    .addSeparator()
+    .addItem('הדפסת מבנה גליון', 'printSheetMap')
+    .addItem('פרטי עמודה בודדת', 'printColumnDetail');
 
   var subDev = ui.createMenu('🔬 כלי פיתוח')
     .addItem('משימות פיתוח', 'refreshDevDashboard')
@@ -76,7 +83,8 @@ function buildLabMenu_v10_0() {
   menu.addToUi();
 }
 
-function buildLabMenu_v99_0() { buildLabMenu_v10_0(); }
-function buildLabMenu_v97_8() { buildLabMenu_v10_0(); }
-function buildLabMenu_v97_7() { buildLabMenu_v10_0(); }
-function buildLabMenu_v97_5() { buildLabMenu_v10_0(); }
+function buildLabMenu_v10_0() { buildLabMenu_v10_1(); }
+function buildLabMenu_v99_0() { buildLabMenu_v10_1(); }
+function buildLabMenu_v97_8() { buildLabMenu_v10_1(); }
+function buildLabMenu_v97_7() { buildLabMenu_v10_1(); }
+function buildLabMenu_v97_5() { buildLabMenu_v10_1(); }
