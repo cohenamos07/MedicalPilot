@@ -1,8 +1,9 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.0.0 | @updated 27/04/2026 19:00 | @service COLUMN_MAP
+ * @version 2.1.0 | @updated 27/04/2026 20:00 | @service COLUMN_MAP
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/COLUMN_MAP.gs
  * תפקיד: תיעוד מבנה עמודות + הדפסה + שחזור כותרות + בדיקת הרשאות
+ * שינוי: הוספת גליון דוגמאות_למידה למפה
  */
 
 // ══════════════════════════════════════════════════════════════════
@@ -45,7 +46,7 @@
 S03, S04 — כותבים רק לעמודות A-H ו-W
 S05      — כותב רק לעמודות M, O, P, R, S, T
 S06      — כותב רק לעמודות M, O, P, Q, S, T, X, Y, Z
-S07      — כותב רק לעמודות I, J, K, L, M, N, Q, S, T, Z
+S07      — כותב רק לעמודות I, J, K, L, M, N, Q, R, S, T
 QA       — כותב רק לעמודה U
 כל שירות — בהצלחה מנקה S ו-T. בכישלון כותב קוד ב-S ופירוט ב-T
 */
@@ -57,55 +58,51 @@ QA       — כותב רק לעמודה U
 const SHEETS_MAP = {
 
   "ניהול_מיילים": [
-    // אזור א — Source Metadata (A–H)
-    { col: 1,  name: "File_ID",           zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["S05","S06"],   values: "מזהה Drive",                                                      notes: "מזהה ייחודי של הקובץ ב-Drive" },
-    { col: 2,  name: "Capture_Date",      zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "תאריך",                                                           notes: "תאריך כניסה למערכת" },
-    { col: 3,  name: "Source",            zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["S05"],         values: "Gmail|Drive_Manual",                                              notes: "מקור הרשומה" },
-    { col: 4,  name: "Source_Reference",  zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "מזהה חופשי",                                                      notes: "מזהה מייל (Gmail) / מזהה תיקייה (Drive)" },
-    { col: 5,  name: "Source_Title",      zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "טקסט חופשי",                                                      notes: "נושא מייל / שם קובץ" },
-    { col: 6,  name: "Source_Author",     zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "טקסט חופשי",                                                      notes: "שולח מייל / עמוס ידני" },
-    { col: 7,  name: "Source_Date",       zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "תאריך",                                                           notes: "תאריך מייל / תאריך עדכון קובץ" },
-    { col: 8,  name: "Attachment_Name",   zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["QA"],          values: "שם קובץ",                                                         notes: "שם הקובץ הפיזי כולל סיומת" },
+    { col: 1,  name: "File_ID",           zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["S05","S06"],   values: "מזהה Drive",                                                                notes: "מזהה ייחודי של הקובץ ב-Drive" },
+    { col: 2,  name: "Capture_Date",      zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "תאריך",                                                                     notes: "תאריך כניסה למערכת" },
+    { col: 3,  name: "Source",            zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["S05"],         values: "Gmail|Drive_Manual",                                                        notes: "מקור הרשומה" },
+    { col: 4,  name: "Source_Reference",  zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "מזהה חופשי",                                                               notes: "מזהה מייל (Gmail) / מזהה תיקייה (Drive)" },
+    { col: 5,  name: "Source_Title",      zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "טקסט חופשי",                                                               notes: "נושא מייל / שם קובץ" },
+    { col: 6,  name: "Source_Author",     zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "טקסט חופשי",                                                               notes: "שולח מייל / עמוס ידני" },
+    { col: 7,  name: "Source_Date",       zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "תאריך",                                                                     notes: "תאריך מייל / תאריך עדכון קובץ" },
+    { col: 8,  name: "Attachment_Name",   zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["QA"],          values: "שם קובץ",                                                                  notes: "שם הקובץ הפיזי כולל סיומת" },
+    { col: 9,  name: "Doc_Title",         zone: "Content Metadata", writers: ["S07"],                         readers: [],              values: "טקסט חופשי",                                                               notes: "כותרת המסמך האמיתית — מחולץ ע\"י S07" },
+    { col: 10, name: "Doc_Issuer",        zone: "Content Metadata", writers: ["S07"],                         readers: [],              values: "טקסט חופשי",                                                               notes: "מנפיק המסמך — מחולץ ע\"י S07" },
+    { col: 11, name: "Doc_Date",          zone: "Content Metadata", writers: ["S07"],                         readers: [],              values: "תאריך",                                                                     notes: "תאריך המסמך עצמו — מחולץ ע\"י S07" },
+    { col: 12, name: "Doc_Category",      zone: "Content Metadata", writers: ["S07"],                         readers: [],              values: "רפואי|חשבונאי|משפטי|ביטוחי|אחר",                                          notes: "קטגוריה — מחולץ ע\"י S07" },
+    { col: 13, name: "Pipeline_Status",   zone: "סטטוסים",          writers: ["S05","S06","S07"],             readers: ["S06","QA"],    values: "ממתין להמרה ל-TXT|הומר ל-TXT|מחולץ|ממתין לאימות|מאושר",                   notes: "סטטוס הרשומה ב-pipeline" },
+    { col: 14, name: "Extraction_Status", zone: "סטטוסים",          writers: ["S07"],                         readers: [],              values: "ממתין|חולץ חלקי|חולץ מלא",                                                notes: "סטטוס חילוץ תוכן" },
+    { col: 15, name: "File_Type",         zone: "טכני",             writers: ["S05","S06"],                   readers: ["QA"],          values: "SYSTEM_PDF|SYSTEM_IMG|SYSTEM_GDOC|SYSTEM_DOCX|SYSTEM_TXT|SYSTEM_SHEET",    notes: "סוג קובץ לפי MIME" },
+    { col: 16, name: "File_Size",         zone: "טכני",             writers: ["S05","S06"],                   readers: ["QA"],          values: "XX KB|XX MB",                                                              notes: "גודל קובץ" },
+    { col: 17, name: "Complexity",        zone: "טכני",             writers: ["S06","S07"],                   readers: ["S07"],         values: "פשוט|בינוני|מורכב",                                                        notes: "מורכבות המסמך" },
+    { col: 18, name: "Duplicate_Flag",    zone: "טכני",             writers: ["S05","S07"],                   readers: ["QA","S07"],    values: "חשוד ככפול — שורה X|כפול מאושר — שורה X|חשוד כלוגו/ריק|לוגו מאושר",     notes: "זיהוי ואימות כפולים" },
+    { col: 19, name: "Error_Code",        zone: "שגיאות",           writers: ["S03","S04","S05","S06","S07"], readers: ["QA"],          values: "429|503|NO_ID|ACCESS|EMPTY|UNSUPPORTED|PARSE|UNKNOWN|SKIP",                notes: "קוד שגיאה קצר — מנוקה בהצלחה" },
+    { col: 20, name: "Error_Detail",      zone: "שגיאות",           writers: ["S03","S04","S05","S06","S07"], readers: ["QA"],          values: "טקסט חופשי",                                                               notes: "פירוט שגיאה — מנוקה בהצלחה" },
+    { col: 21, name: "QA_Status",         zone: "בדיקות",           writers: ["QA"],                         readers: [],              values: "✅ תקין|⚠️ + פירוט",                                                       notes: "תוצאת בדיקת QA" },
+    { col: 22, name: "",                  zone: "מרווח",            writers: [],                              readers: [],              values: "",                                                                          notes: "שמור לשימוש עתידי" },
+    { col: 23, name: "Source_URL",        zone: "לינקים",           writers: ["S03","S04"],                   readers: ["S06","QA"],    values: "https://drive.google.com/...",                                             notes: "קישור לקובץ המקורי ב-Drive" },
+    { col: 24, name: "TXT_URL",           zone: "לינקים",           writers: ["S06"],                         readers: ["S05","S07","QA"], values: "https://drive.google.com/...",                                          notes: "קישור לקובץ TXT שנוצר" },
+    { col: 25, name: "Temp_URL",          zone: "לינקים",           writers: ["S06"],                         readers: [],              values: "https://drive.google.com/...",                                             notes: "קישור זמני במהלך המרה" },
+    { col: 26, name: "Raw_Text",          zone: "טקסט גולמי",       writers: ["S06","S07"],                   readers: [],              values: "טקסט מלא",                                                                 notes: "הטקסט המלא — עמודה אחרונה, רחבה מאוד" },
+  ],
 
-    // אזור ב — Content Metadata (I–L)
-    { col: 9,  name: "Doc_Title",         zone: "Content Metadata", writers: ["S07"],                         readers: [],              values: "טקסט חופשי",                                                      notes: "כותרת המסמך האמיתית — מחולץ ע\"י S07" },
-    { col: 10, name: "Doc_Issuer",        zone: "Content Metadata", writers: ["S07"],                         readers: [],              values: "טקסט חופשי",                                                      notes: "מנפיק המסמך — מחולץ ע\"י S07" },
-    { col: 11, name: "Doc_Date",          zone: "Content Metadata", writers: ["S07"],                         readers: [],              values: "תאריך",                                                           notes: "תאריך המסמך עצמו — מחולץ ע\"י S07" },
-    { col: 12, name: "Doc_Category",      zone: "Content Metadata", writers: ["S07"],                         readers: [],              values: "רפואי|חשבונאי|משפטי|ביטוחי|אחר",                                 notes: "קטגוריה — מחולץ ע\"י S07" },
-
-    // אזור ג — סטטוסים (M–N)
-    { col: 13, name: "Pipeline_Status",   zone: "סטטוסים",          writers: ["S05","S06","S07"],             readers: ["S06","QA"],    values: "ממתין להמרה ל-TXT|הומר ל-TXT|מחולץ|ממתין לאימות|מאושר",          notes: "סטטוס הרשומה ב-pipeline" },
-    { col: 14, name: "Extraction_Status", zone: "סטטוסים",          writers: ["S07"],                         readers: [],              values: "ממתין|חולץ חלקי|חולץ מלא",                                       notes: "סטטוס חילוץ תוכן" },
-
-    // אזור ד — טכני (O–R)
-    { col: 15, name: "File_Type",         zone: "טכני",             writers: ["S05","S06"],                   readers: ["QA"],          values: "SYSTEM_PDF|SYSTEM_IMG|SYSTEM_GDOC|SYSTEM_DOCX|SYSTEM_TXT|SYSTEM_SHEET", notes: "סוג קובץ לפי MIME" },
-    { col: 16, name: "File_Size",         zone: "טכני",             writers: ["S05","S06"],                   readers: ["QA"],          values: "XX KB|XX MB",                                                     notes: "גודל קובץ" },
-    { col: 17, name: "Complexity",        zone: "טכני",             writers: ["S06","S07"],                   readers: [],              values: "פשוט|בינוני|מורכב",                                               notes: "מורכבות המסמך" },
-    { col: 18, name: "Duplicate_Flag",    zone: "טכני",             writers: ["S05"],                         readers: ["QA"],          values: "חשוד ככפול — שורה X|חשוד כלוגו/ריק",                            notes: "זיהוי כפולים" },
-
-    // אזור ה — שגיאות (S–T)
-    { col: 19, name: "Error_Code",        zone: "שגיאות",           writers: ["S03","S04","S05","S06","S07"], readers: ["QA"],          values: "429|503|NO_ID|ACCESS|EMPTY|UNSUPPORTED|PARSE|UNKNOWN|SKIP",       notes: "קוד שגיאה קצר — מנוקה בהצלחה" },
-    { col: 20, name: "Error_Detail",      zone: "שגיאות",           writers: ["S03","S04","S05","S06","S07"], readers: ["QA"],          values: "טקסט חופשי",                                                      notes: "פירוט שגיאה — מנוקה בהצלחה" },
-
-    // אזור ו — בדיקות (U)
-    { col: 21, name: "QA_Status",         zone: "בדיקות",           writers: ["QA"],                         readers: [],              values: "✅ תקין|⚠️ + פירוט",                                              notes: "תוצאת בדיקת QA" },
-
-    // אזור ז — מרווח (V)
-    { col: 22, name: "",                  zone: "מרווח",            writers: [],                              readers: [],              values: "",                                                                notes: "שמור לשימוש עתידי" },
-
-    // אזור ח — לינקים (W–Y)
-    { col: 23, name: "Source_URL",        zone: "לינקים",           writers: ["S03","S04"],                   readers: ["S06","QA"],    values: "https://drive.google.com/...",                                    notes: "קישור לקובץ המקורי ב-Drive" },
-    { col: 24, name: "TXT_URL",           zone: "לינקים",           writers: ["S06"],                         readers: ["S05","QA"],    values: "https://drive.google.com/...",                                    notes: "קישור לקובץ TXT שנוצר" },
-    { col: 25, name: "Temp_URL",          zone: "לינקים",           writers: ["S06"],                         readers: [],              values: "https://drive.google.com/...",                                    notes: "קישור זמני במהלך המרה" },
-
-    // אזור ט — טקסט גולמי (Z)
-    { col: 26, name: "Raw_Text",          zone: "טקסט גולמי",       writers: ["S06","S07"],                   readers: [],              values: "טקסט מלא",                                                        notes: "הטקסט המלא — עמודה אחרונה, רחבה מאוד" },
+  "דוגמאות_למידה": [
+    { col: 1,  name: "Subject",              zone: "זיהוי",    writers: ["S08"],        readers: ["S07"],   values: "טקסט חופשי",                                      notes: "כותרת/סוג המסמך לדוגמה" },
+    { col: 2,  name: "Issuer",               zone: "זיהוי",    writers: ["S08"],        readers: ["S07"],   values: "טקסט חופשי",                                      notes: "מנפיק המסמך לדוגמה" },
+    { col: 3,  name: "Classification",       zone: "זיהוי",    writers: ["S08"],        readers: ["S07"],   values: "רפואי|חשבונאי|משפטי|ביטוחי|אחר",                 notes: "קטגוריה מאושרת ידנית" },
+    { col: 4,  name: "TXT_Document_Link",    zone: "קישורים",  writers: ["S08"],        readers: ["S07"],   values: "https://drive.google.com/...",                     notes: "קישור לקובץ TXT לדוגמה" },
+    { col: 5,  name: "Complexity",           zone: "זיהוי",    writers: ["S08"],        readers: ["S07"],   values: "פשוט|בינוני|מורכב",                               notes: "מורכבות המסמך" },
+    { col: 6,  name: "Doc_Date",             zone: "זיהוי",    writers: ["S08"],        readers: ["S07"],   values: "תאריך",                                           notes: "תאריך המסמך" },
+    { col: 7,  name: "Approved_By",          zone: "אימות",    writers: ["S08"],        readers: [],        values: "טקסט חופשי",                                      notes: "מי אישר את הדוגמה" },
+    { col: 8,  name: "Approved_Date",        zone: "אימות",    writers: ["S08"],        readers: [],        values: "תאריך",                                           notes: "תאריך אישור" },
+    { col: 9,  name: "Notes",                zone: "אימות",    writers: ["S08"],        readers: ["S07"],   values: "טקסט חופשי",                                      notes: "הערות לדוגמה" },
+    { col: 10, name: "Original_File_ID",     zone: "קישורים",  writers: ["S08"],        readers: ["S07"],   values: "Drive ID",                                        notes: "מזהה קובץ מקורי ב-Drive" },
   ]
 
 };
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציה 1 — הדפסת מבנה גליון (כלי פיתוח → תיעוד)
+// פונקציה 1 — הדפסת מבנה גליון
 // ══════════════════════════════════════════════════════════════════
 
 function printSheetMap() {
@@ -127,16 +124,16 @@ function printSheetMap() {
     }
     const letter = _colToLetter(c.col);
     report += letter + " | " + (c.name || "שמור") + "\n";
-    if (c.notes)           report += "   → " + c.notes + "\n";
-    if (c.writers.length)  report += "   כותבים: " + c.writers.join(", ") + "\n";
-    if (c.values)          report += "   ערכים: " + c.values + "\n";
+    if (c.notes)          report += "   → " + c.notes + "\n";
+    if (c.writers.length) report += "   כותבים: " + c.writers.join(", ") + "\n";
+    if (c.values)         report += "   ערכים: " + c.values + "\n";
   });
 
   ui.alert("מפת עמודות — " + sheetName, report, ui.ButtonSet.OK);
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציה 2 — פרטי עמודה בודדת (כלי פיתוח → תיעוד)
+// פונקציה 2 — פרטי עמודה בודדת
 // ══════════════════════════════════════════════════════════════════
 
 function printColumnDetail() {
@@ -161,18 +158,18 @@ function printColumnDetail() {
 
   let detail  = "עמודה " + letter + " — " + sheetName + "\n";
   detail     += "═".repeat(40) + "\n\n";
-  detail     += "שם:       " + (col.name  || "שמור")           + "\n";
-  detail     += "אזור:     " + col.zone                        + "\n";
-  detail     += "הערה:     " + col.notes                       + "\n";
-  detail     += "ערכים:    " + col.values                      + "\n";
-  detail     += "כותבים:   " + (col.writers.join(", ") || "—") + "\n";
-  detail     += "קוראים:   " + (col.readers.join(", ") || "—") + "\n";
+  detail     += "שם:       " + (col.name  || "שמור")            + "\n";
+  detail     += "אזור:     " + col.zone                         + "\n";
+  detail     += "הערה:     " + col.notes                        + "\n";
+  detail     += "ערכים:    " + col.values                       + "\n";
+  detail     += "כותבים:   " + (col.writers.join(", ") || "—")  + "\n";
+  detail     += "קוראים:   " + (col.readers.join(", ") || "—")  + "\n";
 
   ui.alert("פרטי עמודה " + letter, detail, ui.ButtonSet.OK);
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציה 3 — שחזור כותרות (ניהול מערכת — LAB + PROD)
+// פונקציה 3 — שחזור כותרות
 // ══════════════════════════════════════════════════════════════════
 
 function restoreHeaders() {
@@ -206,7 +203,7 @@ function restoreHeaders() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציה 4 — בדיקת הרשאות כתיבה (ניהול מערכת — LAB בלבד)
+// פונקציה 4 — בדיקת הרשאות כתיבה
 // ══════════════════════════════════════════════════════════════════
 
 function checkWritePermissions() {
@@ -216,7 +213,7 @@ function checkWritePermissions() {
 
   const serviceResult = ui.prompt(
     "בדיקת הרשאות כתיבה",
-    "הכנס שם שירות (S03/S04/S05/S06/S07/QA):",
+    "הכנס שם שירות (S03/S04/S05/S06/S07/S08/QA):",
     ui.ButtonSet.OK_CANCEL
   );
   if (serviceResult.getSelectedButton() !== ui.Button.OK) return;
@@ -225,7 +222,7 @@ function checkWritePermissions() {
   const cols     = SHEETS_MAP[sheetName];
   if (!cols) { ui.alert("גליון לא נמצא: " + sheetName); return; }
 
-  let allowed  = [];
+  let allowed   = [];
   let forbidden = [];
 
   cols.forEach(function(c) {
