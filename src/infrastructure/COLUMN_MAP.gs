@@ -1,141 +1,283 @@
+/**
+ * MedicalPilot — COLUMN_MAP.gs
+ * @version 2.0.0 | @updated 27/04/2026 19:00 | @service COLUMN_MAP
+ * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/COLUMN_MAP.gs
+ * תפקיד: תיעוד מבנה עמודות + הדפסה + שחזור כותרות + בדיקת הרשאות
+ */
+
+// ══════════════════════════════════════════════════════════════════
+// תיעוד — מבנה עמודות גליון ניהול_מיילים
+// ══════════════════════════════════════════════════════════════════
 /*
-# MedicalPilot — COLUMN_MAP
-@version 1.0 | @updated 26/04/2026
+## מיפוי שינוי — ישן → חדש (26/04/2026)
 
-## כלל ברזל
-כל שירות כותב רק לעמודות המוגדרות לו בטבלה זו.
-לפני כתיבת שירות חדש או תיקון קיים — לקרוא קובץ זה תחילה.
-
----
-
-## מבנה העמודות — A עד Z
-
-### אזור א — Source Metadata (A–H)
-נתונים שנאספים בקליטה. מתארים איך ומאיפה הגיע הקובץ.
-משמשים לזיהוי כפולים לפני עיבוד AI.
-
-| עמודה | מספר | שם | ממלא | תוכן |
-|-------|------|----|------|------|
-| A | 1 | File_ID | S03, S04 | מזהה קובץ ב-Drive |
-| B | 2 | Capture_Date | S03, S04 | תאריך כניסה למערכת |
-| C | 3 | Source | S03, S04 | Gmail / Drive_Manual |
-| D | 4 | Source_Reference | S03, S04 | מזהה מייל (Gmail) / מזהה תיקייה (Drive) |
-| E | 5 | Source_Title | S03, S04 | נושא מייל / שם קובץ |
-| F | 6 | Source_Author | S03, S04 | כתובת שולח / "עמוס ידני" |
-| G | 7 | Source_Date | S03, S04 | תאריך מייל / תאריך עדכון קובץ |
-| H | 8 | Attachment_Name | S03, S04 | שם הקובץ הפיזי |
-
-### אזור ב — Content Metadata (I–L)
-נתונים שנחלצים מתוך המסמך עצמו על ידי שירותי AI.
-
-| עמודה | מספר | שם | ממלא | תוכן |
-|-------|------|----|------|------|
-| I | 9 | Doc_Title | S07 | כותרת המסמך האמיתית |
-| J | 10 | Doc_Issuer | S07 | מנפיק המסמך |
-| K | 11 | Doc_Date | S07 | תאריך המסמך עצמו |
-| L | 12 | Doc_Category | S07 | רפואי / חשבונאי / משפטי / ביטוחי / אחר |
-
-### אזור ג — סטטוסים (M–N)
-מנהלים את מצב הרשומה לאורך ה-pipeline.
-
-| עמודה | מספר | שם | ממלא | ערכים אפשריים |
-|-------|------|----|------|--------------|
-| M | 13 | Pipeline_Status | S05, S06, S07, ידני | ממתין להמרה ל-TXT / הומר ל-TXT / מחולץ / ממתין לאימות / מאושר |
-| N | 14 | Extraction_Status | S07 | ממתין / חולץ חלקי / חולץ מלא |
-
-### אזור ד — טכני (O–R)
-נתונים טכניים על הקובץ.
-
-| עמודה | מספר | שם | ממלא | תוכן |
-|-------|------|----|------|------|
-| O | 15 | File_Type | S05 ← S06 | SYSTEM_PDF / SYSTEM_IMG / SYSTEM_GDOC / SYSTEM_DOCX / SYSTEM_TXT / SYSTEM_SHEET |
-| P | 16 | File_Size | S05 ← S06 | גודל בKB או MB |
-| Q | 17 | Complexity | S06, S07 | פשוט / בינוני / מורכב |
-| R | 18 | Duplicate_Flag | S05 | ריק = ייחודי / "חשוד ככפול — שורה X" |
-
-### אזור ה — שגיאות (S–T)
-אחיד בכל השירותים. בהצלחה — שניהם מתנקים.
-
-| עמודה | מספר | שם | ממלא | תוכן |
-|-------|------|----|------|------|
-| S | 19 | Error_Code | כל השירותים | 429 / 503 / NO_ID / ACCESS / EMPTY / UNSUPPORTED / PARSE / UNKNOWN |
-| T | 20 | Error_Detail | כל השירותים | פירוט מלא + פעולה מומלצת |
-
-קודי שגיאה:
-429 — מכסה יומית מוצתה — נסה מחר
-503 — שרת Gemini עמוס — דולג לעכשיו
-NO_ID — בדוק שעמודה A מלאה
-ACCESS — בדוק שיתוף הקובץ ב-Drive
-EMPTY — הקובץ ריק — בדוק תוכן
-UNSUPPORTED — סוג MIME לא מטופל — בדוק הרחבה
-PARSE — התשובה לא JSON תקין — נסה שוב
-UNKNOWN — שגיאה כללית — ראה פירוט ב-T
-
-### אזור ו — בדיקות (U)
-
-| עמודה | מספר | שם | ממלא | תוכן |
-|-------|------|----|------|------|
-| U | 21 | QA_Status | runAllTests | ✅ תקין / ⚠️ + פירוט בעיה |
-
-### אזור ז — מרווח (V)
-
-| עמודה | מספר | שם | הערה |
-|-------|------|----|------|
-| V | 22 | — | שמור לשימוש עתידי |
-
-### אזור ח — לינקים (W–Y)
-
-| עמודה | מספר | שם | ממלא | תוכן |
-|-------|------|----|------|------|
-| W | 23 | Source_URL | S03, S04 | קישור לקובץ המקורי ב-Drive |
-| X | 24 | TXT_URL | S06 | קישור לקובץ TXT שנוצר |
-| Y | 25 | Temp_URL | S06 | קישור זמני במהלך המרה |
-
-### אזור ט — טקסט גולמי (Z)
-
-| עמודה | מספר | שם | ממלא | הערה |
-|-------|------|----|------|------|
-| Z | 26 | Raw_Text | S06, S07 | הטקסט המלא — עמודה אחרונה, רחבה מאוד |
-
----
-
-## מיפוי שינוי — ישן חדש
-
-A: File ID → File_ID (שינוי שם)
-B: Capture Date → Capture_Date (שינוי שם)
-C: Source → Source (ללא שינוי)
-D: Internal ID → Source_Reference (שינוי שם + לוגיקה)
-E: Subject → Source_Title (שינוי שם)
-F: Sender → Source_Author (שינוי שם)
-G: Document Date → Source_Date (שינוי שם)
-H: File Name → Attachment_Name (שינוי שם)
-I: Subject כפול → Doc_Title (שינוי שם + תוכן עתידי)
-J: Issuer → Doc_Issuer (שינוי שם)
-K: System Admin → Doc_Date (שינוי שם + תוכן עתידי)
-L: Classification → Doc_Category (שינוי שם)
-M: Extraction Status → Pipeline_Status (שינוי שם + לוגיקה)
-N: Status → Extraction_Status (שינוי שם)
-O: Stored URL → W / Source_URL (הזזת נתונים)
-P: Source_Type → O / File_Type (הזזת נתונים)
-Q: Link_TXT → X / TXT_URL (הזזת נתונים)
-R: File_Size → P / File_Size (הזזת נתונים)
-S: Technical_Temp_Name → U / QA_Status (הזזה + תוכן חדש)
-T: Scan_Complexity → Q / Complexity (הזזת נתונים)
-U: Duplicate_Suspect → R / Duplicate_Flag (הזזת נתונים)
-S: Error_Code — חדש
-T: Error_Detail — חדש
-V: שמור — חדש
-Y: Temp_URL — חדש
-Z: Raw_Text — חדש
-
----
+| עמודה ישנה | שם ישן              | עמודה חדשה | שם חדש            | סוג שינוי          |
+|-----------|---------------------|-----------|-------------------|-------------------|
+| A         | File ID             | A         | File_ID           | שינוי שם          |
+| B         | Capture Date        | B         | Capture_Date      | שינוי שם          |
+| C         | Source              | C         | Source            | ללא שינוי         |
+| D         | Internal ID         | D         | Source_Reference  | שינוי שם + לוגיקה |
+| E         | Subject             | E         | Source_Title      | שינוי שם          |
+| F         | Sender              | F         | Source_Author     | שינוי שם          |
+| G         | Document Date       | G         | Source_Date       | שינוי שם          |
+| H         | File Name           | H         | Attachment_Name   | שינוי שם          |
+| I         | Subject (כפול)      | I         | Doc_Title         | שינוי שם + תוכן   |
+| J         | Issuer              | J         | Doc_Issuer        | שינוי שם          |
+| K         | System Admin        | K         | Doc_Date          | שינוי שם + תוכן   |
+| L         | Classification      | L         | Doc_Category      | שינוי שם          |
+| M         | Extraction Status   | M         | Pipeline_Status   | שינוי שם + לוגיקה |
+| N         | Status              | N         | Extraction_Status | שינוי שם          |
+| O         | Stored URL          | W         | Source_URL        | הזזת נתונים       |
+| P         | Source_Type         | O         | File_Type         | הזזת נתונים       |
+| Q         | Link_TXT            | X         | TXT_URL           | הזזת נתונים       |
+| R         | File_Size           | P         | File_Size         | הזזת נתונים       |
+| S         | Technical_Temp_Name | U         | QA_Status         | הזזה + תוכן חדש   |
+| T         | Scan_Complexity     | Q         | Complexity        | הזזת נתונים       |
+| U         | Duplicate_Suspect   | R         | Duplicate_Flag    | הזזת נתונים       |
+| —         | חדש                 | S         | Error_Code        | חדש               |
+| —         | חדש                 | T         | Error_Detail      | חדש               |
+| —         | חדש                 | V         | שמור              | חדש               |
+| —         | חדש                 | Y         | Temp_URL          | חדש               |
+| —         | חדש                 | Z         | Raw_Text          | חדש               |
 
 ## כללי כתיבה לכל שירות
 
 S03, S04 — כותבים רק לעמודות A-H ו-W
-S05 — כותב רק לעמודות M, O, P, R, S, T
-S06 — כותב רק לעמודות M, O, P, Q, S, T, X, Y, Z
-S07 — כותב רק לעמודות I, J, K, L, M, N, Q, S, T, Z
-runAllTests — כותב רק לעמודה U
+S05      — כותב רק לעמודות M, O, P, R, S, T
+S06      — כותב רק לעמודות M, O, P, Q, S, T, X, Y, Z
+S07      — כותב רק לעמודות I, J, K, L, M, N, Q, S, T, Z
+QA       — כותב רק לעמודה U
 כל שירות — בהצלחה מנקה S ו-T. בכישלון כותב קוד ב-S ופירוט ב-T
-*/ 
+*/
+
+// ══════════════════════════════════════════════════════════════════
+// מבנה נתונים — מפת עמודות לפי גליון
+// ══════════════════════════════════════════════════════════════════
+
+const SHEETS_MAP = {
+
+  "ניהול_מיילים": [
+    // אזור א — Source Metadata (A–H)
+    { col: 1,  name: "File_ID",           zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["S05","S06"],   values: "מזהה Drive",                                                      notes: "מזהה ייחודי של הקובץ ב-Drive" },
+    { col: 2,  name: "Capture_Date",      zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "תאריך",                                                           notes: "תאריך כניסה למערכת" },
+    { col: 3,  name: "Source",            zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["S05"],         values: "Gmail|Drive_Manual",                                              notes: "מקור הרשומה" },
+    { col: 4,  name: "Source_Reference",  zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "מזהה חופשי",                                                      notes: "מזהה מייל (Gmail) / מזהה תיקייה (Drive)" },
+    { col: 5,  name: "Source_Title",      zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "טקסט חופשי",                                                      notes: "נושא מייל / שם קובץ" },
+    { col: 6,  name: "Source_Author",     zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "טקסט חופשי",                                                      notes: "שולח מייל / עמוס ידני" },
+    { col: 7,  name: "Source_Date",       zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],              values: "תאריך",                                                           notes: "תאריך מייל / תאריך עדכון קובץ" },
+    { col: 8,  name: "Attachment_Name",   zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["QA"],          values: "שם קובץ",                                                         notes: "שם הקובץ הפיזי כולל סיומת" },
+
+    // אזור ב — Content Metadata (I–L)
+    { col: 9,  name: "Doc_Title",         zone: "Content Metadata", writers: ["S07"],                         readers: [],              values: "טקסט חופשי",                                                      notes: "כותרת המסמך האמיתית — מחולץ ע\"י S07" },
+    { col: 10, name: "Doc_Issuer",        zone: "Content Metadata", writers: ["S07"],                         readers: [],              values: "טקסט חופשי",                                                      notes: "מנפיק המסמך — מחולץ ע\"י S07" },
+    { col: 11, name: "Doc_Date",          zone: "Content Metadata", writers: ["S07"],                         readers: [],              values: "תאריך",                                                           notes: "תאריך המסמך עצמו — מחולץ ע\"י S07" },
+    { col: 12, name: "Doc_Category",      zone: "Content Metadata", writers: ["S07"],                         readers: [],              values: "רפואי|חשבונאי|משפטי|ביטוחי|אחר",                                 notes: "קטגוריה — מחולץ ע\"י S07" },
+
+    // אזור ג — סטטוסים (M–N)
+    { col: 13, name: "Pipeline_Status",   zone: "סטטוסים",          writers: ["S05","S06","S07"],             readers: ["S06","QA"],    values: "ממתין להמרה ל-TXT|הומר ל-TXT|מחולץ|ממתין לאימות|מאושר",          notes: "סטטוס הרשומה ב-pipeline" },
+    { col: 14, name: "Extraction_Status", zone: "סטטוסים",          writers: ["S07"],                         readers: [],              values: "ממתין|חולץ חלקי|חולץ מלא",                                       notes: "סטטוס חילוץ תוכן" },
+
+    // אזור ד — טכני (O–R)
+    { col: 15, name: "File_Type",         zone: "טכני",             writers: ["S05","S06"],                   readers: ["QA"],          values: "SYSTEM_PDF|SYSTEM_IMG|SYSTEM_GDOC|SYSTEM_DOCX|SYSTEM_TXT|SYSTEM_SHEET", notes: "סוג קובץ לפי MIME" },
+    { col: 16, name: "File_Size",         zone: "טכני",             writers: ["S05","S06"],                   readers: ["QA"],          values: "XX KB|XX MB",                                                     notes: "גודל קובץ" },
+    { col: 17, name: "Complexity",        zone: "טכני",             writers: ["S06","S07"],                   readers: [],              values: "פשוט|בינוני|מורכב",                                               notes: "מורכבות המסמך" },
+    { col: 18, name: "Duplicate_Flag",    zone: "טכני",             writers: ["S05"],                         readers: ["QA"],          values: "חשוד ככפול — שורה X|חשוד כלוגו/ריק",                            notes: "זיהוי כפולים" },
+
+    // אזור ה — שגיאות (S–T)
+    { col: 19, name: "Error_Code",        zone: "שגיאות",           writers: ["S03","S04","S05","S06","S07"], readers: ["QA"],          values: "429|503|NO_ID|ACCESS|EMPTY|UNSUPPORTED|PARSE|UNKNOWN|SKIP",       notes: "קוד שגיאה קצר — מנוקה בהצלחה" },
+    { col: 20, name: "Error_Detail",      zone: "שגיאות",           writers: ["S03","S04","S05","S06","S07"], readers: ["QA"],          values: "טקסט חופשי",                                                      notes: "פירוט שגיאה — מנוקה בהצלחה" },
+
+    // אזור ו — בדיקות (U)
+    { col: 21, name: "QA_Status",         zone: "בדיקות",           writers: ["QA"],                         readers: [],              values: "✅ תקין|⚠️ + פירוט",                                              notes: "תוצאת בדיקת QA" },
+
+    // אזור ז — מרווח (V)
+    { col: 22, name: "",                  zone: "מרווח",            writers: [],                              readers: [],              values: "",                                                                notes: "שמור לשימוש עתידי" },
+
+    // אזור ח — לינקים (W–Y)
+    { col: 23, name: "Source_URL",        zone: "לינקים",           writers: ["S03","S04"],                   readers: ["S06","QA"],    values: "https://drive.google.com/...",                                    notes: "קישור לקובץ המקורי ב-Drive" },
+    { col: 24, name: "TXT_URL",           zone: "לינקים",           writers: ["S06"],                         readers: ["S05","QA"],    values: "https://drive.google.com/...",                                    notes: "קישור לקובץ TXT שנוצר" },
+    { col: 25, name: "Temp_URL",          zone: "לינקים",           writers: ["S06"],                         readers: [],              values: "https://drive.google.com/...",                                    notes: "קישור זמני במהלך המרה" },
+
+    // אזור ט — טקסט גולמי (Z)
+    { col: 26, name: "Raw_Text",          zone: "טקסט גולמי",       writers: ["S06","S07"],                   readers: [],              values: "טקסט מלא",                                                        notes: "הטקסט המלא — עמודה אחרונה, רחבה מאוד" },
+  ]
+
+};
+
+// ══════════════════════════════════════════════════════════════════
+// פונקציה 1 — הדפסת מבנה גליון (כלי פיתוח → תיעוד)
+// ══════════════════════════════════════════════════════════════════
+
+function printSheetMap() {
+  const ui        = SpreadsheetApp.getUi();
+  const sheetName = _promptSheetName(ui);
+  if (!sheetName) return;
+
+  const cols = SHEETS_MAP[sheetName];
+  if (!cols) { ui.alert("גליון לא נמצא במפה: " + sheetName); return; }
+
+  let report      = "מבנה עמודות — " + sheetName + "\n";
+  report         += "═".repeat(50) + "\n\n";
+  let currentZone = "";
+
+  cols.forEach(function(c) {
+    if (c.zone !== currentZone) {
+      currentZone = c.zone;
+      report += "\n── " + currentZone + " ──\n";
+    }
+    const letter = _colToLetter(c.col);
+    report += letter + " | " + (c.name || "שמור") + "\n";
+    if (c.notes)           report += "   → " + c.notes + "\n";
+    if (c.writers.length)  report += "   כותבים: " + c.writers.join(", ") + "\n";
+    if (c.values)          report += "   ערכים: " + c.values + "\n";
+  });
+
+  ui.alert("מפת עמודות — " + sheetName, report, ui.ButtonSet.OK);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פונקציה 2 — פרטי עמודה בודדת (כלי פיתוח → תיעוד)
+// ══════════════════════════════════════════════════════════════════
+
+function printColumnDetail() {
+  const ui        = SpreadsheetApp.getUi();
+  const sheetName = _promptSheetName(ui);
+  if (!sheetName) return;
+
+  const colResult = ui.prompt(
+    "פרטי עמודה",
+    "הכנס אות עמודה (A-Z):",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (colResult.getSelectedButton() !== ui.Button.OK) return;
+
+  const letter = colResult.getResponseText().trim().toUpperCase();
+  const colNum = _letterToCol(letter);
+  const cols   = SHEETS_MAP[sheetName];
+  if (!cols) { ui.alert("גליון לא נמצא: " + sheetName); return; }
+
+  const col = cols.find(function(c) { return c.col === colNum; });
+  if (!col) { ui.alert("עמודה " + letter + " לא מוגדרת במפה."); return; }
+
+  let detail  = "עמודה " + letter + " — " + sheetName + "\n";
+  detail     += "═".repeat(40) + "\n\n";
+  detail     += "שם:       " + (col.name  || "שמור")           + "\n";
+  detail     += "אזור:     " + col.zone                        + "\n";
+  detail     += "הערה:     " + col.notes                       + "\n";
+  detail     += "ערכים:    " + col.values                      + "\n";
+  detail     += "כותבים:   " + (col.writers.join(", ") || "—") + "\n";
+  detail     += "קוראים:   " + (col.readers.join(", ") || "—") + "\n";
+
+  ui.alert("פרטי עמודה " + letter, detail, ui.ButtonSet.OK);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פונקציה 3 — שחזור כותרות (ניהול מערכת — LAB + PROD)
+// ══════════════════════════════════════════════════════════════════
+
+function restoreHeaders() {
+  const ui        = SpreadsheetApp.getUi();
+  const sheetName = _promptSheetName(ui);
+  if (!sheetName) return;
+
+  const cols = SHEETS_MAP[sheetName];
+  if (!cols) { ui.alert("גליון לא נמצא במפה: " + sheetName); return; }
+
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) { ui.alert("גליון לא נמצא בקובץ: " + sheetName); return; }
+
+  const confirm = ui.alert(
+    "שחזור כותרות",
+    "האם לשחזר את כותרות שורה 1 בגליון " + sheetName + "?\nפעולה זו תדרוס את הכותרות הנוכחיות.",
+    ui.ButtonSet.YES_NO
+  );
+  if (confirm !== ui.Button.YES) return;
+
+  const totalCols = cols.length;
+  const headers   = new Array(totalCols).fill("");
+  cols.forEach(function(c) { headers[c.col - 1] = c.name || ""; });
+
+  sheet.getRange(1, 1, 1, totalCols).setValues([headers]);
+  sheet.getRange(1, 1, 1, totalCols).setFontWeight("bold");
+  sheet.getRange(1, 1).activate();
+
+  ui.alert("✅ כותרות שוחזרו בהצלחה לגליון " + sheetName);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פונקציה 4 — בדיקת הרשאות כתיבה (ניהול מערכת — LAB בלבד)
+// ══════════════════════════════════════════════════════════════════
+
+function checkWritePermissions() {
+  const ui        = SpreadsheetApp.getUi();
+  const sheetName = _promptSheetName(ui);
+  if (!sheetName) return;
+
+  const serviceResult = ui.prompt(
+    "בדיקת הרשאות כתיבה",
+    "הכנס שם שירות (S03/S04/S05/S06/S07/QA):",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (serviceResult.getSelectedButton() !== ui.Button.OK) return;
+
+  const service  = serviceResult.getResponseText().trim().toUpperCase();
+  const cols     = SHEETS_MAP[sheetName];
+  if (!cols) { ui.alert("גליון לא נמצא: " + sheetName); return; }
+
+  let allowed  = [];
+  let forbidden = [];
+
+  cols.forEach(function(c) {
+    const letter = _colToLetter(c.col);
+    if (c.writers.indexOf(service) !== -1) {
+      allowed.push(letter + " (" + (c.name || "שמור") + ")");
+    } else if (c.name !== "") {
+      forbidden.push(letter + " (" + c.name + ")");
+    }
+  });
+
+  let report  = "שירות: " + service + " | גליון: " + sheetName + "\n\n";
+  report     += "✅ מורשה לכתוב:\n"  + (allowed.join(", ")   || "—") + "\n\n";
+  report     += "🚫 אסור לכתוב:\n"   + (forbidden.join(", ") || "—");
+
+  ui.alert("הרשאות כתיבה — " + service, report, ui.ButtonSet.OK);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פונקציות עזר
+// ══════════════════════════════════════════════════════════════════
+
+function _promptSheetName(ui) {
+  const sheets = Object.keys(SHEETS_MAP).join("\n");
+  const result = ui.prompt(
+    "בחר גליון",
+    "גליונות זמינים:\n" + sheets + "\n\nהכנס שם גליון:",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (result.getSelectedButton() !== ui.Button.OK) return null;
+  const name = result.getResponseText().trim();
+  if (!SHEETS_MAP[name]) {
+    ui.alert("גליון לא נמצא: " + name);
+    return null;
+  }
+  return name;
+}
+
+function _colToLetter(num) {
+  let letter = "";
+  while (num > 0) {
+    const mod = (num - 1) % 26;
+    letter    = String.fromCharCode(65 + mod) + letter;
+    num       = Math.floor((num - 1) / 26);
+  }
+  return letter;
+}
+
+function _letterToCol(letter) {
+  let col = 0;
+  for (let i = 0; i < letter.length; i++) {
+    col = col * 26 + letter.charCodeAt(i) - 64;
+  }
+  return col;
+}
