@@ -1,7 +1,9 @@
 /**
  * MedicalPilot — QA_Tests.gs
  * בדיקת תאימות נתונים, כותרות ותיקון עמודות
- * @version 1.2.0 | @updated 26/04/2026 | @service QA
+ * @version 1.3.0 | @updated 27/04/2026 12:00 | @service QA
+ * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/QA_Tests.gs
+ * שינוי: validateTxtLinks — לוגיקה חדשה עם חיפוש בDrive + קודי שגיאה מדויקים
  */
 
 const SHEET_NAME = "ניהול_מיילים";
@@ -38,17 +40,12 @@ function _getTargetRows(sheet) {
   const numRows     = activeRange.getNumRows();
   const lastRow     = sheet.getLastRow();
 
-  // שורה 1 = כותרות — לא נתונים
   if (activeRow === 1 || lastRow < 2) {
     return { mode: "all", rows: _range(2, lastRow) };
   }
-
-  // אם מסומנות יותר מ-2 שורות — כל הגיליון
   if (numRows > 2) {
     return { mode: "all", rows: _range(2, lastRow) };
   }
-
-  // שורה בודדת
   return { mode: "single", rows: [activeRow] };
 }
 
@@ -59,7 +56,6 @@ function _range(from, to) {
 }
 
 function _jumpTo(sheet, rowNum, success) {
-  // הצלחה → M (13) | כשלון → R (18)
   const col = success ? 13 : 18;
   sheet.getRange(rowNum, col).activate();
 }
@@ -85,7 +81,7 @@ function runAllTests() {
   if (!hasIssues) {
     report += "\n✅ הכל תקין — אין צורך בתיקון.";
     ui.alert("תוצאות QA", report, ui.ButtonSet.OK);
-    sheet.getRange(2, 13).activate(); // קפיצה ל-M
+    sheet.getRange(2, 13).activate();
     return;
   }
 
@@ -242,7 +238,6 @@ function checkRowLogic() {
   const target   = _getTargetRows(sheet);
   const rows     = target.rows;
   const allData  = sheet.getRange(2, 1, sheet.getLastRow() - 1, TOTAL_COLS).getValues();
-  const qaResults = [];
   let firstBadRow = null;
   let issues = 0;
 
@@ -292,19 +287,17 @@ function checkRowLogic() {
   SpreadsheetApp.flush();
 
   if (target.mode === "single") {
-    // שורה בודדת — קפוץ לM או R
     _jumpTo(sheet, rows[0], issues === 0);
     if (issues > 0) {
-      ui.alert("שורה " + rows[0], "⚠️ נמצאו בעיות — ראה עמודה U ו-R/T", ui.ButtonSet.OK);
+      ui.alert("שורה " + rows[0], "⚠️ נמצאו בעיות — ראה עמודה U ו-S/T", ui.ButtonSet.OK);
     }
   } else {
-    // כל הגיליון
     if (issues === 0) {
       ui.alert("בדיקת לוגיקה", "✅ כל " + rows.length + " השורות תקינות", ui.ButtonSet.OK);
       sheet.getRange(2, 13).activate();
     } else {
       ui.alert("בדיקת לוגיקה", "⚠️ " + issues + " שורות עם בעיות\nמקפיץ לשורה הראשונה השגויה", ui.ButtonSet.OK);
-      sheet.getRange(firstBadRow, 18).activate(); // R
+      sheet.getRange(firstBadRow, 19).activate(); // S = Error_Code
     }
   }
 }
@@ -317,47 +310,125 @@ function validateTxtLinks() {
   const sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) { ui.alert("שגיאה: גיליון לא נמצא."); return; }
 
-  const target     = _getTargetRows(sheet);
-  const rows       = target.rows;
-  let valid        = 0;
-  let fixed        = 0;
-  let noLink       = 0;
-  let errors       = 0;
-  let firstBadRow  = null;
+  const target  = _getTargetRows(sheet);
+  const rows    = target.rows;
+  const lastRow = sheet.getLastRow();
+  const allData = sheet.getRange(2, 1, lastRow - 1, TOTAL_COLS).getValues();
+
+  let valid       = 0;
+  let waiting     = 0;
+  let linked      = 0;
+  let fixed       = 0;
+  let errors      = 0;
+  let firstBadRow = null;
+
+  // מציאת תיקיית Converted_TXT
+  const folders = DriveApp.getFoldersByName("Converted_TXT");
+  const convertedFolder = folders.hasNext() ? folders.next() : null;
 
   rows.forEach(function(rowNum) {
-    const txtUrl = (sheet.getRange(rowNum, 24).getValue() || "").toString().trim();
+    const row        = allData[rowNum - 2];
+    if (!row) return;
 
+    const attachName = (row[7]  || "").toString().trim(); // H = Attachment_Name
+    const pipeline   = (row[12] || "").toString().trim(); // M = Pipeline_Status
+    const fileType   = (row[14] || "").toString().trim(); // O = File_Type
+    const fileSize   = (row[15] || "").toString().trim(); // P = File_Size
+    const txtUrl     = (row[23] || "").toString().trim(); // X = TXT_URL
+
+    // ── מקרה א — X ריק ───────────────────────────────────────────────────────
     if (!txtUrl) {
-      sheet.getRange(rowNum, 13).setValue("ממתין להמרה ל-TXT");
-      noLink++;
+
+      // בדוק שO ו-P מלאים
+      if (!fileType) {
+        sheet.getRange(rowNum, 19).setValue("MISSING_TYPE");
+        sheet.getRange(rowNum, 20).setValue("עמודה O ריקה — סוג קובץ חסר, הרץ S05 קודם");
+        if (!firstBadRow) firstBadRow = rowNum;
+        errors++;
+        return;
+      }
+      if (!fileSize) {
+        sheet.getRange(rowNum, 19).setValue("MISSING_SIZE");
+        sheet.getRange(rowNum, 20).setValue("עמודה P ריקה — גודל קובץ חסר, הרץ S05 קודם");
+        if (!firstBadRow) firstBadRow = rowNum;
+        errors++;
+        return;
+      }
+
+      // חפש קובץ TXT ב-Converted_TXT לפי שם קובץ מקורי (עמודה H)
+      if (convertedFolder && attachName) {
+        const baseName = attachName.replace(/\.[^/.]+$/, ""); // ללא סיומת
+        const files    = convertedFolder.getFiles();
+        let foundFile  = null;
+
+        while (files.hasNext()) {
+          const f = files.next();
+          if (f.getName().indexOf(baseName) === 0 && f.getMimeType() === "text/plain") {
+            foundFile = f;
+            break;
+          }
+        }
+
+        if (foundFile) {
+          // נמצא קובץ TXT — חבר אותו
+          sheet.getRange(rowNum, 24).setValue(foundFile.getUrl());
+          sheet.getRange(rowNum, 13).setValue("הומר ל-TXT");
+          sheet.getRange(rowNum, 19).clearContent();
+          sheet.getRange(rowNum, 20).clearContent();
+          if (!firstBadRow) firstBadRow = rowNum;
+          linked++;
+          return;
+        }
+      }
+
+      // לא נמצא קובץ — ממתין בצדק
+      if (pipeline !== "ממתין להמרה ל-TXT") {
+        sheet.getRange(rowNum, 13).setValue("ממתין להמרה ל-TXT");
+      }
+      waiting++;
       return;
     }
 
+    // ── מקרה ב — X מלא ───────────────────────────────────────────────────────
     try {
       const match = txtUrl.match(/\/d\/([a-zA-Z0-9_-]{10,})/);
       if (!match) {
         sheet.getRange(rowNum, 24).clearContent();
         sheet.getRange(rowNum, 13).setValue("ממתין להמרה ל-TXT");
+        sheet.getRange(rowNum, 19).setValue("LINK_ERROR");
+        sheet.getRange(rowNum, 20).setValue("לינק לא תקין — נוקה");
         if (!firstBadRow) firstBadRow = rowNum;
         fixed++;
         return;
       }
 
-      const fileId = match[1];
-      let file;
+      const txtFileId = match[1];
+      let txtFile;
       try {
-        file = DriveApp.getFileById(fileId);
+        txtFile = DriveApp.getFileById(txtFileId);
       } catch (e) {
         sheet.getRange(rowNum, 24).clearContent();
         sheet.getRange(rowNum, 13).setValue("ממתין להמרה ל-TXT");
+        sheet.getRange(rowNum, 19).setValue("FILE_NOT_FOUND");
+        sheet.getRange(rowNum, 20).setValue("קובץ לא נמצא ב-Drive — לינק נוקה");
         if (!firstBadRow) firstBadRow = rowNum;
         fixed++;
         return;
       }
 
-      const mime    = file.getMimeType();
-      const parents = file.getParents();
+      // בדוק MIME
+      if (txtFile.getMimeType() !== "text/plain") {
+        sheet.getRange(rowNum, 24).clearContent();
+        sheet.getRange(rowNum, 13).setValue("ממתין להמרה ל-TXT");
+        sheet.getRange(rowNum, 19).setValue("WRONG_TYPE");
+        sheet.getRange(rowNum, 20).setValue("קובץ לא מסוג TXT — MIME: " + txtFile.getMimeType());
+        if (!firstBadRow) firstBadRow = rowNum;
+        fixed++;
+        return;
+      }
+
+      // בדוק תיקייה
+      const parents = txtFile.getParents();
       let inCorrectFolder = false;
       while (parents.hasNext()) {
         if (parents.next().getName() === "Converted_TXT") {
@@ -366,21 +437,26 @@ function validateTxtLinks() {
         }
       }
 
-      if (mime === "text/plain" && inCorrectFolder) {
-        sheet.getRange(rowNum, 13).setValue("הומר ל-TXT");
-        valid++;
-      } else {
-        try { file.setTrashed(true); } catch (e) {}
+      if (!inCorrectFolder) {
         sheet.getRange(rowNum, 24).clearContent();
         sheet.getRange(rowNum, 13).setValue("ממתין להמרה ל-TXT");
+        sheet.getRange(rowNum, 19).setValue("WRONG_FOLDER");
+        sheet.getRange(rowNum, 20).setValue("קובץ לא נמצא בתיקיית Converted_TXT");
         if (!firstBadRow) firstBadRow = rowNum;
         fixed++;
+        return;
       }
+
+      // הכל תקין
+      sheet.getRange(rowNum, 13).setValue("הומר ל-TXT");
+      sheet.getRange(rowNum, 19).clearContent();
+      sheet.getRange(rowNum, 20).clearContent();
+      valid++;
 
     } catch (e) {
       Logger.log("שגיאה בשורה " + rowNum + ": " + e.message);
       sheet.getRange(rowNum, 19).setValue("UNKNOWN");
-      sheet.getRange(rowNum, 20).setValue("שגיאה בבדיקת לינק: " + e.message.substring(0, 80));
+      sheet.getRange(rowNum, 20).setValue("שגיאה: " + e.message.substring(0, 80));
       if (!firstBadRow) firstBadRow = rowNum;
       errors++;
     }
@@ -389,18 +465,17 @@ function validateTxtLinks() {
     Utilities.sleep(100);
   });
 
-  const hasIssues = fixed > 0 || errors > 0;
-
   ui.alert(
     "בדיקת לינקי TXT",
-    "✅ תקינים: " + valid + "\n" +
-    "🔄 ללא לינק: " + noLink + "\n" +
-    "🗑️ שגויים שנוקו: " + fixed + "\n" +
-    "❌ שגיאות: " + errors,
+    "✅ תקינים: "         + valid   + "\n" +
+    "🔗 חוברו מחדש: "    + linked  + "\n" +
+    "🔄 ממתינים להמרה: " + waiting + "\n" +
+    "🗑️ לינקים שגויים: " + fixed   + "\n" +
+    "❌ שגיאות: "         + errors,
     ui.ButtonSet.OK
   );
 
-  if (hasIssues && firstBadRow) {
+  if (firstBadRow) {
     sheet.getRange(firstBadRow, 13).activate();
   } else {
     sheet.getRange(2, 13).activate();
