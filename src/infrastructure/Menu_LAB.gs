@@ -1,77 +1,82 @@
 /**
  * MedicalPilot — Menu_LAB.gs
- * תפריט מעבדה (LA)
- * @version 99.0 | @updated 24/04/2026
+ * @version 10.0 | @updated 27/04/2026 11:00 | @service MENU_LAB
+ * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Menu_LAB.gs
  */
 
 function buildLabMenu() {
-  buildLabMenu_v99_0();
+  buildLabMenu_v10_0();
 }
 
-function buildLabMenu_v99_0() {
+function buildLabMenu_v10_0() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('LA v99.0');
+  var menu = ui.createMenu('LA v10.0');
 
-  var subMenuIngestion = ui.createMenu('🔄 קליטת נתונים')
-    .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
-    .addItem('בדיקת הרשאות', 'checkUserAccess')
+  // 🔄 קליטת נתונים
+  var subIngestion = ui.createMenu('🔄 קליטת נתונים')
     .addItem('סריקת Gmail', 'runEmailIngestion')
     .addItem('סריקת Drive', 'syncDriveFiles_LAB')
     .addItem('חילוץ מטא-דאטה', 'extractMetaData');
-  menu.addSubMenu(subMenuIngestion);
+  menu.addSubMenu(subIngestion);
 
   menu.addSeparator();
 
-  var subMenuAI = ui.createMenu('🧠 עיבוד AI')
+  // 🧠 עיבוד AI
+  var subAI = ui.createMenu('🧠 עיבוד AI')
     .addItem('המרה ל-TXT', 'run_MedicalPilot_V2_6_2')
     .addItem('סיווג מסמכים', 'classifyDocument')
     .addItem('אימות ידני ולמידה', 'showMainSidebar')
     .addItem('חילוץ שדות מלא', 'extractMedicalHeaders');
-  menu.addSubMenu(subMenuAI);
+  menu.addSubMenu(subAI);
 
   menu.addSeparator();
 
-  var subMenuAdmin = ui.createMenu('⚙️ ניהול מערכת')
-    .addItem('גיבוי GitHub', 'uploadToGitHub')
-    .addItem('ניהול לוגים', 'logSystemEvent')
-    .addItem('הגדרות תשתית', 'getConfig');
-  menu.addSubMenu(subMenuAdmin);
+  // ⚙️ ניהול מערכת
+  var subInfraTests = ui.createMenu('🔌 בדיקות תשתית')
+    .addItem('תקינות מערכת', 'checkSystemMorning')
+    .addItem('הרשאות משתמש', 'checkUserAccess')
+    .addItem('חיבור Gemini', 'testAiResponse')
+    .addItem('חיבור GitHub', 'testGitHubConnection')
+    .addItem('הגדרות מערכת', 'getConfig');
+
+  var subDataTests = ui.createMenu('📊 בדיקות נתונים')
+    .addItem('בדיקות QA כלליות', 'runAllTests')
+    .addItem('בדיקת לינקי TXT', 'validateTxtLinks')
+    .addItem('בדיקת לוגיקה שורות', 'checkRowLogic');
+
+  var subAdmin = ui.createMenu('⚙️ ניהול מערכת')
+    .addSubMenu(subInfraTests)
+    .addSubMenu(subDataTests)
+    .addSeparator()
+    .addItem('ניהול לוגים', 'logSystemEvent');
+  menu.addSubMenu(subAdmin);
 
   menu.addSeparator();
 
-  var subMenuDev = ui.createMenu('🔬 כלי פיתוח')
+  // 🔬 כלי פיתוח
+  var subGitSync = ui.createMenu('🔄 סנכרון גיט')
+    .addItem('גיט ← עורך (קובץ בודד)', 'syncFromGitByChoice')
+    .addItem('גיט ← עורך (הכל)', 'syncAllFromGit')
+    .addItem('עורך ← גיט (קובץ בודד)', 'syncToGitByChoice')
+    .addItem('גיבוי מלא', 'syncAllFilesToGitHub');
+
+  var subDocs = ui.createMenu('📝 תיעוד')
+    .addItem('עדכון CONTEXT.md', 'pushContextToGitHub')
+    .addItem('סיכום ומסמך חפיפה', 'syncSessionDocs')
+    .addItem('סנכרון Logger', 'testSyncLogger');
+
+  var subDev = ui.createMenu('🔬 כלי פיתוח')
     .addItem('משימות פיתוח', 'refreshDevDashboard')
-    .addItem('אבחון AI', 'testAiResponse')
-    .addItem('בדיקות QA', 'runAllTests')
+    .addItem('בדיקת כתיבה לגיט', 'testGitHubWrite')
     .addSeparator()
-    .addItem('🧪 בדיקת כתיבה לגיטהאב', 'testGitHubWrite')
-    .addItem('📤 עדכון CONTEXT.md בגיטהאב', 'pushContextToGitHub')
-    .addItem('🔄 סנכרון סיום סשן', 'endSessionSync')
-    .addSeparator()
-    .addItem('⬇️ עדכון קובץ בודד מגיט לעורך', 'syncFromGitByChoice')
-    .addItem('⬇️ עדכון מלא מגיט לעורך', 'syncAllFromGit')
-    .addItem('⬆️ עדכון קובץ בודד מהעורך לגיט', 'syncToGitByChoice')
-    .addSeparator()
-    .addItem('🌙 סיכום ומסמך חפיפה', 'syncSessionDocs')
-    .addSeparator()
-    .addItem('⬇️ סנכרון Logger מגיטהאב לעורך', 'testSyncLogger');
-  menu.addSubMenu(subMenuDev);
+    .addSubMenu(subGitSync)
+    .addSubMenu(subDocs);
+  menu.addSubMenu(subDev);
 
   menu.addToUi();
 }
 
-function buildLabMenu_v97_8() { buildLabMenu_v99_0(); }
-function buildLabMenu_v97_7() { buildLabMenu_v99_0(); }
-function buildLabMenu_v97_5() { buildLabMenu_v99_0(); }
-
-function buildLabMenu_v96_9_1() {
-  const ui = SpreadsheetApp.getUi();
-  ui.createMenu('LA v96.9.1')
-    .addItem('🔬 ניסוי חילוץ כותרת', 'runAiHeaderExtraction_v96_8_1')
-    .addItem('🧪 בדיקת סריקת PDF', 'testPdfProcessing')
-    .addSeparator()
-    .addItem('🛠️ הרצת אבחון עמודה U', 'runFullDiagnosticToColumnU')
-    .addSeparator()
-    .addItem('💾 ניסוי: תיעוד סוף יום', 'runEndOfDayBackup')
-    .addToUi();
-}
+function buildLabMenu_v99_0() { buildLabMenu_v10_0(); }
+function buildLabMenu_v97_8() { buildLabMenu_v10_0(); }
+function buildLabMenu_v97_7() { buildLabMenu_v10_0(); }
+function buildLabMenu_v97_5() { buildLabMenu_v10_0(); }
