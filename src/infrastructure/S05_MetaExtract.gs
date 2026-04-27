@@ -1,6 +1,7 @@
 /**
  * MedicalPilot — S05_MetaExtract.gs
- * @version 2.3.0 | @updated 26/04/2026 | @service S05
+ * @version 2.3.0 | @updated 26/04/2026 09:00 | @service S05
+ * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S05_MetaExtract.gs
  * תיקון: דילוג על שורות שכבר הומרו ויש להן לינק TXT
  * עמודות: O=15 סוג | P=16 גודל | R=18 כפולים | S=19 שגיאה | T=20 פירוט | X=24 לינק TXT
  */
@@ -21,14 +22,13 @@ function extractMetaData() {
 
   for (let i = 0; i < allData.length; i++) {
     const rowNum = i + 2;
-    const fileId = allData[i][0]; // A = עמודה 1
+    const fileId = allData[i][0];
     if (!fileId) continue;
 
     try {
-      const currentM = (allData[i][12] || "").toString().trim(); // M = עמודה 13
-      const linkX    = (allData[i][23] || "").toString().trim(); // X = עמודה 24
+      const currentM = (allData[i][12] || "").toString().trim();
+      const linkX    = (allData[i][23] || "").toString().trim();
 
-      // דלג על שורות שכבר הומרו ויש להן לינק TXT תקין
       if (currentM === "הומר ל-TXT" && linkX !== "") {
         skipped++;
         continue;
@@ -39,7 +39,6 @@ function extractMetaData() {
       const sizeKB   = Math.round(file.getSize() / 1024);
       const sizeFormatted = sizeKB + " KB";
 
-      // שלב א — סיווג סוג קובץ
       let systemType = "לא נתמך";
       const mime = mimeType.toLowerCase();
 
@@ -64,7 +63,6 @@ function extractMetaData() {
         systemType = "SYSTEM_TXT";
       }
 
-      // שלב ב — סטטוס M
       let statusM = "";
       if (linkX !== "") {
         statusM = "הומר ל-TXT";
@@ -74,7 +72,6 @@ function extractMetaData() {
         statusM = "ממתין להמרה ל-TXT";
       }
 
-      // שלב ג — כפולים ולוגו לעמודה R
       let alertR = "";
       if (sizeKB < 10) {
         alertR = "חשוד כלוגו/ריק";
@@ -87,13 +84,12 @@ function extractMetaData() {
         }
       }
 
-      // כתיבה לגליון — לפי COLUMN_MAP
-      sheet.getRange(rowNum, 15).setValue(systemType);    // O = File_Type
-      sheet.getRange(rowNum, 16).setValue(sizeFormatted); // P = File_Size
-      sheet.getRange(rowNum, 13).setValue(statusM);       // M = Pipeline_Status
-      sheet.getRange(rowNum, 18).setValue(alertR);        // R = Duplicate_Flag
-      sheet.getRange(rowNum, 19).clearContent();          // S = Error_Code
-      sheet.getRange(rowNum, 20).clearContent();          // T = Error_Detail
+      sheet.getRange(rowNum, 15).setValue(systemType);
+      sheet.getRange(rowNum, 16).setValue(sizeFormatted);
+      sheet.getRange(rowNum, 13).setValue(statusM);
+      sheet.getRange(rowNum, 18).setValue(alertR);
+      sheet.getRange(rowNum, 19).clearContent();
+      sheet.getRange(rowNum, 20).clearContent();
 
       processed++;
 
@@ -123,11 +119,11 @@ function clearMetaData_LAB() {
   if (!sheet) return;
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
-  sheet.getRange(2, 13, lastRow - 1).clearContent(); // M
-  sheet.getRange(2, 15, lastRow - 1).clearContent(); // O
-  sheet.getRange(2, 16, lastRow - 1).clearContent(); // P
-  sheet.getRange(2, 18, lastRow - 1).clearContent(); // R
-  sheet.getRange(2, 19, lastRow - 1).clearContent(); // S
-  sheet.getRange(2, 20, lastRow - 1).clearContent(); // T
+  sheet.getRange(2, 13, lastRow - 1).clearContent();
+  sheet.getRange(2, 15, lastRow - 1).clearContent();
+  sheet.getRange(2, 16, lastRow - 1).clearContent();
+  sheet.getRange(2, 18, lastRow - 1).clearContent();
+  sheet.getRange(2, 19, lastRow - 1).clearContent();
+  sheet.getRange(2, 20, lastRow - 1).clearContent();
   ss.toast("עמודות המטא-דאטה נוקו", "איפוס LAB", 5);
 }
