@@ -1,5 +1,7 @@
 /**
- * MedicalPilot v97.5 - Main Entry
+ * MedicalPilot — Main.gs
+ * @version 10.0 | @updated 27/04/2026 11:00 | @service MAIN
+ * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Main.gs
  */
 
 function onOpen() {
