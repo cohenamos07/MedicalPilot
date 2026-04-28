@@ -1,17 +1,17 @@
 /**
  * MedicalPilot — Menu_LAB.gs
- * @version 10.2 | @updated 28/04/2026 16:03 | @service MENU_LAB
+ * @version 10.3 | @updated 28/04/2026 19:01 | @service MENU_LAB
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Menu_LAB.gs
- * שינוי: הוספת הקמת גליון חדש מהמפה תחת ניהול מערכת
+ * שינוי: הוספת תת-תפריט מנהל משאבים תחת ניהול מערכת
  */
 
 function buildLabMenu() {
-  buildLabMenu_v10_2();
+  buildLabMenu_v10_3();
 }
 
-function buildLabMenu_v10_2() {
+function buildLabMenu_v10_3() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('LA v10.2');
+  var menu = ui.createMenu('LA v10.3');
 
   // 🔄 קליטת נתונים
   var subIngestion = ui.createMenu('🔄 קליטת נתונים')
@@ -45,9 +45,17 @@ function buildLabMenu_v10_2() {
     .addItem('בדיקת לינקי TXT',     'validateTxtLinks')
     .addItem('בדיקת לוגיקה שורות',  'checkRowLogic');
 
+  var subResources = ui.createMenu('📦 מנהל משאבים')
+    .addItem('הצג מאזן מחלצים',     'showExtractorBalance')
+    .addItem('בדוק כל המחלצים',     'checkAllExtractors')
+    .addItem('אפס שימוש יומי',      'resetDailyUsage')
+    .addSeparator()
+    .addItem('הגדר טריגר לילי',     'createDailyResetTrigger');
+
   var subAdmin = ui.createMenu('⚙️ ניהול מערכת')
     .addSubMenu(subInfraTests)
     .addSubMenu(subDataTests)
+    .addSubMenu(subResources)
     .addSeparator()
     .addItem('🏗️ הקמת גליון חדש מהמפה', 'buildSheetFromMap')
     .addItem('שחזור כותרות',              'restoreHeaders')
@@ -84,9 +92,10 @@ function buildLabMenu_v10_2() {
   menu.addToUi();
 }
 
-function buildLabMenu_v10_1() { buildLabMenu_v10_2(); }
-function buildLabMenu_v10_0() { buildLabMenu_v10_2(); }
-function buildLabMenu_v99_0() { buildLabMenu_v10_2(); }
-function buildLabMenu_v97_8() { buildLabMenu_v10_2(); }
-function buildLabMenu_v97_7() { buildLabMenu_v10_2(); }
-function buildLabMenu_v97_5() { buildLabMenu_v10_2(); }
+function buildLabMenu_v10_2() { buildLabMenu_v10_3(); }
+function buildLabMenu_v10_1() { buildLabMenu_v10_3(); }
+function buildLabMenu_v10_0() { buildLabMenu_v10_3(); }
+function buildLabMenu_v99_0() { buildLabMenu_v10_3(); }
+function buildLabMenu_v97_8() { buildLabMenu_v10_3(); }
+function buildLabMenu_v97_7() { buildLabMenu_v10_3(); }
+function buildLabMenu_v97_5() { buildLabMenu_v10_3(); }
