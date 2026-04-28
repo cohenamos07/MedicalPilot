@@ -1,36 +1,54 @@
 /**
  * MedicalPilot — S06_ConvertTXT.gs
  * המרת קבצים לפורמט TXT מובנה — 6 מסלולים
- * @version 1.2.0 | @updated 26/04/2026 | @service S06
- * תיקון: עמודות מעודכנות לפי COLUMN_MAP v1.0
- * O=15 סוג | P=16 גודל | S=19 שגיאה | T=20 פירוט | X=24 לינק TXT | W=23 מקור
+ * @version 1.4.0 | @updated 28/04/2026 19:30 | @service S06
+ * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S06_ConvertTXT.gs
+ * שינוי: שילוב מנהל מחלצים (getAvailableExtractor + updateExtractorUsage) + מחיקת OCR ישן לפני שמירת TXT חדש
+ * עמודות: M=13 סטטוס | O=15 סוג | P=16 גודל | Q=17 מורכבות | S=19 שגיאה | T=20 פירוט | X=24 לינק TXT | W=23 מקור
  */
 
-function _callGemini(apiKey, payload, callerName) {
-  const models = ["gemini-2.5-flash", "gemini-2.0-flash"];
+// ══════════════════════════════════════════════════════════════════
+// פונקציית ליבה — קריאת Gemini דרך מנהל מחלצים
+// ══════════════════════════════════════════════════════════════════
 
-  for (let i = 0; i < models.length; i++) {
-    const model = models[i];
-    const url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + apiKey;
-    const response = UrlFetchApp.fetch(url, {
-      method: "post",
-      contentType: "application/json",
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    });
-    const code = response.getResponseCode();
-    if (code === 200) {
-      console.log(callerName + " הצליח עם מודל: " + model);
-      return response;
-    }
-    if (code === 503 && i < models.length - 1) {
-      console.log(callerName + ": " + model + " עמוס — מנסה " + models[i + 1]);
-      Utilities.sleep(2000);
-      continue;
-    }
-    throw new Error(callerName + " נכשל (" + code + "): " + response.getContentText());
+function _callGemini(apiKey, payload, callerName, complexity) {
+  // שלב 1 — קבלת מחלץ פנוי מהמנהל
+  const extractor = getAvailableExtractor(complexity || "SIMPLE");
+  if (!extractor) {
+    throw new Error("429: אין מחלץ זמין — כל המכסות מוצו. נסה מחר.");
   }
+
+  const url = extractor.url + "?key=" + apiKey;
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+
+  const code = response.getResponseCode();
+
+  if (code === 200) {
+    console.log(callerName + " הצליח עם: " + extractor.id);
+    updateExtractorUsage(extractor.id); // שלב 2 — עדכון מאזן
+    return response;
+  }
+
+  if (code === 429) {
+    throw new Error("429: מכסה מוצתה ל-" + extractor.id + " — נסה מחר.");
+  }
+
+  if (code === 503) {
+    throw new Error("503: שרת עמוס ל-" + extractor.id + " — נסה שוב.");
+  }
+
+  throw new Error(callerName + " נכשל (" + code + "): " + response.getContentText().substring(0, 200));
 }
+
+// ══════════════════════════════════════════════════════════════════
+// כתיבת שגיאה לגליון
+// ══════════════════════════════════════════════════════════════════
 
 function _writeError(sheet, row, msg) {
   const isOverload = msg.includes("503") || msg.includes("UNAVAILABLE");
@@ -45,18 +63,23 @@ function _writeError(sheet, row, msg) {
 
   sheet.getRange(row, 19).setValue(errorCode);   // S = Error_Code
   sheet.getRange(row, 20).setValue(errorDetail);  // T = Error_Detail
+  sheet.getRange(row, 19).activate();
 }
 
+// ══════════════════════════════════════════════════════════════════
+// נקודת כניסה ראשית
+// ══════════════════════════════════════════════════════════════════
+
 function run_MedicalPilot_V2_6_2() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
+  const sheet     = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
   const activeRow = sheet.getActiveCell().getRow();
 
   if (activeRow > 1) {
-    // שורה בודדת — בדוק אם כבר טופלה
     const existingLink = sheet.getRange(activeRow, 24).getValue(); // X = TXT_URL
     if (existingLink && existingLink.toString().trim() !== "") {
       sheet.getRange(activeRow, 19).setValue("SKIP");
       sheet.getRange(activeRow, 20).setValue("כבר טופלה — יש לינק ב-X");
+      sheet.getRange(activeRow, 13).activate();
       return;
     }
     _processRow(sheet, activeRow);
@@ -66,33 +89,43 @@ function run_MedicalPilot_V2_6_2() {
   _processBatch(sheet, 5);
 }
 
+// ══════════════════════════════════════════════════════════════════
+// עיבוד אצווה
+// ══════════════════════════════════════════════════════════════════
+
 function _processBatch(sheet, batchSize) {
   const lastRow = sheet.getLastRow();
-  let processed = 0;
+  let processed     = 0;
+  let lastProcessed = 2;
 
   for (let i = 2; i <= lastRow && processed < batchSize; i++) {
-    const fileId = sheet.getRange(i, 1).getValue(); // A
+    const fileId = sheet.getRange(i, 1).getValue();
     if (!fileId) continue;
 
     const existingLink = sheet.getRange(i, 24).getValue(); // X = TXT_URL
     if (existingLink && existingLink.toString().trim() !== "") continue;
 
     _processRow(sheet, i);
+    lastProcessed = i;
     processed++;
     SpreadsheetApp.flush();
   }
 
+  sheet.getRange(lastProcessed, 13).activate();
   SpreadsheetApp.getActiveSpreadsheet().toast(
     "הושלמו " + processed + " שורות", "MedicalPilot S06", 4
   );
 }
+
+// ══════════════════════════════════════════════════════════════════
+// עיבוד שורה בודדת
+// ══════════════════════════════════════════════════════════════════
 
 function _processRow(sheet, row) {
   const apiKey = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY");
   console.log("--- שורה: " + row + " ---");
 
   try {
-    // קריאת File ID מעמודה A, גיבוי מעמודה W (Source_URL)
     const fileId = sheet.getRange(row, 1).getValue() ||
                    (sheet.getRange(row, 23).getValue() ?
                     sheet.getRange(row, 23).getValue().match(/[-\w]{25,}/) ?
@@ -101,12 +134,13 @@ function _processRow(sheet, row) {
     if (!fileId) {
       sheet.getRange(row, 19).setValue("NO_ID");
       sheet.getRange(row, 20).setValue("לא נמצא File ID — בדוק עמודה A");
+      sheet.getRange(row, 19).activate();
       return;
     }
 
-    const file = DriveApp.getFileById(fileId);
-    const mimeType = file.getMimeType();
-    const fileSizeActual = file.getSize();
+    const file              = DriveApp.getFileById(fileId);
+    const mimeType          = file.getMimeType();
+    const fileSizeActual    = file.getSize();
     const fileSizeFormatted = fileSizeActual < 1048576
       ? Math.round(fileSizeActual / 1024) + " KB"
       : (fileSizeActual / 1048576).toFixed(2) + " MB";
@@ -150,6 +184,7 @@ function _processRow(sheet, row) {
     } else {
       sheet.getRange(row, 19).setValue("UNSUPPORTED");
       sheet.getRange(row, 20).setValue("לא נתמך: " + mimeType);
+      sheet.getRange(row, 19).activate();
       return;
     }
 
@@ -161,8 +196,12 @@ function _processRow(sheet, row) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════
+// מסלול 1 — PDF / תמונה (COMPLEX)
+// ══════════════════════════════════════════════════════════════════
+
 function execute_Visual_Path(file, apiKey) {
-  const blob = file.getBlob();
+  const blob       = file.getBlob();
   const base64Data = Utilities.base64Encode(blob.getBytes());
   const prompt = `You are analyzing a document image.
 TASK 1: Extract every single word you can read. Separate each word with " | ".
@@ -182,15 +221,19 @@ Return ONLY this JSON:
     contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: blob.getContentType(), data: base64Data } }] }],
     generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
   };
-  const response = _callGemini(apiKey, payload, "מסלול 1");
-  const res = JSON.parse(response.getContentText());
+  const response  = _callGemini(apiKey, payload, "מסלול 1", "COMPLEX");
+  const res       = JSON.parse(response.getContentText());
   const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
 }
 
+// ══════════════════════════════════════════════════════════════════
+// מסלול 2 — DOCX (MEDIUM)
+// ══════════════════════════════════════════════════════════════════
+
 function execute_Direct_Path(file, apiKey, mimeType, sheet, row) {
   const tempFile = Drive.Files.copy({title: "Temp_MP"}, file.getId(), {convert: true});
-  const rawText = DocumentApp.openById(tempFile.id).getBody().getText();
+  const rawText  = DocumentApp.openById(tempFile.id).getBody().getText();
   DriveApp.getFileById(tempFile.id).setTrashed(true);
   const prompt = `You are analyzing a document.
 TASK 1: Take every word from the text below and list them separated by " | ".
@@ -208,12 +251,16 @@ Return ONLY this JSON:
 }
 Text:
 ${rawText.substring(0, 15000)}`;
-  const payload = { contents: [{ parts: [{ text: prompt }] }] };
-  const response = _callGemini(apiKey, payload, "מסלול 2");
-  const res = JSON.parse(response.getContentText());
+  const payload   = { contents: [{ parts: [{ text: prompt }] }] };
+  const response  = _callGemini(apiKey, payload, "מסלול 2", "MEDIUM");
+  const res       = JSON.parse(response.getContentText());
   const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
 }
+
+// ══════════════════════════════════════════════════════════════════
+// מסלול 3 — Google Docs (SIMPLE)
+// ══════════════════════════════════════════════════════════════════
 
 function execute_Doc_Path(file, apiKey) {
   const rawText = DocumentApp.openById(file.getId()).getBody().getText();
@@ -234,15 +281,19 @@ Return ONLY this JSON:
 }
 Text:
 ${rawText.substring(0, 15000)}`;
-  const payload = { contents: [{ parts: [{ text: prompt }] }] };
-  const response = _callGemini(apiKey, payload, "מסלול 3");
-  const res = JSON.parse(response.getContentText());
+  const payload   = { contents: [{ parts: [{ text: prompt }] }] };
+  const response  = _callGemini(apiKey, payload, "מסלול 3", "SIMPLE");
+  const res       = JSON.parse(response.getContentText());
   const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
 }
 
+// ══════════════════════════════════════════════════════════════════
+// מסלול 4 — תמונה (COMPLEX)
+// ══════════════════════════════════════════════════════════════════
+
 function execute_Image_Path(file, apiKey) {
-  const blob = file.getBlob();
+  const blob       = file.getBlob();
   const base64Data = Utilities.base64Encode(blob.getBytes());
   const prompt = `You are analyzing an image that contains text.
 TASK 1: Extract every single word visible in the image. Separate each word with " | ".
@@ -262,11 +313,15 @@ Return ONLY this JSON:
     contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: blob.getContentType(), data: base64Data } }] }],
     generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
   };
-  const response = _callGemini(apiKey, payload, "מסלול 4");
-  const res = JSON.parse(response.getContentText());
+  const response  = _callGemini(apiKey, payload, "מסלול 4", "COMPLEX");
+  const res       = JSON.parse(response.getContentText());
   const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
 }
+
+// ══════════════════════════════════════════════════════════════════
+// מסלול 5 — טקסט (SIMPLE)
+// ══════════════════════════════════════════════════════════════════
 
 function execute_Text_Path(file, apiKey) {
   const rawText = file.getBlob().getDataAsString();
@@ -287,12 +342,16 @@ Return ONLY this JSON:
 }
 Text:
 ${rawText.substring(0, 15000)}`;
-  const payload = { contents: [{ parts: [{ text: prompt }] }] };
-  const response = _callGemini(apiKey, payload, "מסלול 5");
-  const res = JSON.parse(response.getContentText());
+  const payload   = { contents: [{ parts: [{ text: prompt }] }] };
+  const response  = _callGemini(apiKey, payload, "מסלול 5", "SIMPLE");
+  const res       = JSON.parse(response.getContentText());
   const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
 }
+
+// ══════════════════════════════════════════════════════════════════
+// מסלול 6 — גליון (MEDIUM)
+// ══════════════════════════════════════════════════════════════════
 
 function execute_Sheet_Path(file, apiKey, mimeType) {
   let spreadsheet;
@@ -302,17 +361,17 @@ function execute_Sheet_Path(file, apiKey, mimeType) {
       spreadsheet = SpreadsheetApp.openById(file.getId());
     } else {
       const tempFile = Drive.Files.copy({ title: "Temp_Sheet_MP", mimeType: MimeType.GOOGLE_SHEETS }, file.getId(), { convert: true });
-      tempFileId = tempFile.id;
-      spreadsheet = SpreadsheetApp.openById(tempFileId);
+      tempFileId     = tempFile.id;
+      spreadsheet    = SpreadsheetApp.openById(tempFileId);
     }
   } catch (e) { throw new Error("מסלול 6: לא ניתן לפתוח גליון — " + e.message); }
 
   const sheetsData = [];
-  const allSheets = spreadsheet.getSheets();
+  const allSheets  = spreadsheet.getSheets();
   allSheets.forEach(function(s) {
     const sheetName = s.getName();
-    const lastRow = s.getLastRow();
-    const lastCol = s.getLastColumn();
+    const lastRow   = s.getLastRow();
+    const lastCol   = s.getLastColumn();
     if (lastRow < 1 || lastCol < 1) { sheetsData.push({ name: sheetName, rows: 0, fields: [], sums: [] }); return; }
     const headers = s.getRange(1, 1, 1, lastCol).getValues()[0]
       .map(function(h) { return h ? h.toString().trim() : ""; })
@@ -355,17 +414,36 @@ Based on the sheet structure below, return ONLY this JSON:
 Structure:
 ${summary}`;
 
-  const payload = { contents: [{ parts: [{ text: prompt }] }] };
-  const response = _callGemini(apiKey, payload, "מסלול 6");
-  const res = JSON.parse(response.getContentText());
+  const payload   = { contents: [{ parts: [{ text: prompt }] }] };
+  const response  = _callGemini(apiKey, payload, "מסלול 6", "MEDIUM");
+  const res       = JSON.parse(response.getContentText());
   const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
   return { isSheet: true, m: cleanJson.metadata || {}, sheetsData: sheetsData, sheetCount: allSheets.length };
 }
 
+// ══════════════════════════════════════════════════════════════════
+// שמירה ב-Drive — כולל מחיקת OCR ישן
+// ══════════════════════════════════════════════════════════════════
+
 function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet) {
-  const folders = DriveApp.getFoldersByName("Converted_TXT");
+  const folders      = DriveApp.getFoldersByName("Converted_TXT");
   const targetFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder("Converted_TXT");
-  const m = data.m || {};
+
+  // חיפוש ומחיקת קובץ OCR ישן באותה תיקייה
+  const baseName   = sourceFile.getName().replace(/\.[^/.]+$/, "");
+  const allFiles   = targetFolder.getFiles();
+  while (allFiles.hasNext()) {
+    const f     = allFiles.next();
+    const fName = f.getName();
+    // קובץ ישן — מכיל את שם הקובץ המקורי ואינו קובץ TXT חדש
+    if (fName.includes(baseName) && !fName.endsWith(".txt")) {
+      f.setTrashed(true);
+      Logger.log("נמחק קובץ ישן: " + fName);
+    }
+  }
+
+  // בניית תוכן הקובץ החדש
+  const m   = data.m || {};
   const col = 35;
   let textContent = "";
 
@@ -387,7 +465,7 @@ function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet)
                   "מהות: " + (m.essence || "לא זוהה") + "\n" +
                   "─".repeat(65) + sheetsInfo;
   } else {
-    const words = data.words || "";
+    const words     = data.words || "";
     const wordCount = words ? words.split(" | ").length : 0;
     textContent = [
       "כותרת: "      + (m.title    || "לא זוהה").padEnd(col) + "סוג_מקור:    " + sysType,
@@ -400,17 +478,20 @@ function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet)
     ].join("\n");
   }
 
+  // יצירת קובץ TXT חדש
   const timeStamp = Utilities.formatDate(new Date(), "GMT+3", "HHmm");
-  const fileName = sourceFile.getName().split('.')[0] + "_" + timeStamp + ".txt";
-  const newFile = targetFolder.createFile(fileName, textContent, MimeType.PLAIN_TEXT);
+  const fileName  = baseName + "_" + timeStamp + ".txt";
+  const newFile   = targetFolder.createFile(fileName, textContent, MimeType.PLAIN_TEXT);
 
   // כתיבה לגליון — לפי COLUMN_MAP
-  sheet.getRange(row, 13).setValue("הומר ל-TXT");  // M = Pipeline_Status
-  sheet.getRange(row, 15).setValue(sysType);        // O = File_Type
-  sheet.getRange(row, 16).setValue(size);           // P = File_Size
-  sheet.getRange(row, 24).setValue(newFile.getUrl()); // X = TXT_URL
-  sheet.getRange(row, 19).clearContent();           // S = Error_Code
-  sheet.getRange(row, 20).clearContent();           // T = Error_Detail
+  sheet.getRange(row, 13).setValue("הומר ל-TXT");        // M = Pipeline_Status
+  sheet.getRange(row, 15).setValue(sysType);              // O = File_Type
+  sheet.getRange(row, 16).setValue(size);                 // P = File_Size
+  sheet.getRange(row, 17).setValue(m.complexity || "");   // Q = Complexity
+  sheet.getRange(row, 24).setValue(newFile.getUrl());     // X = TXT_URL
+  sheet.getRange(row, 19).clearContent();                 // S = Error_Code
+  sheet.getRange(row, 20).clearContent();                 // T = Error_Detail
+  sheet.getRange(row, 13).activate();                     // קפיצה ל-M
 
   console.log("finalize: הושלם — " + fileName);
 }
