@@ -1,9 +1,9 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.2.0 | @updated 28/04/2026 16:03 | @service COLUMN_MAP
+ * @version 2.2.2 | @updated 28/04/2026 16:27 | @service COLUMN_MAP
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/COLUMN_MAP.gs
  * תפקיד: תיעוד מבנה עמודות + הקמת גליונות + שחזור כותרות + בדיקת הרשאות
- * שינוי: הוספת גליון מנהל_משאבים + פונקציית הקמת גליון חדש מהמפה
+ * שינוי: הוספת 4 מחלצים ל-DEFAULT_DATA + תיקון buildSheetFromMap לגליונות חדשים בלבד
  */
 
 // ══════════════════════════════════════════════════════════════════
@@ -101,17 +101,17 @@ const SHEETS_MAP = {
   ],
 
   "מנהל_משאבים": [
-    { col: 1,  name: "Extractor_ID",     zone: "זיהוי",  writers: ["ExtractorManager"], readers: ["S06","S07"],                    values: "GEMINI_FLASH|GEMINI_PRO",                      notes: "מזהה ייחודי של המחלץ" },
-    { col: 2,  name: "Endpoint_URL",     zone: "זיהוי",  writers: ["ExtractorManager"], readers: ["S06","S07"],                    values: "https://generativelanguage.googleapis.com/...", notes: "כתובת ה-API המלאה" },
-    { col: 3,  name: "Daily_Quota",      zone: "מכסה",   writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "1500|50",                                      notes: "מכסה יומית מקסימלית" },
-    { col: 4,  name: "Used_Today",       zone: "מכסה",   writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "מספר שלם",                                     notes: "כמה בקשות נשלחו היום — מתאפס כל לילה" },
-    { col: 5,  name: "Remaining",        zone: "מכסה",   writers: [],                   readers: ["ExtractorManager","S06","S07"], values: "=C-D",                                         notes: "נוסחה חיה — Daily_Quota פחות Used_Today" },
-    { col: 6,  name: "RPM_Limit",        zone: "קצב",    writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "15|2",                                         notes: "בקשות מקסימליות לדקה" },
-    { col: 7,  name: "Status",           zone: "סטטוס",  writers: ["ExtractorManager"], readers: ["S06","S07"],                    values: "ACTIVE|EXHAUSTED|ERROR|DISABLED",              notes: "מצב המחלץ כרגע" },
-    { col: 8,  name: "Complexity_Match", zone: "ניתוב",  writers: ["ExtractorManager"], readers: ["S07"],                         values: "SIMPLE,MEDIUM|COMPLEX",                        notes: "לאיזה מורכבות המחלץ מתאים" },
-    { col: 9,  name: "Reset_Time",       zone: "תזמון",  writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "00:00 UTC",                                    notes: "שעת איפוס יומי" },
-    { col: 10, name: "Last_Used",        zone: "תזמון",  writers: ["ExtractorManager"], readers: [],                              values: "תאריך ושעה",                                   notes: "מתי בוצעה הבקשה האחרונה" },
-    { col: 11, name: "Notes",            zone: "מידע",   writers: ["ExtractorManager"], readers: [],                              values: "טקסט חופשי",                                   notes: "הערות — למשל: מפתח הוחלף, שגיאה ידועה" }
+    { col: 1,  name: "Extractor_ID",     zone: "זיהוי",  writers: ["ExtractorManager"], readers: ["S06","S07"],                    values: "GEMINI_FLASH_1.5|GEMINI_FLASH_2.0|GEMINI_PRO_1.5|GEMINI_PRO_2.5", notes: "מזהה ייחודי של המחלץ" },
+    { col: 2,  name: "Endpoint_URL",     zone: "זיהוי",  writers: ["ExtractorManager"], readers: ["S06","S07"],                    values: "https://generativelanguage.googleapis.com/...",                    notes: "כתובת ה-API המלאה" },
+    { col: 3,  name: "Daily_Quota",      zone: "מכסה",   writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "1500|50",                                                         notes: "מכסה יומית מקסימלית" },
+    { col: 4,  name: "Used_Today",       zone: "מכסה",   writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "מספר שלם",                                                        notes: "כמה בקשות נשלחו היום — מתאפס כל לילה" },
+    { col: 5,  name: "Remaining",        zone: "מכסה",   writers: [],                   readers: ["ExtractorManager","S06","S07"], values: "=C-D",                                                            notes: "נוסחה חיה — Daily_Quota פחות Used_Today" },
+    { col: 6,  name: "RPM_Limit",        zone: "קצב",    writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "15|2",                                                            notes: "בקשות מקסימליות לדקה" },
+    { col: 7,  name: "Status",           zone: "סטטוס",  writers: ["ExtractorManager"], readers: ["S06","S07"],                    values: "ACTIVE|EXHAUSTED|ERROR|DISABLED",                                 notes: "מצב המחלץ כרגע" },
+    { col: 8,  name: "Complexity_Match", zone: "ניתוב",  writers: ["ExtractorManager"], readers: ["S07"],                         values: "SIMPLE|MEDIUM|COMPLEX|DIAGNOSTICS|TABLES|ULTIMATE|HANDWRITING|MEDICAL_DEEP", notes: "לאיזה מורכבות המחלץ מתאים" },
+    { col: 9,  name: "Reset_Time",       zone: "תזמון",  writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "00:00 UTC",                                                       notes: "שעת איפוס יומי" },
+    { col: 10, name: "Last_Used",        zone: "תזמון",  writers: ["ExtractorManager"], readers: [],                              values: "תאריך ושעה",                                                      notes: "מתי בוצעה הבקשה האחרונה" },
+    { col: 11, name: "Notes",            zone: "מידע",   writers: ["ExtractorManager"], readers: [],                              values: "טקסט חופשי",                                                      notes: "הערות — למשל: מפתח הוחלף, שגיאה ידועה" }
   ]
 
 };
@@ -124,14 +124,24 @@ const SHEETS_DEFAULT_DATA = {
 
   "מנהל_משאבים": [
     [
-      "GEMINI_FLASH",
+      "GEMINI_FLASH_1.5",
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-      1500, 0, "=C2-D2", 15, "ACTIVE", "SIMPLE,MEDIUM", "00:00 UTC", "", ""
+      1500, 0, "=C2-D2", 15, "ACTIVE", "SIMPLE,MEDIUM", "00:00 UTC", "", "סוס עבודה יציב"
     ],
     [
-      "GEMINI_PRO",
+      "GEMINI_FLASH_2.0",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+      1500, 0, "=C3-D3", 15, "ACTIVE", "SIMPLE,DIAGNOSTICS", "00:00 UTC", "", "המהיר החדש"
+    ],
+    [
+      "GEMINI_PRO_1.5",
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent",
-      50, 0, "=C3-D3", 2, "ACTIVE", "COMPLEX", "00:00 UTC", "", ""
+      50, 0, "=C4-D4", 2, "ACTIVE", "COMPLEX,TABLES", "00:00 UTC", "", "החזק היציב"
+    ],
+    [
+      "GEMINI_PRO_2.5",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent",
+      50, 0, "=C5-D5", 2, "ACTIVE", "ULTIMATE,HANDWRITING,MEDICAL_DEEP", "00:00 UTC", "", "המוח המתקדם"
     ]
   ]
 
@@ -274,32 +284,46 @@ function checkWritePermissions() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציה 5 — הקמת גליון חדש מהמפה (כולל נתוני ברירת מחדל)
+// פונקציה 5 — הקמת גליון חדש מהמפה (גליונות חדשים בלבד)
 // ══════════════════════════════════════════════════════════════════
 
 function buildSheetFromMap() {
   const ui = SpreadsheetApp.getUi();
-  const sheetName = _promptSheetName(ui);
-  if (!sheetName) return;
-
-  const cols = SHEETS_MAP[sheetName];
-  if (!cols) { ui.alert("גליון לא נמצא במפה: " + sheetName); return; }
-
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(sheetName);
 
-  if (sheet) {
-    const answer = ui.alert(
-      "גליון קיים",
-      "הגליון '" + sheetName + "' כבר קיים.\nהאם לאפס ולבנות מחדש?\n\n⚠️ כל הנתונים הקיימים יימחקו.",
-      ui.ButtonSet.YES_NO
-    );
-    if (answer !== ui.Button.YES) return;
-    ss.deleteSheet(sheet);
+  // סינון — רק גליונות שעדיין לא קיימים בקובץ
+  const existingSheets = ss.getSheets().map(function(s) { return s.getName(); });
+  const availableToCreate = Object.keys(SHEETS_MAP).filter(function(name) {
+    return existingSheets.indexOf(name) === -1;
+  });
+
+  if (availableToCreate.length === 0) {
+    ui.alert("✅ כל הגליונות המוגדרים במפה כבר קיימים בקובץ.\nאין גליונות חדשים להקים.");
+    return;
   }
 
-  // יצירת הגליון
-  sheet = ss.insertSheet(sheetName);
+  const result = ui.prompt(
+    "הקמת גליון חדש",
+    "גליונות זמינים להקמה (לא קיימים עדיין):\n" + availableToCreate.join("\n") + "\n\nהכנס שם גליון:",
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (result.getSelectedButton() !== ui.Button.OK) return;
+
+  const sheetName = result.getResponseText().trim();
+
+  if (!SHEETS_MAP[sheetName]) {
+    ui.alert("גליון לא נמצא במפה: " + sheetName);
+    return;
+  }
+
+  if (existingSheets.indexOf(sheetName) !== -1) {
+    ui.alert("⚠️ גליון '" + sheetName + "' כבר קיים.\nפונקציה זו מיועדת להקמת גליונות חדשים בלבד.\nלשחזור כותרות — השתמש ב'שחזור כותרות'.");
+    return;
+  }
+
+  const cols = SHEETS_MAP[sheetName];
+  const sheet = ss.insertSheet(sheetName);
 
   // כותרות — שורה 1
   const totalCols = cols.length;
@@ -311,7 +335,6 @@ function buildSheetFromMap() {
   headerRange.setFontWeight("bold");
   headerRange.setBackground("#d9e1f2");
 
-  // הקפאת שורה ראשונה
   sheet.setFrozenRows(1);
 
   // נתוני ברירת מחדל אם קיימים
@@ -320,9 +343,7 @@ function buildSheetFromMap() {
     sheet.getRange(2, 1, defaultData.length, totalCols).setValues(defaultData);
   }
 
-  // עיצוב — הרחבת עמודות לפי תוכן
   sheet.autoResizeColumns(1, totalCols);
-  sheet.setFrozenRows(1);
   sheet.getRange(1, 1).activate();
 
   const dataMsg = defaultData
