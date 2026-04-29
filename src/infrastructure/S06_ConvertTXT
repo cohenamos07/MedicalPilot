@@ -1,9 +1,9 @@
 /**
  * MedicalPilot — S06_ConvertTXT.gs
  * המרת קבצים לפורמט TXT מובנה — 6 מסלולים
- * @version 1.4.0 | @updated 28/04/2026 19:30 | @service S06
+ * @version 1.5.0 | @updated 29/04/2026 19:26 | @service S06
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S06_ConvertTXT.gs
- * שינוי: שילוב מנהל מחלצים (getAvailableExtractor + updateExtractorUsage) + מחיקת OCR ישן לפני שמירת TXT חדש
+ * שינוי: ניתוב PDF/תמונה ל-MEDIUM במקום COMPLEX + ניקוי S/T לפני כל ריצה
  * עמודות: M=13 סטטוס | O=15 סוג | P=16 גודל | Q=17 מורכבות | S=19 שגיאה | T=20 פירוט | X=24 לינק TXT | W=23 מקור
  */
 
@@ -12,7 +12,6 @@
 // ══════════════════════════════════════════════════════════════════
 
 function _callGemini(apiKey, payload, callerName, complexity) {
-  // שלב 1 — קבלת מחלץ פנוי מהמנהל
   const extractor = getAvailableExtractor(complexity || "SIMPLE");
   if (!extractor) {
     throw new Error("429: אין מחלץ זמין — כל המכסות מוצו. נסה מחר.");
@@ -31,7 +30,7 @@ function _callGemini(apiKey, payload, callerName, complexity) {
 
   if (code === 200) {
     console.log(callerName + " הצליח עם: " + extractor.id);
-    updateExtractorUsage(extractor.id); // שלב 2 — עדכון מאזן
+    updateExtractorUsage(extractor.id);
     return response;
   }
 
@@ -61,9 +60,18 @@ function _writeError(sheet, row, msg) {
                       isQuota    ? "מכסה יומית מוצתה — נסה מחר" :
                                    "שגיאה: " + msg.substring(0, 100);
 
-  sheet.getRange(row, 19).setValue(errorCode);   // S = Error_Code
-  sheet.getRange(row, 20).setValue(errorDetail);  // T = Error_Detail
+  sheet.getRange(row, 19).setValue(errorCode);
+  sheet.getRange(row, 20).setValue(errorDetail);
   sheet.getRange(row, 19).activate();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ניקוי שגיאות קודמות לפני ריצה
+// ══════════════════════════════════════════════════════════════════
+
+function _clearErrors(sheet, row) {
+  sheet.getRange(row, 19).clearContent(); // S = Error_Code
+  sheet.getRange(row, 20).clearContent(); // T = Error_Detail
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -75,7 +83,8 @@ function run_MedicalPilot_V2_6_2() {
   const activeRow = sheet.getActiveCell().getRow();
 
   if (activeRow > 1) {
-    const existingLink = sheet.getRange(activeRow, 24).getValue(); // X = TXT_URL
+    _clearErrors(sheet, activeRow); // ניקוי שגיאות קודמות
+    const existingLink = sheet.getRange(activeRow, 24).getValue();
     if (existingLink && existingLink.toString().trim() !== "") {
       sheet.getRange(activeRow, 19).setValue("SKIP");
       sheet.getRange(activeRow, 20).setValue("כבר טופלה — יש לינק ב-X");
@@ -102,9 +111,10 @@ function _processBatch(sheet, batchSize) {
     const fileId = sheet.getRange(i, 1).getValue();
     if (!fileId) continue;
 
-    const existingLink = sheet.getRange(i, 24).getValue(); // X = TXT_URL
+    const existingLink = sheet.getRange(i, 24).getValue();
     if (existingLink && existingLink.toString().trim() !== "") continue;
 
+    _clearErrors(sheet, i); // ניקוי שגיאות קודמות
     _processRow(sheet, i);
     lastProcessed = i;
     processed++;
@@ -197,7 +207,7 @@ function _processRow(sheet, row) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// מסלול 1 — PDF / תמונה (COMPLEX)
+// מסלול 1 — PDF (MEDIUM ← שינוי מ-COMPLEX)
 // ══════════════════════════════════════════════════════════════════
 
 function execute_Visual_Path(file, apiKey) {
@@ -221,7 +231,7 @@ Return ONLY this JSON:
     contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: blob.getContentType(), data: base64Data } }] }],
     generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
   };
-  const response  = _callGemini(apiKey, payload, "מסלול 1", "COMPLEX");
+  const response  = _callGemini(apiKey, payload, "מסלול 1 PDF", "MEDIUM");
   const res       = JSON.parse(response.getContentText());
   const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
@@ -252,7 +262,7 @@ Return ONLY this JSON:
 Text:
 ${rawText.substring(0, 15000)}`;
   const payload   = { contents: [{ parts: [{ text: prompt }] }] };
-  const response  = _callGemini(apiKey, payload, "מסלול 2", "MEDIUM");
+  const response  = _callGemini(apiKey, payload, "מסלול 2 DOCX", "MEDIUM");
   const res       = JSON.parse(response.getContentText());
   const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
@@ -282,14 +292,14 @@ Return ONLY this JSON:
 Text:
 ${rawText.substring(0, 15000)}`;
   const payload   = { contents: [{ parts: [{ text: prompt }] }] };
-  const response  = _callGemini(apiKey, payload, "מסלול 3", "SIMPLE");
+  const response  = _callGemini(apiKey, payload, "מסלול 3 GDoc", "SIMPLE");
   const res       = JSON.parse(response.getContentText());
   const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
 }
 
 // ══════════════════════════════════════════════════════════════════
-// מסלול 4 — תמונה (COMPLEX)
+// מסלול 4 — תמונה (MEDIUM ← שינוי מ-COMPLEX)
 // ══════════════════════════════════════════════════════════════════
 
 function execute_Image_Path(file, apiKey) {
@@ -313,7 +323,7 @@ Return ONLY this JSON:
     contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: blob.getContentType(), data: base64Data } }] }],
     generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
   };
-  const response  = _callGemini(apiKey, payload, "מסלול 4", "COMPLEX");
+  const response  = _callGemini(apiKey, payload, "מסלול 4 IMG", "MEDIUM");
   const res       = JSON.parse(response.getContentText());
   const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
@@ -343,7 +353,7 @@ Return ONLY this JSON:
 Text:
 ${rawText.substring(0, 15000)}`;
   const payload   = { contents: [{ parts: [{ text: prompt }] }] };
-  const response  = _callGemini(apiKey, payload, "מסלול 5", "SIMPLE");
+  const response  = _callGemini(apiKey, payload, "מסלול 5 TXT", "SIMPLE");
   const res       = JSON.parse(response.getContentText());
   const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
@@ -415,7 +425,7 @@ Structure:
 ${summary}`;
 
   const payload   = { contents: [{ parts: [{ text: prompt }] }] };
-  const response  = _callGemini(apiKey, payload, "מסלול 6", "MEDIUM");
+  const response  = _callGemini(apiKey, payload, "מסלול 6 Sheet", "MEDIUM");
   const res       = JSON.parse(response.getContentText());
   const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
   return { isSheet: true, m: cleanJson.metadata || {}, sheetsData: sheetsData, sheetCount: allSheets.length };
@@ -429,20 +439,18 @@ function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet)
   const folders      = DriveApp.getFoldersByName("Converted_TXT");
   const targetFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder("Converted_TXT");
 
-  // חיפוש ומחיקת קובץ OCR ישן באותה תיקייה
-  const baseName   = sourceFile.getName().replace(/\.[^/.]+$/, "");
-  const allFiles   = targetFolder.getFiles();
+  // מחיקת קובץ ישן מאותו מסמך
+  const baseName = sourceFile.getName().replace(/\.[^/.]+$/, "");
+  const allFiles = targetFolder.getFiles();
   while (allFiles.hasNext()) {
     const f     = allFiles.next();
     const fName = f.getName();
-    // קובץ ישן — מכיל את שם הקובץ המקורי ואינו קובץ TXT חדש
     if (fName.includes(baseName) && !fName.endsWith(".txt")) {
       f.setTrashed(true);
       Logger.log("נמחק קובץ ישן: " + fName);
     }
   }
 
-  // בניית תוכן הקובץ החדש
   const m   = data.m || {};
   const col = 35;
   let textContent = "";
@@ -478,20 +486,18 @@ function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet)
     ].join("\n");
   }
 
-  // יצירת קובץ TXT חדש
   const timeStamp = Utilities.formatDate(new Date(), "GMT+3", "HHmm");
   const fileName  = baseName + "_" + timeStamp + ".txt";
   const newFile   = targetFolder.createFile(fileName, textContent, MimeType.PLAIN_TEXT);
 
-  // כתיבה לגליון — לפי COLUMN_MAP
-  sheet.getRange(row, 13).setValue("הומר ל-TXT");        // M = Pipeline_Status
-  sheet.getRange(row, 15).setValue(sysType);              // O = File_Type
-  sheet.getRange(row, 16).setValue(size);                 // P = File_Size
-  sheet.getRange(row, 17).setValue(m.complexity || "");   // Q = Complexity
-  sheet.getRange(row, 24).setValue(newFile.getUrl());     // X = TXT_URL
-  sheet.getRange(row, 19).clearContent();                 // S = Error_Code
-  sheet.getRange(row, 20).clearContent();                 // T = Error_Detail
-  sheet.getRange(row, 13).activate();                     // קפיצה ל-M
+  sheet.getRange(row, 13).setValue("הומר ל-TXT");
+  sheet.getRange(row, 15).setValue(sysType);
+  sheet.getRange(row, 16).setValue(size);
+  sheet.getRange(row, 17).setValue(m.complexity || "");
+  sheet.getRange(row, 24).setValue(newFile.getUrl());
+  sheet.getRange(row, 19).clearContent();
+  sheet.getRange(row, 20).clearContent();
+  sheet.getRange(row, 13).activate();
 
   console.log("finalize: הושלם — " + fileName);
 }
