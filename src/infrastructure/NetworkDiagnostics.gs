@@ -1,9 +1,9 @@
- /**
+/**
  * MedicalPilot — NetworkDiagnostics.gs
- * @version 99.0 | @updated 28/04/2026 17:15 | @service S01
+ * @version 99.1 | @updated 29/04/2026 18:50 | @service S01
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/NetworkDiagnostics.gs
  * תפקיד: בדיקות רשת + אבחון AI + ניהול מאזן מחלצים
- * שינוי: הוספת ניהול מאזן מחלצים — loadExtractors, getAvailableExtractor, updateExtractorUsage, resetDailyUsage, showExtractorBalance
+ * שינוי: תיקון getAvailableExtractor — LOW QUOTA לא נדלג עליו כל עוד יש remaining
  */
 
 // ══════════════════════════════════════════════════════════════════
@@ -16,11 +16,6 @@ const EXTRACTOR_SHEET_NAME = "מנהל_משאבים";
 // פונקציה 1 — טעינת מחלצים מהגליון לזיכרון
 // ══════════════════════════════════════════════════════════════════
 
-/**
- * קורא את גליון מנהל_משאבים פעם אחת לזיכרון.
- * כל שירות (S06, S07) יקרא לפונקציה זו בתחילת ריצה.
- * @return {Array} מערך של אובייקטי מחלץ
- */
 function loadExtractors() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(EXTRACTOR_SHEET_NAME);
@@ -50,31 +45,26 @@ function loadExtractors() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציה 2 — מציאת מחלץ פנוי לפי מורכבות
+// פונקציה 2 — מציאת מחלץ פנוי לפי מורכבות (תיקון באג LOW QUOTA)
 // ══════════════════════════════════════════════════════════════════
 
-/**
- * מחזיר את המחלץ המתאים והפנוי ביותר.
- * נקרא ע"י S06 ו-S07 לפני כל קריאת API.
- * @param {string} complexity — SIMPLE | MEDIUM | COMPLEX | DIAGNOSTICS | TABLES | ULTIMATE | HANDWRITING | MEDICAL_DEEP
- * @return {Object|null} אובייקט מחלץ או null אם הכל אזל
- */
 function getAvailableExtractor(complexity) {
   const extractors = loadExtractors();
   const upper = complexity.toString().trim().toUpperCase();
 
-  // חיפוש מחלץ מתאים עם קרדיט
+  // חיפוש מחלץ מתאים — דולגים רק על EXCEEDED ו-DISABLED
   for (var i = 0; i < extractors.length; i++) {
     var e = extractors[i];
-    if (!e.status.includes("ACTIVE")) continue;
-    if (e.remaining <= 0)            continue;
+    if (e.status.includes("EXCEEDED") || e.status.includes("DISABLED")) continue;
+    if (e.remaining <= 0) continue;
     if (e.complexityMatch.indexOf(upper) !== -1) return e;
   }
 
   // Fallback — מורכבות גבוהה אבל המחלץ המתאים אזל → Flash כגיבוי
   for (var j = 0; j < extractors.length; j++) {
     var f = extractors[j];
-    if (f.status.includes("ACTIVE") && f.remaining > 0) {
+    if (f.status.includes("EXCEEDED") || f.status.includes("DISABLED")) continue;
+    if (f.remaining > 0) {
       Logger.log("Fallback: " + upper + " → " + f.id + " (מחלץ ראשי אזל)");
       return f;
     }
@@ -88,11 +78,6 @@ function getAvailableExtractor(complexity) {
 // פונקציה 3 — עדכון שימוש אחרי קריאת API מוצלחת
 // ══════════════════════════════════════════════════════════════════
 
-/**
- * מעדכן +1 ל-Used_Today ומעדכן Last_Used.
- * נקרא ע"י S06 ו-S07 אחרי כל קריאת API מוצלחת.
- * @param {string} extractorId — ID המחלץ (למשל GEMINI_FLASH_1.5)
- */
 function updateExtractorUsage(extractorId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(EXTRACTOR_SHEET_NAME);
@@ -116,13 +101,9 @@ function updateExtractorUsage(extractorId) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציה 4 — איפוס שימוש יומי (טריגר לילי)
+// פונקציה 4 — איפוס שימוש יומי
 // ══════════════════════════════════════════════════════════════════
 
-/**
- * מאפס את Used_Today לכל המחלצים.
- * מיועד לטריגר יומי בחצות.
- */
 function resetDailyUsage() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(EXTRACTOR_SHEET_NAME);
@@ -139,13 +120,9 @@ function resetDailyUsage() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציה 5 — הצגת מאזן מחלצים (מהתפריט)
+// פונקציה 5 — הצגת מאזן מחלצים
 // ══════════════════════════════════════════════════════════════════
 
-/**
- * מציג alert עם מצב כל המחלצים.
- * מחובר לתפריט: ניהול מערכת ← הצג מאזן מחלצים
- */
 function showExtractorBalance() {
   const ui = SpreadsheetApp.getUi();
   try {
@@ -177,18 +154,13 @@ function showExtractorBalance() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציה 6 — בדיקת כל המחלצים (חיבור + הרשאה)
+// פונקציה 6 — בדיקת כל המחלצים
 // ══════════════════════════════════════════════════════════════════
 
-/**
- * בודק חיבור והרשאה לכל המחלצים ברשימה.
- * משתמש בפונקציות הקיימות _checkAiConnectivity ו-_checkAiAuthorization.
- * מחובר לתפריט: ניהול מערכת ← בדוק כל המחלצים
- */
 function checkAllExtractors() {
   const ui = SpreadsheetApp.getUi();
   try {
-    const extractors = loadExtractors();
+    const extractors    = loadExtractors();
     const connectivity  = _checkAiConnectivity();
     const authorization = _checkAiAuthorization();
 
@@ -210,17 +182,12 @@ function checkAllExtractors() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציה 7 — הגדרת טריגר לילי לאיפוס יומי
+// פונקציה 7 — הגדרת טריגר לילי
 // ══════════════════════════════════════════════════════════════════
 
-/**
- * יוצר טריגר יומי שמריץ resetDailyUsage בחצות.
- * מריצים פעם אחת בלבד מהעורך.
- */
 function createDailyResetTrigger() {
   const ui = SpreadsheetApp.getUi();
 
-  // מחיקת טריגרים קיימים באותו שם כדי לא לשכפל
   const triggers = ScriptApp.getProjectTriggers();
   triggers.forEach(function(t) {
     if (t.getHandlerFunction() === "resetDailyUsage") {
@@ -238,7 +205,7 @@ function createDailyResetTrigger() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציות בדיקות רשת קיימות (ללא שינוי)
+// פונקציות בדיקות רשת קיימות
 // ══════════════════════════════════════════════════════════════════
 
 function testAiResponse() {
@@ -401,7 +368,7 @@ function runSystemHealthCheck() {
       "חיבור שירות AI: "     + _checkAiConnectivity()  + "\n" +
       "הרשאת שירות AI: "     + _checkAiAuthorization();
 
-    SpreadsheetApp.getUi().alert("בדיקת תקינות מערכת — v99.0", message, SpreadsheetApp.getUi().ButtonSet.OK);
+    SpreadsheetApp.getUi().alert("בדיקת תקינות מערכת — v99.1", message, SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
   }
