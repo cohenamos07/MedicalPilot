@@ -1,9 +1,9 @@
 /**
  * MedicalPilot — S06_ConvertTXT.gs
  * המרת קבצים לפורמט TXT מובנה — 6 מסלולים
- * @version 1.5.0 | @updated 29/04/2026 19:26 | @service S06
+ * @version 1.5.1 | @updated 30/04/2026 09:00 | @service S06
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S06_ConvertTXT.gs
- * שינוי: ניתוב PDF/תמונה ל-MEDIUM במקום COMPLEX + ניקוי S/T לפני כל ריצה
+ * שינוי: תיקון JSON פגום + העברת פונקציות גוב לילי מ-TestLab + Sleep מוגדל ל-8 שניות
  * עמודות: M=13 סטטוס | O=15 סוג | P=16 גודל | Q=17 מורכבות | S=19 שגיאה | T=20 פירוט | X=24 לינק TXT | W=23 מקור
  */
 
@@ -34,15 +34,24 @@ function _callGemini(apiKey, payload, callerName, complexity) {
     return response;
   }
 
-  if (code === 429) {
-    throw new Error("429: מכסה מוצתה ל-" + extractor.id + " — נסה מחר.");
-  }
-
-  if (code === 503) {
-    throw new Error("503: שרת עמוס ל-" + extractor.id + " — נסה שוב.");
-  }
+  if (code === 429) throw new Error("429: מכסה מוצתה ל-" + extractor.id + " — נסה מחר.");
+  if (code === 503) throw new Error("503: שרת עמוס ל-" + extractor.id + " — נסה שוב.");
 
   throw new Error(callerName + " נכשל (" + code + "): " + response.getContentText().substring(0, 200));
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פענוח JSON בטוח — מטפל ב-JSON פגום
+// ══════════════════════════════════════════════════════════════════
+
+function _safeParseJson(text, callerName) {
+  try {
+    const clean = text.replace(/```json|```/g, "").trim();
+    return JSON.parse(clean);
+  } catch (e) {
+    Logger.log(callerName + " — JSON פגום: " + e.message + " | טקסט: " + text.substring(0, 200));
+    return { words: "", metadata: {} };
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -52,12 +61,15 @@ function _callGemini(apiKey, payload, callerName, complexity) {
 function _writeError(sheet, row, msg) {
   const isOverload = msg.includes("503") || msg.includes("UNAVAILABLE");
   const isQuota    = msg.includes("429") || msg.includes("quota");
+  const isAccess   = msg.includes("ACCESS") || msg.includes("Drive");
 
   const errorCode = isOverload ? "503" :
-                    isQuota    ? "429" : "UNKNOWN";
+                    isQuota    ? "429" :
+                    isAccess   ? "ACCESS" : "UNKNOWN";
 
   const errorDetail = isOverload ? "עומס — דולג לעכשיו" :
                       isQuota    ? "מכסה יומית מוצתה — נסה מחר" :
+                      isAccess   ? "שגיאת גישה: " + msg.substring(0, 80) :
                                    "שגיאה: " + msg.substring(0, 100);
 
   sheet.getRange(row, 19).setValue(errorCode);
@@ -66,12 +78,12 @@ function _writeError(sheet, row, msg) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ניקוי שגיאות קודמות לפני ריצה
+// ניקוי שגיאות קודמות
 // ══════════════════════════════════════════════════════════════════
 
 function _clearErrors(sheet, row) {
-  sheet.getRange(row, 19).clearContent(); // S = Error_Code
-  sheet.getRange(row, 20).clearContent(); // T = Error_Detail
+  sheet.getRange(row, 19).clearContent();
+  sheet.getRange(row, 20).clearContent();
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -83,7 +95,7 @@ function run_MedicalPilot_V2_6_2() {
   const activeRow = sheet.getActiveCell().getRow();
 
   if (activeRow > 1) {
-    _clearErrors(sheet, activeRow); // ניקוי שגיאות קודמות
+    _clearErrors(sheet, activeRow);
     const existingLink = sheet.getRange(activeRow, 24).getValue();
     if (existingLink && existingLink.toString().trim() !== "") {
       sheet.getRange(activeRow, 19).setValue("SKIP");
@@ -114,7 +126,7 @@ function _processBatch(sheet, batchSize) {
     const existingLink = sheet.getRange(i, 24).getValue();
     if (existingLink && existingLink.toString().trim() !== "") continue;
 
-    _clearErrors(sheet, i); // ניקוי שגיאות קודמות
+    _clearErrors(sheet, i);
     _processRow(sheet, i);
     lastProcessed = i;
     processed++;
@@ -207,7 +219,7 @@ function _processRow(sheet, row) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// מסלול 1 — PDF (MEDIUM ← שינוי מ-COMPLEX)
+// מסלול 1 — PDF (MEDIUM)
 // ══════════════════════════════════════════════════════════════════
 
 function execute_Visual_Path(file, apiKey) {
@@ -233,7 +245,7 @@ Return ONLY this JSON:
   };
   const response  = _callGemini(apiKey, payload, "מסלול 1 PDF", "MEDIUM");
   const res       = JSON.parse(response.getContentText());
-  const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
+  const cleanJson = _safeParseJson(res.candidates[0].content.parts[0].text, "מסלול 1");
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
 }
 
@@ -264,7 +276,7 @@ ${rawText.substring(0, 15000)}`;
   const payload   = { contents: [{ parts: [{ text: prompt }] }] };
   const response  = _callGemini(apiKey, payload, "מסלול 2 DOCX", "MEDIUM");
   const res       = JSON.parse(response.getContentText());
-  const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
+  const cleanJson = _safeParseJson(res.candidates[0].content.parts[0].text, "מסלול 2");
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
 }
 
@@ -294,12 +306,12 @@ ${rawText.substring(0, 15000)}`;
   const payload   = { contents: [{ parts: [{ text: prompt }] }] };
   const response  = _callGemini(apiKey, payload, "מסלול 3 GDoc", "SIMPLE");
   const res       = JSON.parse(response.getContentText());
-  const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
+  const cleanJson = _safeParseJson(res.candidates[0].content.parts[0].text, "מסלול 3");
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
 }
 
 // ══════════════════════════════════════════════════════════════════
-// מסלול 4 — תמונה (MEDIUM ← שינוי מ-COMPLEX)
+// מסלול 4 — תמונה (MEDIUM)
 // ══════════════════════════════════════════════════════════════════
 
 function execute_Image_Path(file, apiKey) {
@@ -325,7 +337,7 @@ Return ONLY this JSON:
   };
   const response  = _callGemini(apiKey, payload, "מסלול 4 IMG", "MEDIUM");
   const res       = JSON.parse(response.getContentText());
-  const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
+  const cleanJson = _safeParseJson(res.candidates[0].content.parts[0].text, "מסלול 4");
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
 }
 
@@ -355,7 +367,7 @@ ${rawText.substring(0, 15000)}`;
   const payload   = { contents: [{ parts: [{ text: prompt }] }] };
   const response  = _callGemini(apiKey, payload, "מסלול 5 TXT", "SIMPLE");
   const res       = JSON.parse(response.getContentText());
-  const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
+  const cleanJson = _safeParseJson(res.candidates[0].content.parts[0].text, "מסלול 5");
   return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
 }
 
@@ -427,7 +439,7 @@ ${summary}`;
   const payload   = { contents: [{ parts: [{ text: prompt }] }] };
   const response  = _callGemini(apiKey, payload, "מסלול 6 Sheet", "MEDIUM");
   const res       = JSON.parse(response.getContentText());
-  const cleanJson = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim());
+  const cleanJson = _safeParseJson(res.candidates[0].content.parts[0].text, "מסלול 6");
   return { isSheet: true, m: cleanJson.metadata || {}, sheetsData: sheetsData, sheetCount: allSheets.length };
 }
 
@@ -439,7 +451,6 @@ function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet)
   const folders      = DriveApp.getFoldersByName("Converted_TXT");
   const targetFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder("Converted_TXT");
 
-  // מחיקת קובץ ישן מאותו מסמך
   const baseName = sourceFile.getName().replace(/\.[^/.]+$/, "");
   const allFiles = targetFolder.getFiles();
   while (allFiles.hasNext()) {
@@ -500,4 +511,74 @@ function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet)
   sheet.getRange(row, 13).activate();
 
   console.log("finalize: הושלם — " + fileName);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// גוב לילי — יועבר ל-S_Scheduler.gs בגרסה הבאה
+// ══════════════════════════════════════════════════════════════════
+
+function nightlyConvertBatch() {
+  const now  = new Date();
+  const hour = now.getHours();
+  const min  = now.getMinutes();
+  const time = hour * 60 + min;
+
+  const start = 0 * 60 + 30;  // 00:30
+  const end   = 7 * 60 + 30;  // 07:30
+
+  if (time < start || time > end) {
+    Logger.log("מחוץ לחלון הזמן — " + hour + ":" + min + " — דולג");
+    return;
+  }
+
+  Logger.log("=== nightlyConvertBatch התחיל — " + hour + ":" + min + " ===");
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
+  if (!sheet) { Logger.log("גליון לא נמצא"); return; }
+
+  const lastRow = sheet.getLastRow();
+  let processed = 0;
+
+  for (let i = 2; i <= lastRow && processed < 2; i++) {
+    const fileId = sheet.getRange(i, 1).getValue();
+    if (!fileId) continue;
+
+    const existingLink = sheet.getRange(i, 24).getValue();
+    if (existingLink && existingLink.toString().trim() !== "") continue;
+
+    const errorCode = sheet.getRange(i, 19).getValue();
+    if (errorCode) {
+      sheet.getRange(i, 19).clearContent();
+      sheet.getRange(i, 20).clearContent();
+    }
+
+    try {
+      _processRow(sheet, i);
+      processed++;
+      SpreadsheetApp.flush();
+      Utilities.sleep(8000); // 8 שניות בין שורות — מניעת 503
+    } catch (e) {
+      Logger.log("שגיאה שורה " + i + ": " + e.message);
+    }
+  }
+
+  Logger.log("=== הושלמו " + processed + " שורות ===");
+}
+
+function createNightlyTrigger() {
+  const ui = SpreadsheetApp.getUi();
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === "nightlyConvertBatch") ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger("nightlyConvertBatch").timeBased().everyMinutes(30).create();
+  ui.alert("✅ טריגר לילי נוצר!\nיריץ 2 שורות כל 30 דקות בין 00:30 ל-07:30\n14 ריצות × 2 שורות = 28 שורות ללילה");
+}
+
+function deleteNightlyTrigger() {
+  const ui = SpreadsheetApp.getUi();
+  let count = 0;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === "nightlyConvertBatch") { ScriptApp.deleteTrigger(t); count++; }
+  });
+  ui.alert("✅ נמחקו " + count + " טריגרים של nightlyConvertBatch");
 }
