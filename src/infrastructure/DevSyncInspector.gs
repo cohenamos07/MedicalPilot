@@ -1,9 +1,9 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 1.5 | @updated 05/05/2026 18:25 | @service DEV_SYNC
+ * @version 1.6 | @updated 05/05/2026 19:15 | @service DEV_SYNC
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/DevSyncInspector.gs
- * שינוי: [FIX-2] תיקון שורות ללא @version מציגות "תואם" במקום "ללא גרסה"
- *         [FIX-3] הוספת devSync_RunScanButton לכפתור גרפי בגליון
+ * שינוי: [FIX-4] לוגיקת השוואה חכמה — עורך יש גרסה/גיט אין → ↑ דחוף לגיט
+ *                                        גיט יש גרסה/עורך אין → ↓ משוך מגיט
  */
 
 const DEV_SYNC_SHEET_NAME = "מסנכרן_קבצים";
@@ -11,7 +11,7 @@ const DEV_SYNC_GIT_FOLDER = "src/infrastructure";
 const DEV_SYNC_SCRIPT_ID  = "1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf";
 
 // ══════════════════════════════════════════════════════════════════
-// [FIX-3] כפתור גרפי — הפקת דוח סנכרון
+// כפתור גרפי — הפקת דוח סנכרון
 // ══════════════════════════════════════════════════════════════════
 
 function devSync_RunScanButton() {
@@ -62,20 +62,23 @@ function devSync_ScanAndFillSheet() {
 
     if (existsEditor && existsGit) {
 
-      // [FIX-2] שניהם ללא גרסה — לא תואם אמיתי
+      // שניהם ללא גרסה
       if (!versionEditor && !versionGit) {
         status = "ללא גרסה";
         action = "בדוק והחליט";
 
+      // גרסאות זהות
       } else if (versionEditor === versionGit) {
         status = "תואם";
         action = "תואם — אין צורך";
 
+      // גרסאות שונות — השוואת תאריכים
       } else {
         const dateEditor = devSync_extractDate(versionEditor);
         const dateGit    = devSync_extractDate(versionGit);
 
         if (dateEditor && dateGit) {
+          // שניהם עם תאריך — משווים
           if (dateEditor > dateGit) {
             status = "שונה";
             action = "↑ דחוף לגיט";
@@ -83,9 +86,22 @@ function devSync_ScanAndFillSheet() {
             status = "שונה";
             action = "↓ משוך מגיט";
           } else {
+            // תאריך זהה אבל גרסה שונה — העורך גובר
             status = "שונה";
             action = "↑ דחוף לגיט";
           }
+
+        // [FIX-4] עורך יש תאריך, גיט אין → דחוף לגיט
+        } else if (dateEditor && !dateGit) {
+          status = "שונה";
+          action = "↑ דחוף לגיט";
+
+        // [FIX-4] גיט יש תאריך, עורך אין → משוך מגיט
+        } else if (!dateEditor && dateGit) {
+          status = "שונה";
+          action = "↓ משוך מגיט";
+
+        // שניהם ללא תאריך — לא ניתן להחליט
         } else {
           status = "שונה";
           action = "בדוק והחליט";
@@ -165,31 +181,26 @@ function devSync_ApplyConditionalFormatting() {
     );
     sheet.setConditionalFormatRules(filteredRules);
 
-    // ירוק — תואם
     const ruleGreen = SpreadsheetApp.newConditionalFormatRule()
       .whenTextEqualTo("תואם")
       .setBackground("#B7E1CD").setFontColor("#000000")
       .setRanges([statusRange]).build();
 
-    // צהוב — שונה
     const ruleYellow1 = SpreadsheetApp.newConditionalFormatRule()
       .whenTextContains("שונה")
       .setBackground("#FCE8B2").setFontColor("#000000")
       .setRanges([statusRange]).build();
 
-    // צהוב — חסר בגיט
     const ruleYellow2 = SpreadsheetApp.newConditionalFormatRule()
       .whenTextContains("חסר בגיט")
       .setBackground("#FCE8B2").setFontColor("#000000")
       .setRanges([statusRange]).build();
 
-    // אדום — חסר בעורך
     const ruleRed = SpreadsheetApp.newConditionalFormatRule()
       .whenTextContains("חסר בעורך")
       .setBackground("#F4CCCC").setFontColor("#000000")
       .setRanges([statusRange]).build();
 
-    // אפור — ללא גרסה
     const ruleGray = SpreadsheetApp.newConditionalFormatRule()
       .whenTextContains("ללא גרסה")
       .setBackground("#E8E8E8").setFontColor("#666666")
@@ -362,7 +373,7 @@ function devSync_RunActionOnSelectedRow() {
 
   if (action.includes("↓") || action.includes("שחזר מהגיט")) {
     syncFileFromGitToEditor(gitPath, fileName);
-  } else if (action.includes("↑") || action.includes("דחוף לעבר גיט") || action.includes("דחוף לגיט")) {
+  } else if (action.includes("↑") || action.includes("דחוף לגיט")) {
     syncEditorFileToGitHub(fileName, gitPath);
   } else if (action.includes("תואם")) {
     ui.alert("הקובץ '" + fileName + "' תואם — אין צורך בסנכרון.");
