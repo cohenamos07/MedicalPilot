@@ -1,13 +1,22 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 1.4 | @updated 05/05/2026 17:40 | @service DEV_SYNC
+ * @version 1.5 | @updated 05/05/2026 18:25 | @service DEV_SYNC
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/DevSyncInspector.gs
- * שינוי: [FIX-2] עמודת Action חכמה — ממליצה ↑ דחוף לגיט / ↓ משוך מגיט לפי השוואת תאריכים
+ * שינוי: [FIX-2] תיקון שורות ללא @version מציגות "תואם" במקום "ללא גרסה"
+ *         [FIX-3] הוספת devSync_RunScanButton לכפתור גרפי בגליון
  */
 
 const DEV_SYNC_SHEET_NAME = "מסנכרן_קבצים";
 const DEV_SYNC_GIT_FOLDER = "src/infrastructure";
 const DEV_SYNC_SCRIPT_ID  = "1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf";
+
+// ══════════════════════════════════════════════════════════════════
+// [FIX-3] כפתור גרפי — הפקת דוח סנכרון
+// ══════════════════════════════════════════════════════════════════
+
+function devSync_RunScanButton() {
+  devSync_ScanAndFillSheet();
+}
 
 // ══════════════════════════════════════════════════════════════════
 // סריקה מלאה של העורך + גיטהאב
@@ -48,14 +57,20 @@ function devSync_ScanAndFillSheet() {
     const versionEditor = editorInfo ? editorInfo.versionLine : "";
     const versionGit    = gitInfo    ? gitInfo.versionLine    : "";
 
-    // [FIX-2] חישוב status ו-action חכם לפי תאריכים
     let status = "";
     let action = "";
 
     if (existsEditor && existsGit) {
-      if (versionEditor === versionGit) {
+
+      // [FIX-2] שניהם ללא גרסה — לא תואם אמיתי
+      if (!versionEditor && !versionGit) {
+        status = "ללא גרסה";
+        action = "בדוק והחליט";
+
+      } else if (versionEditor === versionGit) {
         status = "תואם";
         action = "תואם — אין צורך";
+
       } else {
         const dateEditor = devSync_extractDate(versionEditor);
         const dateGit    = devSync_extractDate(versionGit);
@@ -68,16 +83,15 @@ function devSync_ScanAndFillSheet() {
             status = "שונה";
             action = "↓ משוך מגיט";
           } else {
-            // תאריכים שווים אבל גרסה שונה — העורך גובר
             status = "שונה";
             action = "↑ דחוף לגיט";
           }
         } else {
-          // לא ניתן לחלץ תאריך — החלטה ידנית
           status = "שונה";
           action = "בדוק והחליט";
         }
       }
+
     } else if (existsEditor && !existsGit) {
       status = "חסר בגיט";
       action = "↑ דחוף לגיט";
@@ -109,27 +123,23 @@ function devSync_ScanAndFillSheet() {
   }
 
   devSync_ApplyConditionalFormatting();
-
   ui.alert("דוח סנכרון עודכן בגיליון '" + DEV_SYNC_SHEET_NAME + "'.");
 }
 
 // ══════════════════════════════════════════════════════════════════
-// [FIX-2] חילוץ תאריך משורת גרסה — מחזיר אובייקט Date או null
+// חילוץ תאריך משורת גרסה
 // ══════════════════════════════════════════════════════════════════
 
 function devSync_extractDate(versionLine) {
   if (!versionLine) return null;
   try {
-    // מחפש תבנית DD/MM/YYYY או DD/MM/YYYY HH:MM
     const match = versionLine.match(/(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}))?/);
     if (!match) return null;
-
     const day   = parseInt(match[1], 10);
     const month = parseInt(match[2], 10) - 1;
     const year  = parseInt(match[3], 10);
     const hour  = match[4] ? parseInt(match[4], 10) : 0;
     const min   = match[5] ? parseInt(match[5], 10) : 0;
-
     return new Date(year, month, day, hour, min, 0);
   } catch (e) {
     return null;
@@ -144,11 +154,7 @@ function devSync_ApplyConditionalFormatting() {
   try {
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(DEV_SYNC_SHEET_NAME);
-
-    if (!sheet) {
-      Logger.log("[DevSyncInspector] devSync_ApplyConditionalFormatting: הגיליון לא נמצא.");
-      return;
-    }
+    if (!sheet) return;
 
     const lastRow     = Math.max(sheet.getLastRow(), 2);
     const statusRange = sheet.getRange(2, 7, lastRow - 1, 1);
@@ -159,39 +165,41 @@ function devSync_ApplyConditionalFormatting() {
     );
     sheet.setConditionalFormatRules(filteredRules);
 
+    // ירוק — תואם
     const ruleGreen = SpreadsheetApp.newConditionalFormatRule()
       .whenTextEqualTo("תואם")
-      .setBackground("#B7E1CD")
-      .setFontColor("#000000")
-      .setRanges([statusRange])
-      .build();
+      .setBackground("#B7E1CD").setFontColor("#000000")
+      .setRanges([statusRange]).build();
 
+    // צהוב — שונה
     const ruleYellow1 = SpreadsheetApp.newConditionalFormatRule()
       .whenTextContains("שונה")
-      .setBackground("#FCE8B2")
-      .setFontColor("#000000")
-      .setRanges([statusRange])
-      .build();
+      .setBackground("#FCE8B2").setFontColor("#000000")
+      .setRanges([statusRange]).build();
 
+    // צהוב — חסר בגיט
     const ruleYellow2 = SpreadsheetApp.newConditionalFormatRule()
       .whenTextContains("חסר בגיט")
-      .setBackground("#FCE8B2")
-      .setFontColor("#000000")
-      .setRanges([statusRange])
-      .build();
+      .setBackground("#FCE8B2").setFontColor("#000000")
+      .setRanges([statusRange]).build();
 
+    // אדום — חסר בעורך
     const ruleRed = SpreadsheetApp.newConditionalFormatRule()
       .whenTextContains("חסר בעורך")
-      .setBackground("#F4CCCC")
-      .setFontColor("#000000")
-      .setRanges([statusRange])
-      .build();
+      .setBackground("#F4CCCC").setFontColor("#000000")
+      .setRanges([statusRange]).build();
+
+    // אפור — ללא גרסה
+    const ruleGray = SpreadsheetApp.newConditionalFormatRule()
+      .whenTextContains("ללא גרסה")
+      .setBackground("#E8E8E8").setFontColor("#666666")
+      .setRanges([statusRange]).build();
 
     const updatedRules = sheet.getConditionalFormatRules();
-    updatedRules.push(ruleGreen, ruleYellow1, ruleYellow2, ruleRed);
+    updatedRules.push(ruleGreen, ruleYellow1, ruleYellow2, ruleRed, ruleGray);
     sheet.setConditionalFormatRules(updatedRules);
 
-    Logger.log("[DevSyncInspector] devSync_ApplyConditionalFormatting: עיצוב מותנה הוחל.");
+    Logger.log("[DevSyncInspector] עיצוב מותנה הוחל.");
   } catch (e) {
     Logger.log("[DevSyncInspector] devSync_ApplyConditionalFormatting: " + e.toString());
   }
@@ -354,11 +362,11 @@ function devSync_RunActionOnSelectedRow() {
 
   if (action.includes("↓") || action.includes("שחזר מהגיט")) {
     syncFileFromGitToEditor(gitPath, fileName);
-  } else if (action.includes("↑") || action.includes("דחוף לעבר גיט")) {
+  } else if (action.includes("↑") || action.includes("דחוף לעבר גיט") || action.includes("דחוף לגיט")) {
     syncEditorFileToGitHub(fileName, gitPath);
   } else if (action.includes("תואם")) {
     ui.alert("הקובץ '" + fileName + "' תואם — אין צורך בסנכרון.");
   } else {
-    ui.alert("לא ניתן להחליט אוטומטית — בדוק ידנית את הקובץ: " + fileName);
+    ui.alert("לא ניתן להחליט אוטומטית — בדוק ידנית: " + fileName);
   }
 }
