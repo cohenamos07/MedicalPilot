@@ -1,291 +1,411 @@
 /**
- * Module: S07_Classify
- * Version: 1.4.0
- * Updated: 19/04/2026
- * Service: S07
- * שינויים: תמיכה בטווח שורות, זיהוי PDF/IMG/OFFICE, מצב השלמה, חישוב כפולים נפרד
+ * MedicalPilot — S07_Classify.gs
+ * סיווג מסמכים רפואיים בעזרת Gemini — כותרת, מנפיק, תאריך, קטגוריה
+ * @version 2.3.4 | @updated 04/05/2026 13:15 | @service S07
+ * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S07_Classify.gs
+ * שינוי: [FIX-6] טריגר אצווה עבר מעמודה A לעמודה M
+ *         [FIX-7] גודל אצווה הוקטן מ-5 ל-3
+ * עמודות: I=9 Doc_Title | J=10 Doc_Issuer | K=11 Doc_Date | L=12 Doc_Category |
+ *          M=13 Pipeline_Status | N=14 Extraction_Status | Q=17 Complexity |
+ *          R=18 Duplicate_Flag | S=19 Error_Code | T=20 Error_Detail
  */
 
-/**
- * נקודת הכניסה הראשית.
- * תומכת בעיבוד שורה בודדת או טווח שורות שנבחר.
- * מציגה הודעת סיכום בסיום.
- */
+// ══════════════════════════════════════════════════════════════════
+// גשר לתפריט
+// ══════════════════════════════════════════════════════════════════
+
 function classifyDocument() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("ניהול_מיילים");
-  if (!sheet) return;
+  const sheet       = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
+  const activeRange = sheet.getActiveRange();
+  const activeRow   = sheet.getActiveCell().getRow();
+  const activeCol   = sheet.getActiveCell().getColumn();
 
-  const range = sheet.getActiveRange();
-  const startRow = range.getRow();
-  const numRows = range.getNumRows();
-  const ui = SpreadsheetApp.getUi();
-
-  if (startRow < 2) {
-    ui.alert("נא לבחור שורות בטווח הנתונים (החל משורה 2).");
+  // שורה שלמה נבחרה → ריצה בודדת
+  if (activeRange.getNumColumns() >= sheet.getMaxColumns()) {
+    if (activeRow < 2) {
+      SpreadsheetApp.getUi().alert("⚠️ שורת כותרת — לא ניתן לסווג.");
+      return;
+    }
+    executeS07Classification(activeRow);
     return;
   }
 
-  let processedCount = 0;
-  let conversionCount = 0;
-  let failedCount = 0;
-
-  Logger.log("מתחיל עיבוד: שורה " + startRow + " עד " + (startRow + numRows - 1));
-
-  for (let i = 0; i < numRows; i++) {
-    const currentRow = startRow + i;
-    try {
-      const result = classifyActiveRow(currentRow, sheet, ss);
-      if (result === "needs_conversion") conversionCount++;
-      else processedCount++;
-    } catch (e) {
-      Logger.log("שגיאה בשורה " + currentRow + ": " + e.message);
-      failedCount++;
-    }
+  // [FIX-6] סמן על עמודה M → אצווה
+  if (activeCol === 13) {
+    _processS07Batch(sheet, 3);
+    return;
   }
 
-  ui.alert(
-    "סיום עיבוד:\n" +
-    "סווגו: "          + processedCount  + " שורות\n" +
-    "נדרשת המרה: "     + conversionCount + " שורות\n" +
-    "נכשלו: "          + failedCount     + " שורות"
+  // כל תא אחר → ריצה בודדת על אותה שורה
+  if (activeRow < 2) {
+    SpreadsheetApp.getUi().alert("⚠️ שורת כותרת — לא ניתן לסווג.");
+    return;
+  }
+  executeS07Classification(activeRow);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// עיבוד אצווה — דולג בכישלון, לא עוצר
+// ══════════════════════════════════════════════════════════════════
+
+function _processS07Batch(sheet, batchSize) {
+  const lastRow     = sheet.getLastRow();
+  let processed     = 0;
+  let lastProcessed = 2;
+
+  for (let i = 2; i <= lastRow && processed < batchSize; i++) {
+
+    // תנאי 1 — חייבת להיות File_ID
+    const fileId = sheet.getRange(i, 1).getValue();
+    if (!fileId) continue;
+
+    // תנאי 2 — דלג אם כבר מחולץ לפי Pipeline_Status
+    const pipeline = sheet.getRange(i, 13).getValue();
+    if (pipeline === "מחולץ") continue;
+
+    // תנאי 3 — [FIX-5] דלג אם Doc_Title כבר מלא
+    const docTitle = sheet.getRange(i, 9).getValue();
+    if (docTitle) continue;
+
+    // תנאי 4 — שגיאות זמניות ינסו שוב, קבועות ידולגו
+    const errorCode   = sheet.getRange(i, 19).getValue();
+    if (errorCode === "S07_ERR") {
+      const errorDetail = sheet.getRange(i, 20).getValue();
+      const isTemporary = errorDetail && (
+        errorDetail.includes("429") ||
+        errorDetail.includes("503")
+      );
+      if (!isTemporary) continue;
+    }
+
+    // תנאי 5 — חייב להיות TXT_URL
+    const txtUrl = sheet.getRange(i, 24).getValue();
+    if (!txtUrl) continue;
+
+    const success = executeS07Classification(i);
+    SpreadsheetApp.flush();
+
+    if (success) {
+      lastProcessed = i;
+      processed++;
+      Logger.log("[S07 Batch] הצלחה שורה " + i);
+    } else {
+      Logger.log("[S07 Batch] כישלון שורה " + i + " — דולג לשורה הבאה");
+    }
+
+    Utilities.sleep(10000);
+  }
+
+  sheet.getRange(lastProcessed, 9).activate();
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    "סווגו " + processed + " שורות", "MedicalPilot S07", 4
   );
 }
 
-/**
- * מעבד שורה ספציפית בגיליון.
- * @param {number} row מספר השורה לעיבוד
- * @param {Sheet} sheet הגיליון
- * @param {Spreadsheet} ss הספרדשיט
- * @return {string} "completed" | "needs_conversion" | "success" | "error"
- */
-function classifyActiveRow(row, sheet, ss) {
-  const rowData    = sheet.getRange(row, 1, 1, 26).getValues()[0];
-  const title      = rowData[8];  // עמודה I
-  const issuer     = rowData[9];  // עמודה J
-  const sourceType = rowData[20]; // עמודה U
-  const ocrLink    = rowData[21]; // עמודה V
-  const complexity = rowData[24]; // עמודה Y
+// ══════════════════════════════════════════════════════════════════
+// הרצה ישירה
+// ══════════════════════════════════════════════════════════════════
 
-  // ── זיהוי סוג קובץ לא נגיש ────────────────────────────────────────────────
-  if (sourceType === "PDF/IMG") {
-    sheet.getRange(row, 11).setValue("נדרשת המרה");
-    sheet.getRange(row, 20).setValue("קובץ PDF/IMG — יש להריץ OCR תחילה");
-    sheet.getRange(row, 11).activate();
-    Logger.log("שורה " + row + ": PDF/IMG — נדרשת המרה");
-    return "needs_conversion";
+function run_S07_ActiveRow() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
+  const row   = sheet.getActiveCell().getRow();
+  executeS07Classification(row);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// מיפוי עמודות + כתיבה בטוחה
+// ══════════════════════════════════════════════════════════════════
+
+function _getS07ColumnMap() {
+  const cols = SHEETS_MAP["ניהול_מיילים"];
+  const map  = {};
+  cols.forEach(function(c) { if (c.name) map[c.name] = c.col; });
+  return map;
+}
+
+function _getColDefByName(sheetName, colName) {
+  return SHEETS_MAP[sheetName].find(function(c) { return c.name === colName; }) || null;
+}
+
+function _safeWrite(sheet, row, colName, value) {
+  const colDef = _getColDefByName(sheet.getName(), colName);
+  if (!colDef) throw new Error("S07_SAFEWRITE_NO_COL_DEF: " + colName);
+  if (colDef.writers.indexOf("S07") === -1)
+    throw new Error("S07_SAFEWRITE_FORBIDDEN: " + colName);
+  sheet.getRange(row, colDef.col).setValue(value);
+}
+
+function _safeClear(sheet, row, colName) {
+  _safeWrite(sheet, row, colName, "");
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פונקציית ליבה — מחזירה true בהצלחה, false בכישלון
+// ══════════════════════════════════════════════════════════════════
+
+function executeS07Classification(row) {
+
+  if (row < 2) {
+    Logger.log("[S07] דולג — שורה " + row + " היא כותרת.");
+    return false;
   }
 
-  if (sourceType === "OFFICE") {
-    sheet.getRange(row, 11).setValue("נדרשת המרה");
-    sheet.getRange(row, 20).setValue("קובץ Office — יש להמיר לGoogle Doc תחילה");
-    sheet.getRange(row, 11).activate();
-    Logger.log("שורה " + row + ": OFFICE — נדרשת המרה");
-    return "needs_conversion";
-  }
+  const ss      = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet   = ss.getSheetByName("ניהול_מיילים") || ss.getActiveSheet();
+  const COL     = _getS07ColumnMap();
+  const lastCol = sheet.getLastColumn();
+  const data    = sheet.getRange(row, 1, 1, lastCol).getValues()[0];
 
-  // ── מצב השלמה — כותרת קיימת אך מורכבות חסרה ─────────────────────────────
-  if (title && title.toString().trim() !== "" &&
-      (!complexity || complexity.toString().trim() === "")) {
-    Logger.log("שורה " + row + ": מצב השלמה — חישוב כפולים ומורכבות");
-
-    const duplicateResult      = _calculateDuplicates(row, title, issuer, sheet);
-    const calculatedComplexity = title.length > 50 ? "מורכב" : "פשוט";
-
-    sheet.getRange(row, 11).setValue("הושלם חישוב");
-    sheet.getRange(row, 20).clearContent();
-    sheet.getRange(row, 25).setValue(calculatedComplexity);
-    sheet.getRange(row, 26).setValue(duplicateResult);
-    sheet.getRange(row, 25).activate();
-    return "completed";
-  }
-
-  // ── סיווג AI מלא ──────────────────────────────────────────────────────────
-  if (!ocrLink || typeof ocrLink !== 'string' || !ocrLink.includes("docs.google.com")) {
-    throw new Error("אין לינק OCR תקין בעמודה V");
-  }
+  // [FIX-4] ניקוי S, T, M, N בתחילת כל ניסיון
+  _safeClear(sheet, row, "Error_Code");
+  _safeClear(sheet, row, "Error_Detail");
+  _safeClear(sheet, row, "Pipeline_Status");
+  _safeClear(sheet, row, "Extraction_Status");
 
   try {
-    sheet.getRange(row, 11).setValue("⏳ מעבד...");
+    const txtUrl  = data[COL["TXT_URL"] - 1];
+    const rawText = data[COL["Raw_Text"] - 1];
 
-    const docId = ocrLink.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
-    if (!docId) throw new Error("לא ניתן לחלץ מזהה מסמך מהלינק");
+    if (!txtUrl && !rawText)
+      throw new Error("NO_TEXT_SOURCE: אין TXT_URL ואין Raw_Text");
 
-    Logger.log("שורה " + row + " | docId: " + docId);
+    let fullText = txtUrl ? _fetchTextFromUrl_S07(txtUrl) : String(rawText);
 
-    const docText = _getDocText(docId);
+    if (!fullText || fullText.trim() === "")
+      throw new Error("NO_TEXT_FOUND: הטקסט שהתקבל ריק");
 
-    if (!docText || docText.trim().length === 0) {
-      sheet.getRange(row, 11).setValue("אין גישה לטקסט");
-      sheet.getRange(row, 20).setValue("המסמך לא נגיש לקריאה — הרשאות חסרות");
-      sheet.getRange(row, 20).activate();
-      return "error";
-    }
+    if (_calculateDuplicates_S07(row, sheet, COL["TXT_URL"]))
+      _safeWrite(sheet, row, "Duplicate_Flag", "חשוד ככפול");
 
-    let examplesText = "";
-    const learningSheet = ss.getSheetByName("דוגמאות_למידה");
-    if (learningSheet) {
-      const lastRow = learningSheet.getLastRow();
-      if (lastRow > 1) {
-        const learnData = learningSheet.getRange(2, 1, Math.min(lastRow - 1, 10), 3).getValues();
-        examplesText = learnData.map(function(r) {
-          return "כותרת: " + r[0] + " | מנפיק: " + r[1] + " | סיווג: " + r[2];
-        }).join("\n");
-      }
-    }
+    const extractor = getAvailableExtractor("SIMPLE");
+    if (!extractor) throw new Error("NO_FREE_EXTRACTOR: Flash מוצה — נסה מחר");
+    console.log("[S07] מחלץ: " + extractor.id);
 
-    const aiResult     = _callGemini_S07(docText, examplesText);
-    const duplicateInfo = _calculateDuplicates(row, aiResult.title, aiResult.issuer, sheet);
+    const examples = _getLearningExamples_S07(ss);
 
-    sheet.getRange(row, 9).setValue(aiResult.title);
-    sheet.getRange(row, 10).setValue(aiResult.issuer);
-    sheet.getRange(row, 11).setValue("סווג בהצלחה");
-    sheet.getRange(row, 12).setValue(aiResult.classification);
-    sheet.getRange(row, 20).clearContent();
-    sheet.getRange(row, 25).setValue(aiResult.complexity);
-    sheet.getRange(row, 26).setValue(duplicateInfo);
-    sheet.getRange(row, 9).activate();
+    const aiResult = _callAiWithFullPrompt_S07(
+      fullText.substring(0, 3800), extractor, examples
+    );
 
-    Logger.log("שורה " + row + ": סווג בהצלחה — " + aiResult.title);
-    return "success";
+    if (!aiResult || Object.keys(aiResult).length === 0)
+      throw new Error("AI_EMPTY_RESPONSE: AI החזיר תשובה ריקה");
+
+    _validateAiResult_S07(aiResult);
+
+    const filled = _countFilledFields_S07(aiResult);
+    if (filled < 2)
+      throw new Error("AI_RESULT_TOO_WEAK: רק " + filled + " שדות — לא מספיק");
+
+    _safeWrite(sheet, row, "Doc_Title",    aiResult.title    || "");
+    _safeWrite(sheet, row, "Doc_Issuer",   aiResult.issuer   || "");
+    _safeWrite(sheet, row, "Doc_Date",     aiResult.date     || "");
+    _safeWrite(sheet, row, "Doc_Category", aiResult.category || "");
+    _safeWrite(sheet, row, "Complexity", "SIMPLE");
+
+    const extractionStatus = filled === 4 ? "חולץ מלא" : "חולץ חלקי";
+    _safeWrite(sheet, row, "Extraction_Status", extractionStatus);
+    _safeWrite(sheet, row, "Pipeline_Status", "מחולץ");
+
+    updateExtractorUsage(extractor.id);
+
+    console.log("[S07] הצלחה שורה " + row + " | " + extractionStatus);
+    sheet.getRange(row, COL["Doc_Title"]).activate();
+    return true;
 
   } catch (e) {
-    sheet.getRange(row, 11).setValue("נכשל");
-    sheet.getRange(row, 20).setValue("שגיאה: " + e.message);
-    sheet.getRange(row, 20).activate();
-    Logger.log("שגיאה בשורה " + row + ": " + e.message);
-    throw e;
-  }
-}
-
-/**
- * מחשבת שורות כפולות לפי כותרת ומנפיק.
- * @param {number} currentRow השורה הנוכחית
- * @param {string} title כותרת המסמך
- * @param {string} issuer המנפיק
- * @param {Sheet} sheet הגיליון
- * @return {string} מחרוזת כפולים או ריק
- */
-function _calculateDuplicates(currentRow, title, issuer, sheet) {
-  const allData     = sheet.getDataRange().getValues();
-  const duplicateRows = [];
-  for (let i = 1; i < allData.length; i++) {
-    if (i + 1 === currentRow) continue;
-    if (allData[i][8] === title && allData[i][9] === issuer) {
-      duplicateRows.push(i + 1);
+    try {
+      _safeWrite(sheet, row, "Error_Code",   "S07_ERR");
+      _safeWrite(sheet, row, "Error_Detail",  e.message);
+      sheet.getRange(row, COL["Error_Code"]).activate();
+    } catch (inner) {
+      console.error("[S07] שגיאה נוספת: " + inner.message);
     }
+    console.error("[S07] שגיאה שורה " + row + ": " + e.message);
+    return false;
   }
-  return duplicateRows.length > 0
-    ? "חשוד ככפול — שורות: " + duplicateRows.join(", ")
-    : "";
 }
 
-/**
- * קוראת טקסט ממסמך — Drive Export תחילה, אחר כך DocumentApp כ-fallback.
- * @param {string} docId מזהה המסמך
- * @return {string} טקסט המסמך עד 3000 תווים, או ריק אם לא נגיש
- */
-function _getDocText(docId) {
-  // שיטה 1 — Drive Export API
+// ══════════════════════════════════════════════════════════════════
+// בדיקת כפולים לפי TXT_URL
+// ══════════════════════════════════════════════════════════════════
+
+function _calculateDuplicates_S07(currentRow, sheet, txtUrlColIndex) {
+  const MAX_ROWS = 500;
+  const lastRow  = Math.min(sheet.getLastRow(), MAX_ROWS);
+  if (lastRow < 2) return false;
+
+  const currentUrl = (sheet.getRange(currentRow, txtUrlColIndex).getValue() || "").toLowerCase();
+  if (!currentUrl) return false;
+
+  const allUrls = sheet.getRange(2, txtUrlColIndex, lastRow - 1).getValues();
+  for (var i = 0; i < allUrls.length; i++) {
+    const rowIndex = i + 2;
+    if (rowIndex === currentRow) continue;
+    const cell = (allUrls[i][0] || "").toLowerCase();
+    if (cell && cell === currentUrl) return true;
+  }
+  return false;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// דוגמאות למידה
+// ══════════════════════════════════════════════════════════════════
+
+function _getLearningExamples_S07(ss) {
   try {
-    const url = "https://www.googleapis.com/drive/v3/files/" + docId + "/export?mimeType=text/plain";
-    const response = UrlFetchApp.fetch(url, {
-      method: "get",
-      headers: { "Authorization": "Bearer " + ScriptApp.getOAuthToken() },
-      muteHttpExceptions: true
+    const exSheet = ss.getSheetByName("דוגמאות_למידה");
+    if (!exSheet) return "";
+    const lastRow = exSheet.getLastRow();
+    if (lastRow < 2) return "";
+    const data = exSheet.getRange(2, 1, Math.min(lastRow - 1, 3), 3).getValues();
+    let out = "\n--- דוגמאות לסיווג נכון ---\n";
+    data.forEach(function(r) {
+      if (r[0]) out += "טקסט: " + r[0] + " | מנפיק: " + (r[1] || "") + " | קטגוריה: " + (r[2] || "") + "\n";
     });
-    const code = response.getResponseCode();
-    Logger.log("Drive Export קוד: " + code);
-    if (code === 200) {
-      const text = response.getContentText().substring(0, 3000);
-      Logger.log("שיטה 1 הצליחה. אורך: " + text.length + " תווים.");
-      return text;
-    }
-    Logger.log("Drive Export נכשל (" + code + ") — מנסה DocumentApp");
-  } catch (e) {
-    Logger.log("שגיאה בDrive Export: " + e.message);
-  }
-
-  // שיטה 2 — DocumentApp fallback
-  try {
-    const doc  = DocumentApp.openById(docId);
-    const text = doc.getBody().getText().substring(0, 3000);
-    Logger.log("שיטה 2 הצליחה. אורך: " + text.length + " תווים.");
-    return text;
-  } catch (e) {
-    Logger.log("DocumentApp נכשל: " + e.message);
-  }
-
-  Logger.log("שתי השיטות נכשלו — מחזיר ריק");
-  return "";
+    return out;
+  } catch (e) { return ""; }
 }
 
-/**
- * מחלצת JSON מתוך טקסט חופשי.
- */
-function _extractJsonFromText(rawText) {
-  try { return JSON.parse(rawText); } catch (e) {}
-  const match = rawText.match(/\{[\s\S]*\}/);
-  if (match) { try { return JSON.parse(match[0]); } catch (e) {} }
-  throw new Error("לא ניתן לחלץ JSON. תשובה: " + rawText.substring(0, 200));
-}
+// ══════════════════════════════════════════════════════════════════
+// קריאה ל-AI
+// ══════════════════════════════════════════════════════════════════
 
-/**
- * שולחת בקשה למודל Gemini ספציפי.
- */
-function _callGeminiWithModel(model, prompt, apiKey) {
-  const url = "https://generativelanguage.googleapis.com/v1beta/models/" +
-              model + ":generateContent?key=" + apiKey;
-  const payload = { contents: [{ parts: [{ text: prompt }] }] };
+function _callAiWithFullPrompt_S07(text, extractor, examples) {
+  const apiKey = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY");
+  if (!apiKey) throw new Error("GEMINI_API_KEY חסר ב-Script Properties");
+
+  const fullPrompt =
+    "אתה עוזר אדמיניסטרטיבי רפואי מומחה בישראל.\n" +
+    "החזר JSON בלבד ללא טקסט נוסף:\n" +
+    "{ \"title\": \"\", \"issuer\": \"\", \"date\": \"\", \"category\": \"\" }\n" +
+    "ערכי category חוקיים: רפואי / חשבונאי / משפטי / ביטוחי / אחר\n" +
+    "חובה למלא לפחות title ו-category.\n" +
+    examples +
+    "\nהטקסט:\n" + text;
+
+  const url = extractor.url + "?key=" + apiKey;
+
   const response = UrlFetchApp.fetch(url, {
-    method: "post",
-    contentType: "application/json",
-    payload: JSON.stringify(payload),
+    method:             "post",
+    contentType:        "application/json",
+    payload:            JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] }),
     muteHttpExceptions: true
   });
-  const code    = response.getResponseCode();
-  const rawText = response.getContentText();
-  Logger.log("מודל: " + model + " | קוד: " + code);
-  Logger.log("תשובה: " + rawText.substring(0, 200));
-  if (code === 429) return { ok: false, quotaExceeded: true };
-  if (code !== 200) return { ok: false, quotaExceeded: false,
-    errorMsg: "קוד " + code + ": " + rawText.substring(0, 150) };
+
+  const code = response.getResponseCode();
+  if (code === 429) throw new Error("429: חריגת קצב RPM — המתן ונסה שוב");
+  if (code === 503) throw new Error("503: שרת עמוס — נסה שוב");
+  if (code !== 200) throw new Error("AI_API_FAIL_" + code + ": " + response.getContentText().substring(0, 150));
+
+  let json;
+  try { json = JSON.parse(response.getContentText()); }
+  catch (e) { throw new Error("AI_RESPONSE_NOT_JSON"); }
+
+  const rawText = (json.candidates &&
+                   json.candidates[0] &&
+                   json.candidates[0].content &&
+                   json.candidates[0].content.parts &&
+                   json.candidates[0].content.parts[0] &&
+                   json.candidates[0].content.parts[0].text) || "";
+
+  if (!rawText || rawText.trim() === "")
+    throw new Error("AI_EMPTY_CONTENT: AI החזיר תוכן ריק");
+
   try {
-    const aiText = JSON.parse(rawText).candidates[0].content.parts[0].text;
-    return { ok: true, data: _extractJsonFromText(aiText) };
+    const cleaned = rawText.replace(/```json|```/g, "").trim();
+    const parsed  = JSON.parse(cleaned);
+    if (!parsed || typeof parsed !== "object")
+      throw new Error("AI_INVALID_STRUCTURE");
+    return parsed;
+  } catch (e) { throw new Error("AI_JSON_PARSE_FAIL: " + e.message); }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ולידציה מחמירה
+// ══════════════════════════════════════════════════════════════════
+
+function _isFilled_S07(v) {
+  return v !== null && v !== undefined && String(v).trim() !== "";
+}
+
+function _countFilledFields_S07(ai) {
+  return [ai.title, ai.issuer, ai.date, ai.category].filter(_isFilled_S07).length;
+}
+
+function _validateAiResult_S07(ai) {
+  if (!ai || typeof ai !== "object")
+    throw new Error("VALIDATION_FAIL_STRUCTURE");
+
+  if (!_isFilled_S07(ai.title) || ai.title.trim().length < 3)
+    throw new Error("VALIDATION_FAIL_TITLE: כותרת חסרה או קצרה");
+
+  if (!_isFilled_S07(ai.category))
+    throw new Error("VALIDATION_FAIL_CATEGORY: קטגוריה חסרה");
+
+  const allowed = ["רפואי", "חשבונאי", "משפטי", "ביטוחי", "אחר"];
+  if (allowed.indexOf(ai.category.trim()) === -1)
+    throw new Error("VALIDATION_FAIL_CATEGORY: לא חוקית — " + ai.category);
+
+  if (_isFilled_S07(ai.issuer) && ai.issuer.trim().length < 3)
+    throw new Error("VALIDATION_FAIL_ISSUER: מנפיק קצר מדי");
+
+  if (_isFilled_S07(ai.date) && ai.date.trim().length < 4)
+    throw new Error("VALIDATION_FAIL_DATE: תאריך קצר מדי");
+}
+
+// ══════════════════════════════════════════════════════════════════
+// קריאת טקסט מ-TXT_URL — זורק שגיאה אמיתית
+// ══════════════════════════════════════════════════════════════════
+
+function _fetchTextFromUrl_S07(url) {
+  try {
+    var id = null;
+    if (url.includes("id="))      id = url.split("id=")[1].split("&")[0];
+    else if (url.includes("/d/")) id = url.split("/d/")[1].split("/")[0];
+    if (!id) throw new Error("לא נמצא File ID ב-URL");
+
+    const text = DriveApp.getFileById(id).getBlob().getDataAsString();
+
+    if (!text || text.trim() === "")
+      throw new Error("קובץ TXT קיים אך ריק");
+
+    return text;
+
   } catch (e) {
-    return { ok: false, quotaExceeded: false, errorMsg: "פירוש JSON נכשל: " + e.message };
+    throw new Error("FETCH_TEXT_FAIL: " + e.message);
   }
 }
 
-/**
- * מנהלת קריאה ל-Gemini עם fallback אוטומטי.
- * מודל ראשי: gemini-2.5-flash
- * מודל fallback: gemini-2.0-flash
- */
-function _callGemini_S07(text, examples) {
-  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-  if (!apiKey) throw new Error("מפתח GEMINI_API_KEY לא נמצא.");
+// ══════════════════════════════════════════════════════════════════
+// בדיקת הרשאות כתיבה (כלי פיתוח)
+// ══════════════════════════════════════════════════════════════════
 
-  const prompt =
-    "אתה מנתח מסמכים רפואיים ופיננסיים בעברית.\n" +
-    (examples ? "דוגמאות:\n" + examples + "\n" : "") +
-    "החזר JSON בלבד, ללא טקסט נוסף:\n" +
-    "{\"title\":\"סוג המסמך\",\"issuer\":\"שם המנפיק\"," +
-    "\"classification\":\"מסמך רפואי או מסמך חשבונאי או ביטוח או אחר\"," +
-    "\"complexity\":\"פשוט או מורכב\"}\n\n" +
-    "מסמך רפואי: בדיקות/ביקור/מרשם/הפניה | חשבונאי: חשבונית/תשלום/חשבון | ביטוח: פוליסה/תביעה | אחר: כל השאר\n" +
-    "פשוט: שדות סטנדרטיים | מורכב: טבלאות/ערכים רבים/רב עמודי\n\n" +
-    "טקסט:\n" + text;
+function S07_ValidateWritePermissions() {
+  const ui        = SpreadsheetApp.getUi();
+  const sheetName = "ניהול_מיילים";
+  const cols      = SHEETS_MAP[sheetName];
+  const allowed   = cols
+    .filter(function(c) { return c.writers.indexOf("S07") !== -1; })
+    .map(function(c) { return c.name; });
 
-  Logger.log("מנסה gemini-2.5-flash...");
-  const r25 = _callGeminiWithModel("gemini-2.5-flash", prompt, apiKey);
-  if (r25.ok) { Logger.log("✅ הצליח gemini-2.5-flash"); return r25.data; }
+  const actual = [
+    "Doc_Title", "Doc_Issuer", "Doc_Date", "Doc_Category",
+    "Pipeline_Status", "Extraction_Status", "Complexity",
+    "Duplicate_Flag", "Error_Code", "Error_Detail"
+  ];
 
-  Logger.log("עובר ל-gemini-2.0-flash...");
-  const r20 = _callGeminiWithModel("gemini-2.0-flash", prompt, apiKey);
-  if (r20.ok) { Logger.log("✅ הצליח gemini-2.0-flash"); return r20.data; }
+  const forbidden = actual.filter(function(a) { return allowed.indexOf(a) === -1; });
 
-  if (r25.quotaExceeded && r20.quotaExceeded) throw new Error("מכסה מוצתה בשני המודלים");
-  throw new Error("שגיאת AI: " + (r20.errorMsg || r25.errorMsg || "לא ידוע"));
+  var report  = "בדיקת הרשאות כתיבה — S07\n";
+  report     += "══════════════════════════════\n\n";
+  report     += "✔ מותר לכתוב:\n" + allowed.join(", ") + "\n\n";
+  report     += "📝 הקוד כותב בפועל:\n" + actual.join(", ") + "\n\n";
+
+  if (forbidden.length) {
+    report += "❌ אסור לכתוב:\n" + forbidden.join(", ");
+    ui.alert("❌ הרשאות לא תקינות", report, ui.ButtonSet.OK);
+  } else {
+    report += "✅ תקין — אין חריגות.";
+    ui.alert("✔ הרשאות תקינות", report, ui.ButtonSet.OK);
+  }
 }
