@@ -1,20 +1,33 @@
 /**
- * Module: Mod_Brain_OCR
- * Version: 1.3.0
- * Date: 15/04/2026
- * שינוי: עדכון עמודה M לאחר OCR + טיפול בשגיאות לעמודה T + קפיצה לעמודה M
- * שינוי נוסף: הוספת syncStatusBeforeOCR לסנכרון סטטוסים לפני עיבוד
+ * MedicalPilot — Mod_Brain_OCR.gs
+ * מודול OCR — הועבר לארכוב
+ * @version 1.4.0 | @updated 04/05/2026 13:45 | @service S06
+ * ARCHIVED — הוחלף על ידי S06_ConvertTXT.gs החל מ-v1.5.0
+ * Gemini Vision מטפל ב-PDF ותמונות ישירות — OCR של Drive אינו נדרש
+ * שינוי: [ARCHIVE] runBatchOCR_Test הושבת — קוד מקורי שמור ב-runBatchOCR_ARCHIVED
  */
 
-/**
- * פונקציה להרצת תהליך OCR על קבצים - תומכת בבחירה ידנית או בסריקה אוטומטית לפי סטטוס
- */
+// ══════════════════════════════════════════════════════════════════
+// stub — מונע הרצה בטעות
+// ══════════════════════════════════════════════════════════════════
+
 function runBatchOCR_Test() {
+  SpreadsheetApp.getUi().alert(
+    "⚠️ פונקציה זו הועברה לארכוב.\n\n" +
+    "המערכת משתמשת ב-S06_ConvertTXT.gs ישירות.\n" +
+    "להמרת קבצים — השתמש בתפריט: 🔄 קליטת נתונים → המרה ל-TXT"
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// קוד מקורי — שמור לארכוב בלבד, לא לשימוש
+// ══════════════════════════════════════════════════════════════════
+
+function runBatchOCR_ARCHIVED() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName('ניהול_מיילים');
   if (!sheet) return;
 
-  // 1. זיהוי טווח העבודה (שורות מסומנות מול כל הגיליון)
   const selection = sheet.getActiveRange();
   const selFirstRow = selection.getRow();
   const selLastRow = selection.getLastRow();
@@ -23,7 +36,6 @@ function runBatchOCR_Test() {
   const startRow = isSelectionMode ? selFirstRow : 2;
   const endRow = isSelectionMode ? selLastRow : sheet.getLastRow();
 
-  // 2. איתור תיקיית היעד
   const folderName = 'Converted_OCR';
   const folders = DriveApp.getFoldersByName(folderName);
   if (!folders.hasNext()) {
@@ -31,65 +43,53 @@ function runBatchOCR_Test() {
     return;
   }
   const folderOCR = folders.next();
-
   let count = 0;
 
-  // 3. לולאת עיבוד שורות
   for (let i = startRow; i <= endRow; i++) {
     try {
-      // שליפת הנתונים הרלוונטיים לשורה
       const rowData = sheet.getRange(i, 1, 1, 23).getValues()[0];
-      const fileId = rowData[0];     // עמודה A
-      const statusM = rowData[12];   // עמודה M
-      const ocrLinkV = rowData[21];  // עמודה V
+      const fileId = rowData[0];
+      const statusM = rowData[12];
+      const ocrLinkV = rowData[21];
 
       if (!fileId) continue;
 
-      // לוגיקת סינון במצב סריקה כללית
       if (!isSelectionMode) {
         const needsOCR = (statusM === "ממתין ל-OCR");
         const noValidLink = (!ocrLinkV || ocrLinkV === "" || ocrLinkV.toString().includes("❌"));
         if (!needsOCR || !noValidLink) continue;
       }
 
-      // ביצוע ה-OCR
       const file = DriveApp.getFileById(fileId);
-      const resource = { 
-        title: "OCR_" + file.getName(), 
-        mimeType: file.getMimeType() 
+      const resource = {
+        title: "OCR_" + file.getName(),
+        mimeType: file.getMimeType()
       };
-      
+
       const ocrFile = Drive.Files.copy(resource, fileId, { ocr: true, ocrLanguage: "he" });
-      
-      // העברת הקובץ החדש לתיקיית Converted_OCR
       DriveApp.getFileById(ocrFile.id).moveTo(folderOCR);
 
-      // עדכון הגיליון בהצלחה
-      sheet.getRange(i, 22).setValue(ocrFile.alternateLink); // עמודה V (22)
-      sheet.getRange(i, 13).setValue("עבר OCR");            // עמודה M (13)
-      sheet.getRange(i, 20).clearContent();                 // עמודה T (20) - ניקוי שגיאות
-      sheet.getRange(i, 23).setValue(Math.round(file.getSize() / 1024) + " KB"); // עמודה W (23)
-      
+      sheet.getRange(i, 22).setValue(ocrFile.alternateLink);
+      sheet.getRange(i, 13).setValue("עבר OCR");
+      sheet.getRange(i, 20).clearContent();
+      sheet.getRange(i, 23).setValue(Math.round(file.getSize() / 1024) + " KB");
       count++;
-      
-      // השהיה למניעת עומס
       Utilities.sleep(500);
 
     } catch (e) {
       Logger.log("שגיאת OCR בשורה " + i + ": " + e.message);
-      // כתיבת שגיאה לעמודה T (20) במקום לעמודה V
       sheet.getRange(i, 20).setValue("שגיאה: " + e.message);
     }
   }
 
-  // 4. סיום וקפיצה לעמודה M (13)
   sheet.getRange(2, 13).activate();
-  SpreadsheetApp.getUi().alert("סריקת OCR הסתיימה. נוספו " + count + " קבצים סרוקים לתיקיית Converted_OCR.");
+  SpreadsheetApp.getUi().alert("OCR הסתיים. נוספו " + count + " קבצים.");
 }
 
-/**
- * פונקציה למילוי גדלי קבצים חסרים - ללא שינוי
- */
+// ══════════════════════════════════════════════════════════════════
+// פונקציות עזר — שמורות לארכוב
+// ══════════════════════════════════════════════════════════════════
+
 function fillMissingFileSizes_LAB() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('ניהול_מיילים');
   const data = sheet.getDataRange().getValues();
@@ -108,9 +108,6 @@ function fillMissingFileSizes_LAB() {
   SpreadsheetApp.getActiveSpreadsheet().toast("הושלמו " + count + " גדלי קבצים.");
 }
 
-/**
- * פונקציה לניקוי הודעות שגיאה מעמודה V - ללא שינוי
- */
 function clearOCRErrors_LAB() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('ניהול_מיילים');
   const data = sheet.getRange("V:V").getValues();
@@ -121,56 +118,18 @@ function clearOCRErrors_LAB() {
   }
 }
 
-/**
- * מסנכרנת את עמודה M (סטטוס חילוץ) בהתאם לנתונים הקיימים בעמודות U ו-V.
- * מונעת כפילויות עיבוד במקרה שהלינק כבר קיים אך הסטטוס לא עודכן.
- */
-function syncStatusBeforeOCR() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('ניהול_מיילים');
+function syncStatusBeforeOCR_ARCHIVED() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('ניהול_מיילים');
   if (!sheet) return;
-
-  const data = sheet.getDataRange().getValues();
-  let updatedCount = 0;
-
-  for (let i = 1; i < data.length; i++) {
-    try {
-      const fileId = data[i][0];   // עמודה A
-      if (!fileId) continue;
-
-      const currentM = data[i][12]; // עמודה M (סטטוס נוכחי)
-      const typeU = data[i][20];    // עמודה U (סוג קובץ)
-      const linkV = data[i][21];    // עמודה V (לינק OCR)
-      
-      let newStatus = "";
-
-      // בדיקת התנאים לסנכרון
-      if (linkV && linkV.toString().trim() !== "" && !linkV.toString().includes("שגיאה")) {
-        // אם יש לינק תקין - הסטטוס חייב להיות "עבר OCR"
-        newStatus = "עבר OCR";
-      } else if (!linkV || linkV.toString().trim() === "") {
-        // אם אין לינק - קובעים סטטוס לפי סוג הקובץ
-        if (typeU === "PDF/IMG") {
-          newStatus = "ממתין ל-OCR";
-        } else if (typeU === "GDOC") {
-          newStatus = "טקסט זמין";
-        } else if (typeU === "OFFICE") {
-          newStatus = "ממתין להמרה";
-        }
-      }
-
-      // עדכון הגיליון רק אם הסטטוס השתנה
-      if (newStatus !== "" && newStatus !== currentM) {
-        sheet.getRange(i + 1, 13).setValue(newStatus);
-        updatedCount++;
-      }
-
-    } catch (e) {
-      Logger.log("שגיאה בסנכרון שורה " + (i + 1) + ": " + e.message);
-    }
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  const data = sheet.getRange(2, 1, lastRow - 1, 23).getValues();
+  for (let i = 0; i < data.length; i++) {
+    const fileId = data[i][0];
+    const statusM = data[i][12];
+    const ocrLink = data[i][21];
+    if (!fileId) continue;
+    if (!statusM && ocrLink) sheet.getRange(i + 2, 13).setValue("עבר OCR");
+    if (!statusM && !ocrLink) sheet.getRange(i + 2, 13).setValue("ממתין ל-OCR");
   }
-
-  // סיום: קפיצה לעמודה M והצגת הודעה
-  sheet.getRange(2, 13).activate();
-  ss.toast("בוצע סנכרון ל-" + updatedCount + " שורות.", "סנכרון סטטוס", 5);
 }
