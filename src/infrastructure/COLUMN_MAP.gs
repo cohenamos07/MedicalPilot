@@ -1,9 +1,8 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.2.2 | @updated 28/04/2026 16:27 | @service COLUMN_MAP
+ * @version 2.3.0 | @updated 01/05/2026 15:05 | @service COLUMN_MAP
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/COLUMN_MAP.gs
- * תפקיד: תיעוד מבנה עמודות + הקמת גליונות + שחזור כותרות + בדיקת הרשאות
- * שינוי: הוספת 4 מחלצים ל-DEFAULT_DATA + תיקון buildSheetFromMap לגליונות חדשים בלבד
+ * שינוי: הוספת גליון חדש "מסנכרן_קבצים" + פונקציה buildDevSyncSheet
  */
 
 // ══════════════════════════════════════════════════════════════════
@@ -59,32 +58,32 @@ QA — כותב רק לעמודה U
 const SHEETS_MAP = {
 
   "ניהול_מיילים": [
-    { col: 1,  name: "File_ID",           zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["S05","S06"],               values: "מזהה Drive",                                                              notes: "מזהה ייחודי של הקובץ ב-Drive" },
-    { col: 2,  name: "Capture_Date",      zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],                          values: "תאריך",                                                                   notes: "תאריך כניסה למערכת" },
-    { col: 3,  name: "Source",            zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["S05"],                     values: "Gmail|Drive_Manual",                                                      notes: "מקור הרשומה" },
-    { col: 4,  name: "Source_Reference",  zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],                          values: "מזהה חופשי",                                                             notes: "מזהה מייל (Gmail) / מזהה תיקייה (Drive)" },
-    { col: 5,  name: "Source_Title",      zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],                          values: "טקסט חופשי",                                                             notes: "נושא מייל / שם קובץ" },
-    { col: 6,  name: "Source_Author",     zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],                          values: "טקסט חופשי",                                                             notes: "שולח מייל / עמוס ידני" },
-    { col: 7,  name: "Source_Date",       zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],                          values: "תאריך",                                                                   notes: "תאריך מייל / תאריך עדכון קובץ" },
-    { col: 8,  name: "Attachment_Name",   zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["QA"],                      values: "שם קובץ",                                                                notes: "שם הקובץ הפיזי כולל סיומת" },
-    { col: 9,  name: "Doc_Title",         zone: "Content Metadata", writers: ["S07"],                         readers: [],                          values: "טקסט חופשי",                                                             notes: "כותרת המסמך האמיתית — מחולץ ע\"י S07" },
-    { col: 10, name: "Doc_Issuer",        zone: "Content Metadata", writers: ["S07"],                         readers: [],                          values: "טקסט חופשי",                                                             notes: "מנפיק המסמך — מחולץ ע\"י S07" },
-    { col: 11, name: "Doc_Date",          zone: "Content Metadata", writers: ["S07"],                         readers: [],                          values: "תאריך",                                                                   notes: "תאריך המסמך עצמו — מחולץ ע\"י S07" },
-    { col: 12, name: "Doc_Category",      zone: "Content Metadata", writers: ["S07"],                         readers: [],                          values: "רפואי|חשבונאי|משפטי|ביטוחי|אחר",                                        notes: "קטגוריה — מחולץ ע\"י S07" },
+    { col: 1,  name: "File_ID",           zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["S05","S06"],               values: "מזהה Drive",                                                                           notes: "מזהה ייחודי של הקובץ ב-Drive" },
+    { col: 2,  name: "Capture_Date",      zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],                          values: "תאריך",                                                                                notes: "תאריך כניסה למערכת" },
+    { col: 3,  name: "Source",            zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["S05"],                     values: "Gmail|Drive_Manual",                                                                   notes: "מקור הרשומה" },
+    { col: 4,  name: "Source_Reference",  zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],                          values: "מזהה חופשי",                                                                           notes: "מזהה מייל (Gmail) / מזהה תיקייה (Drive)" },
+    { col: 5,  name: "Source_Title",      zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],                          values: "תאריך חופשי",                                                                          notes: "נושא מייל / שם קובץ" },
+    { col: 6,  name: "Source_Author",     zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],                          values: "טקסט חופשי",                                                                           notes: "שולח מייל / עמוס ידני" },
+    { col: 7,  name: "Source_Date",       zone: "Source Metadata",  writers: ["S03","S04"],                   readers: [],                          values: "תאריך",                                                                                notes: "תאריך מייל / תאריך עדכון קובץ" },
+    { col: 8,  name: "Attachment_Name",   zone: "Source Metadata",  writers: ["S03","S04"],                   readers: ["QA"],                      values: "שם קובץ",                                                                              notes: "שם הקובץ הפיזי כולל סיומת" },
+    { col: 9,  name: "Doc_Title",         zone: "Content Metadata", writers: ["S07"],                         readers: [],                          values: "טקסט חופשי",                                                                           notes: "כותרת המסמך האמיתית — מחולץ ע\"י S07" },
+    { col: 10, name: "Doc_Issuer",        zone: "Content Metadata", writers: ["S07"],                         readers: [],                          values: "טקסט חופשי",                                                                           notes: "מנפיק המסמך — מחולץ ע\"י S07" },
+    { col: 11, name: "Doc_Date",          zone: "Content Metadata", writers: ["S07"],                         readers: [],                          values: "תאריך",                                                                                notes: "תאריך המסמך עצמו — מחולץ ע\"י S07" },
+    { col: 12, name: "Doc_Category",      zone: "Content Metadata", writers: ["S07"],                         readers: [],                          values: "רפואי|חשבונאי|משפטי|ביטוחי|אחר",                                                       notes: "קטגוריה — מחולץ ע\"י S07" },
     { col: 13, name: "Pipeline_Status",   zone: "סטטוסים",          writers: ["S05","S06","S07"],             readers: ["S06","QA"],                values: "ממתין להמרה ל-TXT|הומר ל-TXT|מחולץ|ממתין לאימות|מאושר",               notes: "סטטוס הרשומה ב-pipeline" },
-    { col: 14, name: "Extraction_Status", zone: "סטטוסים",          writers: ["S07"],                         readers: [],                          values: "ממתין|חולץ חלקי|חולץ מלא",                                              notes: "סטטוס חילוץ תוכן" },
+    { col: 14, name: "Extraction_Status", zone: "סטטוסים",          writers: ["S07"],                         readers: [],                          values: "ממתין|חולץ חלקי|חולץ מלא",                                                             notes: "סטטוס חילוץ תוכן" },
     { col: 15, name: "File_Type",         zone: "טכני",             writers: ["S05","S06"],                   readers: ["QA"],                      values: "SYSTEM_PDF|SYSTEM_IMG|SYSTEM_GDOC|SYSTEM_DOCX|SYSTEM_TXT|SYSTEM_SHEET", notes: "סוג קובץ לפי MIME" },
-    { col: 16, name: "File_Size",         zone: "טכני",             writers: ["S05","S06"],                   readers: ["QA"],                      values: "XX KB|XX MB",                                                            notes: "גודל קובץ" },
-    { col: 17, name: "Complexity",        zone: "טכני",             writers: ["S06","S07"],                   readers: ["S07"],                     values: "פשוט|בינוני|מורכב",                                                      notes: "מורכבות המסמך" },
+    { col: 16, name: "File_Size",         zone: "טכני",             writers: ["S05","S06"],                   readers: ["QA"],                      values: "XX KB|XX MB",                                                                          notes: "גודל קובץ" },
+    { col: 17, name: "Complexity",        zone: "טכני",             writers: ["S06","S07"],                   readers: ["S07"],                     values: "פשוט|בינוני|מורכב",                                                                    notes: "מורכבות המסמך" },
     { col: 18, name: "Duplicate_Flag",    zone: "טכני",             writers: ["S05","S07"],                   readers: ["QA","S07"],                values: "חשוד ככפול — שורה X|כפול מאושר — שורה X|חשוד כלוגו/ריק|לוגו מאושר",  notes: "זיהוי ואימות כפולים" },
     { col: 19, name: "Error_Code",        zone: "שגיאות",           writers: ["S03","S04","S05","S06","S07"], readers: ["QA"],                      values: "429|503|NO_ID|ACCESS|EMPTY|UNSUPPORTED|PARSE|UNKNOWN|SKIP",            notes: "קוד שגיאה קצר — מנוקה בהצלחה" },
-    { col: 20, name: "Error_Detail",      zone: "שגיאות",           writers: ["S03","S04","S05","S06","S07"], readers: ["QA"],                      values: "טקסט חופשי",                                                             notes: "פירוט שגיאה — מנוקה בהצלחה" },
-    { col: 21, name: "QA_Status",         zone: "בדיקות",           writers: ["QA"],                          readers: [],                          values: "✅ תקין|⚠️ + פירוט",                                                     notes: "תוצאת בדיקת QA" },
-    { col: 22, name: "",                  zone: "מרווח",            writers: [],                              readers: [],                          values: "",                                                                       notes: "שמור לשימוש עתידי" },
-    { col: 23, name: "Source_URL",        zone: "לינקים",           writers: ["S03","S04"],                   readers: ["S06","QA"],                values: "https://drive.google.com/...",                                           notes: "קישור לקובץ המקורי ב-Drive" },
-    { col: 24, name: "TXT_URL",           zone: "לינקים",           writers: ["S06"],                         readers: ["S05","S07","QA"],          values: "https://drive.google.com/...",                                           notes: "קישור לקובץ TXT שנוצר" },
-    { col: 25, name: "Temp_URL",          zone: "לינקים",           writers: ["S06"],                         readers: [],                          values: "https://drive.google.com/...",                                           notes: "קישור זמני במהלך המרה" },
-    { col: 26, name: "Raw_Text",          zone: "טקסט גולמי",       writers: ["S06","S07"],                   readers: [],                          values: "טקסט מלא",                                                               notes: "הטקסט המלא — עמודה אחרונה, רחבה מאוד" }
+    { col: 20, name: "Error_Detail",      zone: "שגיאות",           writers: ["S03","S04","S05","S06","S07"], readers: ["QA"],                      values: "טקסט חופשי",                                                                           notes: "פירוט שגיאה — מנוקה בהצלחה" },
+    { col: 21, name: "QA_Status",         zone: "בדיקות",           writers: ["QA"],                          readers: [],                          values: "✅ תקין|⚠️ + פירוט",                                                                   notes: "תוצאת בדיקת QA" },
+    { col: 22, name: "",                  zone: "מרווח",            writers: [],                              readers: [],                          values: "",                                                                                     notes: "שמור לשימוש עתידי" },
+    { col: 23, name: "Source_URL",        zone: "לינקים",           writers: ["S03","S04"],                   readers: ["S06","QA"],                values: "https://drive.google.com/...",                                                           notes: "קישור לקובץ המקורי ב-Drive" },
+    { col: 24, name: "TXT_URL",           zone: "לינקים",           writers: ["S06"],                         readers: ["S05","S07","QA"],          values: "https://drive.google.com/...",                                                           notes: "קישור לקובץ TXT שנוצר" },
+    { col: 25, name: "Temp_URL",          zone: "לינקים",           writers: ["S06"],                         readers: [],                          values: "https://drive.google.com/...",                                                           notes: "קישור זמני במהלך המרה" },
+    { col: 26, name: "Raw_Text",          zone: "טקסט גולמי",       writers: ["S06","S07"],                   readers: [],                          values: "טקסט מלא",                                                                             notes: "הטקסט המלא — עמודה אחרונה, רחבה מאוד" }
   ],
 
   "דוגמאות_למידה": [
@@ -97,21 +96,33 @@ const SHEETS_MAP = {
     { col: 7,  name: "Approved_By",       zone: "אימות",   writers: ["S08"], readers: [],      values: "טקסט חופשי",                      notes: "מי אישר את הדוגמה" },
     { col: 8,  name: "Approved_Date",     zone: "אימות",   writers: ["S08"], readers: [],      values: "תאריך",                            notes: "תאריך אישור" },
     { col: 9,  name: "Notes",             zone: "אימות",   writers: ["S08"], readers: ["S07"], values: "טקסט חופשי",                      notes: "הערות לדוגמה" },
-    { col: 10, name: "Original_File_ID",  zone: "קישורים", writers: ["S08"], readers: ["S07"], values: "Drive ID",                         notes: "מזהה קובץ מקורי ב-Drive" }
+    { col: 10, name: "Original_File_ID",  zone: "קישורים", writers: ["S08"], readers: ["S07"], values: "Drive ID",                        notes: "מזהה קובץ מקורי ב-Drive" }
   ],
 
   "מנהל_משאבים": [
     { col: 1,  name: "Extractor_ID",     zone: "זיהוי",  writers: ["ExtractorManager"], readers: ["S06","S07"],                    values: "GEMINI_FLASH_1.5|GEMINI_FLASH_2.0|GEMINI_PRO_1.5|GEMINI_PRO_2.5", notes: "מזהה ייחודי של המחלץ" },
     { col: 2,  name: "Endpoint_URL",     zone: "זיהוי",  writers: ["ExtractorManager"], readers: ["S06","S07"],                    values: "https://generativelanguage.googleapis.com/...",                    notes: "כתובת ה-API המלאה" },
-    { col: 3,  name: "Daily_Quota",      zone: "מכסה",   writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "1500|50",                                                         notes: "מכסה יומית מקסימלית" },
-    { col: 4,  name: "Used_Today",       zone: "מכסה",   writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "מספר שלם",                                                        notes: "כמה בקשות נשלחו היום — מתאפס כל לילה" },
-    { col: 5,  name: "Remaining",        zone: "מכסה",   writers: [],                   readers: ["ExtractorManager","S06","S07"], values: "=C-D",                                                            notes: "נוסחה חיה — Daily_Quota פחות Used_Today" },
-    { col: 6,  name: "RPM_Limit",        zone: "קצב",    writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "15|2",                                                            notes: "בקשות מקסימליות לדקה" },
+    { col: 3,  name: "Daily_Quota",      zone: "מכסה",   writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "1500|50",                                                        notes: "מכסה יומית מקסימלית" },
+    { col: 4,  name: "Used_Today",       zone: "מכסה",   writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "מספר שלם",                                                       notes: "כמה בקשות נשלחו היום — מתאפס כל לילה" },
+    { col: 5,  name: "Remaining",        zone: "מכסה",   writers: [],                   readers: ["ExtractorManager","S06","S07"], values: "=C-D",                                                           notes: "נוסחה חיה — Daily_Quota פחות Used_Today" },
+    { col: 6,  name: "RPM_Limit",        zone: "קצב",    writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "15|2",                                                           notes: "בקשות מקסימליות לדקה" },
     { col: 7,  name: "Status",           zone: "סטטוס",  writers: ["ExtractorManager"], readers: ["S06","S07"],                    values: "ACTIVE|EXHAUSTED|ERROR|DISABLED",                                 notes: "מצב המחלץ כרגע" },
-    { col: 8,  name: "Complexity_Match", zone: "ניתוב",  writers: ["ExtractorManager"], readers: ["S07"],                         values: "SIMPLE|MEDIUM|COMPLEX|DIAGNOSTICS|TABLES|ULTIMATE|HANDWRITING|MEDICAL_DEEP", notes: "לאיזה מורכבות המחלץ מתאים" },
-    { col: 9,  name: "Reset_Time",       zone: "תזמון",  writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "00:00 UTC",                                                       notes: "שעת איפוס יומי" },
-    { col: 10, name: "Last_Used",        zone: "תזמון",  writers: ["ExtractorManager"], readers: [],                              values: "תאריך ושעה",                                                      notes: "מתי בוצעה הבקשה האחרונה" },
-    { col: 11, name: "Notes",            zone: "מידע",   writers: ["ExtractorManager"], readers: [],                              values: "טקסט חופשי",                                                      notes: "הערות — למשל: מפתח הוחלף, שגיאה ידועה" }
+    { col: 8,  name: "Complexity_Match", zone: "ניתוב",  writers: ["ExtractorManager"], readers: ["S07"],                        values: "SIMPLE|MEDIUM|COMPLEX|DIAGNOSTICS|TABLES|ULTIMATE|HANDWRITING|MEDICAL_DEEP", notes: "לאיזה מורכבות המחלץ מתאים" },
+    { col: 9,  name: "Reset_Time",       zone: "תזמון",  writers: ["ExtractorManager"], readers: ["ExtractorManager"],             values: "00:00 UTC",                                                      notes: "שעת איפוס יומי" },
+    { col: 10, name: "Last_Used",        zone: "תזמון",  writers: ["ExtractorManager"], readers: [],                              values: "תאריך ושעה",                                                     notes: "מתי בוצעה הבקשה האחרונה" },
+    { col: 11, name: "Notes",            zone: "מידע",   writers: ["ExtractorManager"], readers: [],                              values: "טקסט חופשי",                                                     notes: "הערות — למשל: מפתח הוחלף, שגיאה ידועה" }
+  ],
+
+  "מסנכרן_קבצים": [
+    { col: 1, name: "File_Name",      zone: "סנכרון", writers: [], readers: [], values: "שם קובץ", notes: "שם הקובץ ללא סיומת" },
+    { col: 2, name: "Git_Path",       zone: "סנכרון", writers: [], readers: [], values: "נתיב", notes: "נתיב מלא בקוד המקור" },
+    { col: 3, name: "Exists_Editor",  zone: "סנכרון", writers: [], readers: [], values: "כן|לא", notes: "האם קיים בעורך" },
+    { col: 4, name: "Exists_Git",     zone: "סנכרון", writers: [], readers: [], values: "כן|לא", notes: "האם קיים בגיטהאב" },
+    { col: 5, name: "Version_Editor", zone: "סנכרון", writers: [], readers: [], values: "שורת גרסה", notes: "שורת @version מהעורך" },
+    { col: 6, name: "Version_Git",    zone: "סנכרון", writers: [], readers: [], values: "שורת גרסה", notes: "שורת @version מהגיט" },
+    { col: 7, name: "Status",         zone: "סנכרון", writers: [], readers: [], values: "תואם|שונה|חסר", notes: "מצב השוואה" },
+    { col: 8, name: "Action",         zone: "סנכרון", writers: [], readers: [], values: "שחזר|דחוף", notes: "פעולה מוצעת" },
+    { col: 9, name: "Notes",          zone: "סנכרון", writers: [], readers: [], values: "טקסט חופשי", notes: "הערות" }
   ]
 
 };
@@ -389,4 +400,62 @@ function _letterToCol(letter) {
     col = col * 26 + letter.charCodeAt(i) - 64;
   }
   return col;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פונקציות ניהול פיתוח
+// ══════════════════════════════════════════════════════════════════
+
+function buildDevSyncSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const existing = ss.getSheetByName("מסנכרן_קבצים");
+  if (existing) return;
+
+  const cols = SHEETS_MAP["מסנכרן_קבצים"];
+  const sheet = ss.insertSheet("מסנכרן_קבצים");
+
+  const totalCols = cols.length;
+  const headers = new Array(totalCols).fill("");
+  cols.forEach(c => headers[c.col - 1] = c.name);
+
+  sheet.getRange(1, 1, 1, totalCols).setValues([headers]).setFontWeight("bold");
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, totalCols);
+}
+function _colToLetter(num) {
+  let letter = "";
+  while (num > 0) {
+    const mod = (num - 1) % 26;
+    letter = String.fromCharCode(65 + mod) + letter;
+    num = Math.floor((num - 1) / 26);
+  }
+  return letter;
+}
+
+function _letterToCol(letter) {
+  let col = 0;
+  for (let i = 0; i < letter.length; i++) {
+    col = col * 26 + letter.charCodeAt(i) - 64;
+  }
+  return col;
+}
+
+/**
+ * יצירת גליון מסנכרן_קבצים לפי המפה
+ */
+function buildDevSyncSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const existing = ss.getSheetByName("מסנכרן_קבצים");
+  if (existing) return;
+
+  const cols = SHEETS_MAP["מסנכרן_קבצים"];
+  const sheet = ss.insertSheet("מסנכרן_קבצים");
+
+  const totalCols = cols.length;
+  const headers = new Array(totalCols).fill("");
+  cols.forEach(c => headers[c.col - 1] = c.name);
+
+  sheet.getRange(1, 1, 1, totalCols).setValues([headers]).setFontWeight("bold");
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, totalCols);
 }
