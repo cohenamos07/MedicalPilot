@@ -1,12 +1,15 @@
 /**
- * ------------------------------------------------------------
- * פונקציה: getProjectFolders
- * גרסה: 1.1
- * תאריך: 30-03-2026
- * קטגוריה: פונקציות שירות (Service Layer)
- * קובץ: Service_Folders.gs
- * ------------------------------------------------------------
- * תיאור:
+ * MedicalPilot — Service_Folders.gs
+ * @version 1.2.0 | @updated 05/05/2026 19:35 | @service INFRA
+ * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Service_Folders.gs
+ * שינוי: [FIX-1] כותרת תקנית לסטנדרט המערכת
+ */
+
+// ══════════════════════════════════════════════════════════════════
+// שירות תיקיות — סריקת שורש Drive והחזרת רשימת תיקיות + קבצים
+// ══════════════════════════════════════════════════════════════════
+
+/**
  * פונקציה זו סורקת את ספריית השורש של Google Drive
  * ומחזירה מערך של כל הספריות + רשימת הקבצים בכל אחת.
  *
@@ -15,22 +18,15 @@
  * ✔ תיעוד מלא – גרסה, תאריך, הסבר
  * ✔ מיועדת לשימוש ע"י פונקציות LAB וייצור
  * ✔ לא מבצעת לוגיקה עסקית – רק שירות
- * ------------------------------------------------------------
+ *
  * מחזירה:
- * [
- *   {
- *     name: "שם ספרייה",
- *     id: "מזהה",
- *     files: [File, File, ...]
- *   },
- *   ...
- * ]
- * ------------------------------------------------------------
+ * [{ name: "שם ספרייה", id: "מזהה", files: [File, File, ...] }, ...]
+ *
  * בדיקת תקינות:
  * בעת הרצה יש לכתוב לוג עם מספר הספריות שנמצאו.
- * ------------------------------------------------------------
+ *
+ * @return {Array} מערך אובייקטי ספריות
  */
-
 function getProjectFolders() {
   // שלב 1: קבלת ספריית השורש
   const root = DriveApp.getRootFolder();
@@ -42,7 +38,7 @@ function getProjectFolders() {
   const iterator = root.getFolders();
   while (iterator.hasNext()) {
     const folder = iterator.next();
-    const files = [];
+    const files  = [];
 
     // שלב 4: איסוף כל הקבצים בתוך הספרייה
     const fileIterator = folder.getFiles();
@@ -52,13 +48,13 @@ function getProjectFolders() {
 
     // שלב 5: הוספת הספרייה למערך התוצאות
     folders.push({
-      name: folder.getName(),
-      id: folder.getId(),
+      name:  folder.getName(),
+      id:    folder.getId(),
       files: files
     });
   }
 
-  // שלב 6: לוג בדיקה (לא דורש עריכה מצדך)
+  // שלב 6: לוג בדיקה
   Logger.log("נמצאו " + folders.length + " ספריות בדרייב.");
 
   // שלב 7: החזרת התוצאה
