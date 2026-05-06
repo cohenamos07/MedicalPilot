@@ -1,14 +1,16 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 1.6 | @updated 05/05/2026 19:15 | @service DEV_SYNC
+ * @version 1.7 | @updated 06/05/2026 16:00 | @service DEV_SYNC
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/DevSyncInspector.gs
- * שינוי: [FIX-4] לוגיקת השוואה חכמה — עורך יש גרסה/גיט אין → ↑ דחוף לגיט
- *                                        גיט יש גרסה/עורך אין → ↓ משוך מגיט
+ * שינוי: [FIX-5] הסרת קבצי TestLab וגיבויים מהדוח — אינם רלוונטיים לסנכרון
  */
 
 const DEV_SYNC_SHEET_NAME = "מסנכרן_קבצים";
 const DEV_SYNC_GIT_FOLDER = "src/infrastructure";
 const DEV_SYNC_SCRIPT_ID  = "1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf";
+
+// קבצים שיודרו מהדוח
+const DEV_SYNC_EXCLUDED   = ["TestLab", "עותק של TestLab.gs"];
 
 // ══════════════════════════════════════════════════════════════════
 // כפתור גרפי — הפקת דוח סנכרון
@@ -48,6 +50,10 @@ function devSync_ScanAndFillSheet() {
   const rows = [];
 
   allNames.forEach(function(name) {
+
+    // [FIX-5] דילוג על קבצי TestLab וגיבויים
+    if (DEV_SYNC_EXCLUDED.indexOf(name) !== -1) return;
+
     const editorInfo = editorMap[name] || null;
     const gitInfo    = gitMap[name]    || null;
 
@@ -61,24 +67,17 @@ function devSync_ScanAndFillSheet() {
     let action = "";
 
     if (existsEditor && existsGit) {
-
-      // שניהם ללא גרסה
       if (!versionEditor && !versionGit) {
         status = "ללא גרסה";
         action = "בדוק והחליט";
-
-      // גרסאות זהות
       } else if (versionEditor === versionGit) {
         status = "תואם";
         action = "תואם — אין צורך";
-
-      // גרסאות שונות — השוואת תאריכים
       } else {
         const dateEditor = devSync_extractDate(versionEditor);
         const dateGit    = devSync_extractDate(versionGit);
 
         if (dateEditor && dateGit) {
-          // שניהם עם תאריך — משווים
           if (dateEditor > dateGit) {
             status = "שונה";
             action = "↑ דחוף לגיט";
@@ -86,28 +85,20 @@ function devSync_ScanAndFillSheet() {
             status = "שונה";
             action = "↓ משוך מגיט";
           } else {
-            // תאריך זהה אבל גרסה שונה — העורך גובר
             status = "שונה";
             action = "↑ דחוף לגיט";
           }
-
-        // [FIX-4] עורך יש תאריך, גיט אין → דחוף לגיט
         } else if (dateEditor && !dateGit) {
           status = "שונה";
           action = "↑ דחוף לגיט";
-
-        // [FIX-4] גיט יש תאריך, עורך אין → משוך מגיט
         } else if (!dateEditor && dateGit) {
           status = "שונה";
           action = "↓ משוך מגיט";
-
-        // שניהם ללא תאריך — לא ניתן להחליט
         } else {
           status = "שונה";
           action = "בדוק והחליט";
         }
       }
-
     } else if (existsEditor && !existsGit) {
       status = "חסר בגיט";
       action = "↑ דחוף לגיט";
@@ -139,7 +130,7 @@ function devSync_ScanAndFillSheet() {
   }
 
   devSync_ApplyConditionalFormatting();
-  ui.alert("דוח סנכרון עודכן בגיליון '" + DEV_SYNC_SHEET_NAME + "'.");
+  ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.");
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -209,10 +200,8 @@ function devSync_ApplyConditionalFormatting() {
     const updatedRules = sheet.getConditionalFormatRules();
     updatedRules.push(ruleGreen, ruleYellow1, ruleYellow2, ruleRed, ruleGray);
     sheet.setConditionalFormatRules(updatedRules);
-
-    Logger.log("[DevSyncInspector] עיצוב מותנה הוחל.");
   } catch (e) {
-    Logger.log("[DevSyncInspector] devSync_ApplyConditionalFormatting: " + e.toString());
+    Logger.log("[DevSyncInspector] " + e.toString());
   }
 }
 
@@ -230,14 +219,13 @@ function devSync_getEditorFilesMap() {
       muteHttpExceptions: true
     });
 
-    if (response.getResponseCode() !== 200) {
-      Logger.log("devSync_getEditorFilesMap: קוד " + response.getResponseCode());
-      return map;
-    }
+    if (response.getResponseCode() !== 200) return map;
 
     const data = JSON.parse(response.getContentText());
     (data.files || []).forEach(function(file) {
       if (file.type === "SERVER_JS" && file.name) {
+        // [FIX-5] דילוג על קבצים מוחרגים
+        if (DEV_SYNC_EXCLUDED.indexOf(file.name) !== -1) return;
         const source      = file.source || "";
         const versionLine = devSync_extractVersionLine(source);
         map[file.name]    = { versionLine: versionLine };
@@ -257,7 +245,7 @@ function devSync_getGitFilesMap() {
   const map = {};
   try {
     const token = PropertiesService.getScriptProperties().getProperty('GITHUB_PAT');
-    if (!token) { Logger.log("devSync_getGitFilesMap: GITHUB_PAT חסר"); return map; }
+    if (!token) return map;
 
     const baseUrl = "https://api.github.com/repos/cohenamos07/MedicalPilot/contents/" + DEV_SYNC_GIT_FOLDER;
     const headers = {
@@ -271,15 +259,14 @@ function devSync_getGitFilesMap() {
       muteHttpExceptions: true
     });
 
-    if (listResponse.getResponseCode() !== 200) {
-      Logger.log("devSync_getGitFilesMap: קוד " + listResponse.getResponseCode());
-      return map;
-    }
+    if (listResponse.getResponseCode() !== 200) return map;
 
     const files = JSON.parse(listResponse.getContentText());
     files.forEach(function(item) {
       if (item.type === "file" && item.name.endsWith(".gs")) {
         const nameWithoutExt = item.name.replace(/\.gs$/i, "");
+        // [FIX-5] דילוג על קבצים מוחרגים
+        if (DEV_SYNC_EXCLUDED.indexOf(nameWithoutExt) !== -1) return;
         const fileContent    = devSync_fetchGitFileContent(item.path, token);
         const versionLine    = devSync_extractVersionLine(fileContent);
         map[nameWithoutExt]  = { path: item.path, versionLine: versionLine };
