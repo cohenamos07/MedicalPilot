@@ -1,13 +1,15 @@
 /**
  * MedicalPilot — S08_Validate.gs
- * @version 1.0.2 | @updated 06/05/2026 22:35 | @service S08
+ * @version 1.0.6 | @updated 08/05/2026 | @service S08
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S08_Validate.gs
- * שינוי: [FIX-1] בדיקת סף — עמודה X (TXT_URL) בלבד, לא Z
- *         [FIX-2] טעינת טקסט גולמי מהקובץ עצמו דרך TXT_URL
- *         [FIX-3] sourceUrl — מחפש ב-W, ואם ריק בונה מ-File_ID בעמודה A
+ * שינוי: [v1.0.6-א] s08_fetchTxtContent — שליפת תוכן TXT דרך GAS (עוקף הרשאת iframe)
+ *         [v1.0.6-ד] Dialog מוגדל ל-1100×750
+ *         [v1.0.5]   pipelineStatus (עמודה M)
+ *         [v1.0.4]   s08_loadRowByNumber, s08_highlightActiveRow, lastRow, noTxt
+ *         [v1.0.3]   בדיקת סף X, sourceUrl מ-W/A
  * עמודות קריאה:  A=1 File_ID | I=9 Doc_Title | J=10 Doc_Issuer | K=11 Doc_Date |
- *                L=12 Doc_Category | P=16 File_Size | Q=17 Complexity |
- *                R=18 Duplicate_Flag | W=23 Source_URL | X=24 TXT_URL
+ *                L=12 Doc_Category | M=13 Pipeline_Status | P=16 File_Size |
+ *                Q=17 Complexity | R=18 Duplicate_Flag | W=23 Source_URL | X=24 TXT_URL
  * עמודות כתיבה: I=9 | J=10 | K=11 | L=12 | M=13 Pipeline_Status | U=21 QA_Status
  */
 
@@ -31,7 +33,6 @@ function showMainSidebar() {
     return;
   }
 
-  // [FIX-1] בדיקת תנאי סף — חייב TXT_URL בעמודה X
   const txtUrl = sheet.getRange(row, 24).getValue();
   if (!txtUrl || txtUrl.toString().trim() === "") {
     SpreadsheetApp.getUi().alert(
@@ -41,28 +42,28 @@ function showMainSidebar() {
     return;
   }
 
-  // שליפת נתוני השורה
   const rowData = _s08_getRowData(sheet, row);
 
-  // שמירת נתונים להעברה ל-HTML
   PropertiesService.getScriptProperties().setProperty(
     "S08_CURRENT_ROW_DATA",
     JSON.stringify({ row: row, data: rowData })
   );
 
-  // פתיחת Dialog
+  s08_highlightActiveRow(row);
+
+  // [v1.0.6-ד] Dialog מוגדל ל-1100×750
   const html = HtmlService
     .createTemplateFromFile("S08_Sidebar")
     .evaluate()
-    .setWidth(920)
-    .setHeight(650)
+    .setWidth(1100)
+    .setHeight(750)
     .setTitle("S08 — אימות ידני");
 
   SpreadsheetApp.getUi().showModalDialog(html, "🔍 אימות ידני — שורה " + row);
 }
 
 // ══════════════════════════════════════════════════════════════════
-// שליפת נתוני שורה — [FIX-3] sourceUrl מ-W או מ-A
+// שליפת נתוני שורה
 // ══════════════════════════════════════════════════════════════════
 
 function _s08_getRowData(sheet, row) {
@@ -71,32 +72,137 @@ function _s08_getRowData(sheet, row) {
                     (fileId ? "https://drive.google.com/file/d/" + fileId + "/view" : "");
 
   return {
-    row:           row,
-    fileId:        fileId,
-    docTitle:      sheet.getRange(row, 9).getValue()  || "",
-    docIssuer:     sheet.getRange(row, 10).getValue() || "",
-    docDate:       sheet.getRange(row, 11).getValue() || "",
-    docCategory:   sheet.getRange(row, 12).getValue() || "",
-    fileSize:      sheet.getRange(row, 16).getValue() || "",
-    complexity:    sheet.getRange(row, 17).getValue() || "",
-    duplicateFlag: sheet.getRange(row, 18).getValue() || "",
-    sourceUrl:     sourceUrl,
-    txtUrl:        sheet.getRange(row, 24).getValue() || ""
+    row:            row,
+    fileId:         fileId,
+    docTitle:       sheet.getRange(row, 9).getValue()  || "",
+    docIssuer:      sheet.getRange(row, 10).getValue() || "",
+    docDate:        sheet.getRange(row, 11).getValue() || "",
+    docCategory:    sheet.getRange(row, 12).getValue() || "",
+    pipelineStatus: sheet.getRange(row, 13).getValue() || "",
+    fileSize:       sheet.getRange(row, 16).getValue() || "",
+    complexity:     sheet.getRange(row, 17).getValue() || "",
+    duplicateFlag:  sheet.getRange(row, 18).getValue() || "",
+    sourceUrl:      sourceUrl,
+    txtUrl:         sheet.getRange(row, 24).getValue() || ""
   };
 }
 
 // ══════════════════════════════════════════════════════════════════
-// קריאה מה-HTML — טעינת נתוני השורה
+// קריאה מה-HTML — טעינת נתוני השורה הנוכחית
 // ══════════════════════════════════════════════════════════════════
 
 function s08_loadRowData() {
   try {
     const raw = PropertiesService.getScriptProperties().getProperty("S08_CURRENT_ROW_DATA");
     if (!raw) return null;
-    return JSON.parse(raw);
+    const parsed  = JSON.parse(raw);
+    const ss      = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet   = ss.getSheetByName("ניהול_מיילים");
+    const lastRow = sheet ? sheet.getLastRow() : 9999;
+    const noTxt   = !parsed.data.txtUrl;
+    return {
+      row:     parsed.row,
+      data:    parsed.data,
+      lastRow: lastRow,
+      noTxt:   noTxt
+    };
   } catch (e) {
     Logger.log("s08_loadRowData: " + e.message);
     return null;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ניווט דינמי — טעינת שורה לפי מספר
+// ══════════════════════════════════════════════════════════════════
+
+function s08_loadRowByNumber(rowNum) {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("ניהול_מיילים");
+    if (!sheet) return { error: true, msg: "גליון 'ניהול_מיילים' לא נמצא" };
+
+    const lastRow = sheet.getLastRow();
+
+    if (rowNum < 2 || rowNum > lastRow) {
+      return { error: true, msg: "שורה " + rowNum + " מחוץ לטווח (2–" + lastRow + ")" };
+    }
+
+    const rowData = _s08_getRowData(sheet, rowNum);
+    const noTxt   = !rowData.txtUrl;
+
+    PropertiesService.getScriptProperties().setProperty(
+      "S08_CURRENT_ROW_DATA",
+      JSON.stringify({ row: rowNum, data: rowData })
+    );
+
+    s08_highlightActiveRow(rowNum);
+
+    return {
+      row:     rowNum,
+      data:    rowData,
+      lastRow: lastRow,
+      noTxt:   noTxt
+    };
+  } catch (e) {
+    Logger.log("s08_loadRowByNumber: " + e.message);
+    return { error: true, msg: e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// סימון שורה פעילה בגליון — עמודה A
+// ══════════════════════════════════════════════════════════════════
+
+function s08_highlightActiveRow(row) {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("ניהול_מיילים");
+    if (!sheet) return;
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      sheet.getRange(2, 1, lastRow - 1, 1).setBackground(null);
+    }
+    sheet.getRange(row, 1).setBackground("#bbdefb");
+    sheet.setActiveRange(sheet.getRange(row, 1));
+  } catch (e) {
+    Logger.log("s08_highlightActiveRow: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v1.0.6-א] שליפת תוכן קובץ TXT דרך GAS — עוקף הרשאת iframe
+// ══════════════════════════════════════════════════════════════════
+
+function s08_fetchTxtContent(txtUrl) {
+  try {
+    if (!txtUrl) return { success: false, msg: "אין כתובת TXT" };
+
+    // שליפת File ID מהכתובת
+    let fileId = null;
+    const m1 = txtUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (m1) fileId = m1[1];
+    const m2 = txtUrl.match(/id=([a-zA-Z0-9_-]+)/);
+    if (m2) fileId = m2[1];
+
+    if (!fileId) {
+      // ניסיון לקרוא ישירות כ-URL
+      const resp = UrlFetchApp.fetch(txtUrl, { muteHttpExceptions: true });
+      if (resp.getResponseCode() === 200) {
+        return { success: true, content: resp.getContentText("UTF-8") };
+      }
+      return { success: false, msg: "לא ניתן לשלוף את הקובץ" };
+    }
+
+    // קריאה דרך Drive API
+    const file    = DriveApp.getFileById(fileId);
+    const content = file.getBlob().getDataAsString("UTF-8");
+    return { success: true, content: content };
+
+  } catch (e) {
+    Logger.log("s08_fetchTxtContent: " + e.message);
+    return { success: false, msg: "שגיאה: " + e.message };
   }
 }
 
@@ -125,7 +231,7 @@ function s08_getDuplicateRowData(duplicateFlag) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// כפתור 1 — אישור וסגור
+// כפתור 1 — אישור
 // ══════════════════════════════════════════════════════════════════
 
 function s08_approve(row) {
@@ -195,7 +301,6 @@ function _s08_saveToLearning(sheet, row, title, issuer, category, date, note) {
     const learnSheet = ss.getSheetByName("דוגמאות_למידה");
     if (!learnSheet) return { success: false, msg: "❌ גליון 'דוגמאות_למידה' לא נמצא" };
 
-    // בדיקת כפילות לפי Issuer + Classification
     const lastRow = learnSheet.getLastRow();
     if (lastRow > 1) {
       const existing = learnSheet.getRange(2, 1, lastRow - 1, 3).getValues();
@@ -219,14 +324,14 @@ function _s08_saveToLearning(sheet, row, title, issuer, category, date, note) {
     const txtUrl     = sheet.getRange(row, 24).getValue() || "";
 
     learnSheet.appendRow([
-      title      || "",   // 1 Subject
-      issuer     || "",   // 2 Issuer
-      category   || "",   // 3 Classification
-      txtUrl     || "",   // 4 TXT_Document_Link
-      fileId     || "",   // 5 Original_File_ID
-      complexity || "",   // 6 Complexity
-      date       || "",   // 7 Doc_Date
-      note       || ""    // 8 Notes
+      title      || "",
+      issuer     || "",
+      category   || "",
+      txtUrl     || "",
+      fileId     || "",
+      complexity || "",
+      date       || "",
+      note       || ""
     ]);
 
     return { success: true, isDuplicate: false, msg: "✅ נשמר בגיליון הלמידה" };
@@ -257,7 +362,6 @@ function s08_delete(row, deleteWhich) {
 
     _s08_trashDriveFile(sourceUrl);
     _s08_trashDriveFile(txtUrl);
-
     sheet.deleteRow(targetRow);
 
     Logger.log("[S08] מחיקת שורה " + targetRow);
