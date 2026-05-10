@@ -1,18 +1,18 @@
 /**
  * MedicalPilot — Menu_PROD.gs
  * תפריט ייצור (PR)
- * @version 10.3 | @updated 10/05/2026 13:30 | @service MENU_PROD
+ * @version 10.4 | @updated 10/05/2026 15:30 | @service MENU_PROD
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Menu_PROD.gs
- * שינוי: ניקוי סעיף ניהול מערכת — הסרת פונקציות מתות, יישור עם LAB
+ * שינוי: הוספת S09 — חילוץ מידע לגליונות תחת עיבוד AI
  */
 
 function buildProdMenu() {
-  buildProdMenu_v10_3();
+  buildProdMenu_v10_4();
 }
 
-function buildProdMenu_v10_3() {
+function buildProdMenu_v10_4() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('PR v10.3');
+  var menu = ui.createMenu('PR v10.4');
 
   var subMenuSetup = ui.createMenu('⚙️ הכנת מערכת')
     .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
@@ -34,7 +34,8 @@ function buildProdMenu_v10_3() {
   var subMenuAI = ui.createMenu('🧠 עיבוד AI')
     .addItem('סיווג מסמכים', 'msgBlocked')
     .addItem('אימות ידני ולמידה', 'showMainSidebar')
-    .addItem('חילוץ שדות מלא', 'msgBlocked');
+    .addItem('חילוץ שדות מלא', 'msgBlocked')
+    .addItem('חילוץ מידע לגליונות', 'runS09');
   menu.addSubMenu(subMenuAI);
 
   menu.addSeparator();
