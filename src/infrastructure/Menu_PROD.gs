@@ -1,8 +1,9 @@
 /**
  * MedicalPilot — Menu_PROD.gs
- * @version 10.3 | @updated 01/05/2026 12:45 | @service MENU_PROD
+ * תפריט ייצור (PR)
+ * @version 10.3 | @updated 10/05/2026 13:30 | @service MENU_PROD
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Menu_PROD.gs
- * שינוי: פתיחת פעולות AI, הוספת טריגר לילי, יישור מבנה מול LAB ללא כלי פיתוח
+ * שינוי: ניקוי סעיף ניהול מערכת — הסרת פונקציות מתות, יישור עם LAB
  */
 
 function buildProdMenu() {
@@ -10,72 +11,41 @@ function buildProdMenu() {
 }
 
 function buildProdMenu_v10_3() {
-  var ui   = SpreadsheetApp.getUi();
+  var ui = SpreadsheetApp.getUi();
   var menu = ui.createMenu('PR v10.3');
 
-  // 🔄 קליטת נתונים
-  var subIngestion = ui.createMenu('🔄 קליטת נתונים')
-    .addItem('סריקת Gmail',      'runEmailIngestion')
-    .addItem('סריקת Drive',      'syncDriveFiles')
-    .addItem('חילוץ מטא-דאטה',  'extractMetaData');
-  menu.addSubMenu(subIngestion);
+  var subMenuSetup = ui.createMenu('⚙️ הכנת מערכת')
+    .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
+    .addItem('בדיקת הרשאות', 'checkUserAccess');
+  menu.addSubMenu(subMenuSetup);
 
   menu.addSeparator();
 
-  // 🧠 עיבוד AI
-  var subAI = ui.createMenu('🧠 עיבוד AI')
-    .addItem('המרה ל-TXT',         'run_MedicalPilot_V2_6_2')
-    .addItem('סיווג מסמכים',       'classifyDocument')
-    .addItem('אימות ידני ולמידה',  'showMainSidebar')
-    .addItem('חילוץ שדות מלא',     'extractMedicalHeaders');
-  menu.addSubMenu(subAI);
+  var subMenuIngestion = ui.createMenu('🔄 קליטת נתונים')
+    .addItem('סריקת Gmail', 'runEmailIngestion')
+    .addItem('סריקת Drive', 'syncDriveFiles')
+    .addItem('חילוץ מטא-דאטה ומיון', 'extractMetaData')
+    .addItem('סנכרון סטטוסים', 'syncStatusBeforeOCR')
+    .addItem('המרת קבצים ל-OCR', 'runBatchOCR_Test');
+  menu.addSubMenu(subMenuIngestion);
 
   menu.addSeparator();
 
-  // ⚙️ ניהול מערכת
-  var subInfraTests = ui.createMenu('🔌 בדיקות תשתית')
-    .addItem('תקינות מערכת',  'checkSystemMorning')
-    .addItem('הרשאות משתמש',  'checkUserAccess')
-    .addItem('חיבור Gemini',  'testAiResponse')
-    .addItem('חיבור GitHub',  'testGitHubConnection')
-    .addItem('הגדרות מערכת',  'getConfig');
+  var subMenuAI = ui.createMenu('🧠 עיבוד AI')
+    .addItem('סיווג מסמכים', 'msgBlocked')
+    .addItem('אימות ידני ולמידה', 'showMainSidebar')
+    .addItem('חילוץ שדות מלא', 'msgBlocked');
+  menu.addSubMenu(subMenuAI);
 
-  var subDataTests = ui.createMenu('📊 בדיקות נתונים')
-    .addItem('בדיקות QA כלליות',    'runAllTests')
-    .addItem('בדיקת לינקי TXT',     'validateTxtLinks')
-    .addItem('בדיקת לוגיקה שורות',  'checkRowLogic');
+  menu.addSeparator();
 
-  var subResources = ui.createMenu('📦 מנהל משאבים')
-    .addItem('הצג מאזן מחלצים',  'showExtractorBalance')
-    .addItem('בדוק כל המחלצים',  'checkAllExtractors')
-    .addItem('אפס שימוש יומי',   'resetDailyUsage')
-    .addItem('הגדר טריגר לילי',  'createDailyResetTrigger');
-
-  var subScheduler = ui.createMenu('⏰ גובים מתוזמנים')
-    .addItem('הפעל גוב',         'startJob')
-    .addItem('עצור גוב',         'stopJob')
-    .addItem('הצג גובים פעילים', 'showActiveJobs');
-
-  var subAdmin = ui.createMenu('⚙️ ניהול מערכת')
-    .addSubMenu(subInfraTests)
-    .addSubMenu(subDataTests)
-    .addSubMenu(subResources)
-    .addSubMenu(subScheduler)
-    .addSeparator()
-    .addItem('🏗️ הקמת גליון חדש מהמפה', 'buildSheetFromMap')
-    .addItem('שחזור כותרות',              'restoreHeaders')
-    .addItem('בדיקת הרשאות כתיבה',        'checkWritePermissions')
-    .addSeparator()
-    .addItem('ניהול לוגים', 'logSystemEvent');
-  menu.addSubMenu(subAdmin);
+  var subMenuAdmin = ui.createMenu('⚙️ ניהול מערכת')
+    .addItem('תיעוד אירוע מערכת', 'logSystemEvent');
+  menu.addSubMenu(subMenuAdmin);
 
   menu.addToUi();
 }
 
-function buildProdMenu_v10_2() { buildProdMenu_v10_3(); }
-function buildProdMenu_v10_1() { buildProdMenu_v10_3(); }
-function buildProdMenu_v97_9() { buildProdMenu_v10_3(); }
-function buildProdMenu_v97_8() { buildProdMenu_v10_3(); }
-function buildProdMenu_v97_7() { buildProdMenu_v10_3(); }
-function buildProdMenu_v97_6() { buildProdMenu_v10_3(); }
-function buildProdMenu_v97_5() { buildProdMenu_v10_3(); }
+function msgBlocked() {
+  SpreadsheetApp.getUi().alert('⏳ שירות זה בבדיקה בסביבת LAB\nיפתח בייצור לאחר אישור.');
+}
