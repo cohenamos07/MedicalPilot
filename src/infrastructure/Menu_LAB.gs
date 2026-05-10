@@ -1,9 +1,9 @@
 /**
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
- * @version 10.7 | @updated 10/05/2026 12:30 | @service MENU_LAB
+ * @version 10.7 | @updated 10/05/2026 13:30 | @service MENU_LAB
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Menu_LAB.gs
- * שינוי: ארגון מחדש — הסרת קליטת נתונים ועיבוד AI, 3 סעיפי פיתוח חדשים
+ * שינוי: ארגון מחדש — הסרת קליטת נתונים ועיבוד AI, ניקוי פונקציות מתות, 3 סעיפי פיתוח
  */
 
 function buildLabMenu() {
@@ -15,9 +15,7 @@ function buildLabMenu_v10_7() {
   var menu = ui.createMenu('LA v10.7');
 
   var subMenuAdmin = ui.createMenu('⚙️ ניהול מערכת')
-    .addItem('גיבוי GitHub', 'uploadToGitHub')
-    .addItem('ניהול לוגים', 'logSystemEvent')
-    .addItem('הגדרות תשתית', 'getConfig');
+    .addItem('תיעוד אירוע מערכת', 'logSystemEvent');
   menu.addSubMenu(subMenuAdmin);
 
   menu.addSeparator();
