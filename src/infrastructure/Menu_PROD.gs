@@ -1,9 +1,9 @@
 /**
  * MedicalPilot — Menu_PROD.gs
  * תפריט ייצור (PR)
- * @version 10.4 | @updated 10/05/2026 15:30 | @service MENU_PROD
+ * @version 10.4 | @updated 11/05/2026 19:20 | @service MENU_PROD
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Menu_PROD.gs
- * שינוי: הוספת S09 — חילוץ מידע לגליונות תחת עיבוד AI
+ * שינוי: תיקון המרה ל-TXT, הוספת S09, ניקוי ניהול מערכת
  */
 
 function buildProdMenu() {
@@ -26,7 +26,7 @@ function buildProdMenu_v10_4() {
     .addItem('סריקת Drive', 'syncDriveFiles')
     .addItem('חילוץ מטא-דאטה ומיון', 'extractMetaData')
     .addItem('סנכרון סטטוסים', 'syncStatusBeforeOCR')
-    .addItem('המרת קבצים ל-OCR', 'runBatchOCR_Test');
+    .addItem('המרת קבצים ל-TXT', 'runBatchOCR_Test');
   menu.addSubMenu(subMenuIngestion);
 
   menu.addSeparator();
