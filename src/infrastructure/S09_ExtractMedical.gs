@@ -1,21 +1,25 @@
 /**
  * MedicalPilot — S09_ExtractMedical.gs
- * @version 1.0.0 | @updated 10/05/2026 15:30 | @service S09
+ * @version 1.1.0 | @updated 12/05/2026 18:30 | @service S09
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S09_ExtractMedical.gs
  * תפקיד: חילוץ אירועים רפואיים ממסמכים מאומתים לגליונות יעד
  * קריאה:  A(1) File_ID | I(9) Doc_Title | J(10) Doc_Issuer | K(11) Doc_Date
  *          L(12) Doc_Category | M(13) Pipeline_Status | W(23) Source_URL | X(24) TXT_URL
  * כתיבה:  M(13) Pipeline_Status | S(19) Error_Code | T(20) Error_Detail
+ * שינוי:  [v1.1.0] הוספת _s09_fetchFewShotExamples — שליפת דוגמאות מ-S10_למידה_רפואי
+ *                   והזרקתן לפרומפט Gemini לשיפור חילוץ
  */
 
 // ══════════════════════════════════════════════════════════════════
 // קבועים
 // ══════════════════════════════════════════════════════════════════
 
-const S09_SOURCE_SHEET   = "ניהול_מיילים";
-const S09_CATEGORIES     = ["רפואי", "מסמך רפואי"];
-const S09_STATUS_TRIGGER = "אומת ידנית";
-const S09_GEMINI_MODEL   = "gemini-2.0-flash";
+const S09_SOURCE_SHEET    = "ניהול_מיילים";
+const S09_LEARNING_SHEET  = "S10_למידה_רפואי";
+const S09_CATEGORIES      = ["רפואי", "מסמך רפואי"];
+const S09_STATUS_TRIGGER  = "אומת ידנית";
+const S09_GEMINI_MODEL    = "gemini-2.0-flash";
+const S09_MAX_EXAMPLES    = 5;
 
 const S09_TARGET_SHEETS  = {
   events:       "יומן_אירועים_רפואי",
@@ -42,10 +46,8 @@ function runS09() {
   const activeRow = sheet.getActiveCell().getRow();
 
   if (activeRow >= 2) {
-    // מצב יחיד — שורה נבחרת
     _s09_processSingleRow(ss, sheet, activeRow);
   } else {
-    // מצב אצווה — כל השורות המתאימות
     _s09_processBatch(ss, sheet);
   }
 }
@@ -82,7 +84,7 @@ function _s09_processBatch(ss, sheet) {
     if (result.success) processed++;
     else errors++;
 
-    Utilities.sleep(1500); // הגנה על מכסת Gemini
+    Utilities.sleep(1500);
   }
 
   SpreadsheetApp.getUi().alert(
@@ -118,7 +120,6 @@ function _s09_checkRow(sheet, row) {
 
 function _s09_processRow(ss, sheet, row) {
   try {
-    // שליפת נתוני השורה
     const docData = {
       fileId:    (sheet.getRange(row, 1).getValue()  || "").toString().trim(),
       docTitle:  (sheet.getRange(row, 9).getValue()  || "").toString().trim(),
@@ -128,24 +129,23 @@ function _s09_processRow(ss, sheet, row) {
       txtUrl:    (sheet.getRange(row, 24).getValue() || "").toString().trim()
     };
 
-    // קריאת תוכן TXT
     const txtContent = _s09_fetchTxtContent(docData.txtUrl);
     if (!txtContent) {
       _s09_writeError(sheet, row, "ACCESS", "לא ניתן לקרוא קובץ TXT — בדוק הרשאות Drive");
       return { success: false, msg: "❌ שגיאת גישה לקובץ TXT" };
     }
 
-    // קריאת Gemini
-    const extracted = _s09_callGemini(txtContent, docData);
+    // [v1.1.0] שליפת דוגמאות למידה מ-S10
+    const fewShotExamples = _s09_fetchFewShotExamples(ss);
+
+    const extracted = _s09_callGemini(txtContent, docData, fewShotExamples);
     if (!extracted) {
       _s09_writeError(sheet, row, "PARSE", "Gemini לא החזיר JSON תקין");
       return { success: false, msg: "❌ שגיאת עיבוד Gemini" };
     }
 
-    // כתיבה לגליונות
     const sheetsWritten = _s09_writeToSheets(ss, extracted, docData);
 
-    // עדכון Pipeline_Status
     const statusText = sheetsWritten.length === 1
       ? "חולץ ל" + sheetsWritten[0]
       : "חולץ לגליונות";
@@ -154,7 +154,9 @@ function _s09_processRow(ss, sheet, row) {
     sheet.getRange(row, 19).setValue("");
     sheet.getRange(row, 20).setValue("");
 
-    Logger.log("[S09] שורה " + row + " → " + statusText);
+    Logger.log("[S09] שורה " + row + " → " + statusText +
+      (fewShotExamples.length > 0 ? " | דוגמאות: " + fewShotExamples.length : " | ללא דוגמאות"));
+
     return { success: true, msg: "✅ שורה " + row + " — " + statusText };
 
   } catch (e) {
@@ -162,6 +164,85 @@ function _s09_processRow(ss, sheet, row) {
     Logger.log("[S09] שגיאה שורה " + row + ": " + e.message);
     return { success: false, msg: "❌ שגיאה: " + e.message };
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v1.1.0] שליפת דוגמאות Few-Shot מגליון S10_למידה_רפואי
+// ══════════════════════════════════════════════════════════════════
+
+function _s09_fetchFewShotExamples(ss) {
+  try {
+    const learnSheet = ss.getSheetByName(S09_LEARNING_SHEET);
+    if (!learnSheet) {
+      Logger.log("[S09] גליון למידה לא נמצא — ממשיך ללא דוגמאות");
+      return [];
+    }
+
+    const lastRow = learnSheet.getLastRow();
+    if (lastRow < 2) {
+      Logger.log("[S09] גליון למידה ריק — ממשיך ללא דוגמאות");
+      return [];
+    }
+
+    // שליפת עד S09_MAX_EXAMPLES שורות אחרונות
+    const startRow  = Math.max(2, lastRow - S09_MAX_EXAMPLES + 1);
+    const numRows   = lastRow - startRow + 1;
+    const data      = learnSheet.getRange(startRow, 1, numRows, 7).getValues();
+
+    const examples = [];
+
+    data.forEach(function(row) {
+      const fileId       = (row[0] || "").toString().trim();
+      const splitIndex   = (row[1] || "").toString().trim();
+      const targetSheet  = (row[2] || "").toString().trim();
+      const jsonRaw      = (row[3] || "").toString().trim();
+      const complexity   = (row[4] || "").toString().trim();
+      const correction   = (row[5] || "").toString().trim();
+
+      if (!jsonRaw || !targetSheet) return;
+
+      try {
+        const parsed = JSON.parse(jsonRaw);
+        examples.push({
+          targetSheet: targetSheet,
+          splitIndex:  splitIndex,
+          complexity:  complexity,
+          correction:  correction,
+          data:        parsed
+        });
+      } catch (e) {
+        Logger.log("[S09] לא ניתן לפרסר JSON בדוגמת למידה — fileId: " + fileId);
+      }
+    });
+
+    Logger.log("[S09] נטענו " + examples.length + " דוגמאות למידה מ-" + S09_LEARNING_SHEET);
+    return examples;
+
+  } catch (e) {
+    Logger.log("[S09] שגיאה בשליפת דוגמאות: " + e.message);
+    return [];
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// בניית בלוק Few-Shot לפרומפט
+// ══════════════════════════════════════════════════════════════════
+
+function _s09_buildFewShotBlock(examples) {
+  if (!examples || examples.length === 0) return "";
+
+  let block = "\n--- דוגמאות מאומתות מהעבר (למד מהן) ---\n";
+
+  examples.forEach(function(ex, i) {
+    block += "\nדוגמה " + (i + 1) + " | גליון: " + ex.targetSheet;
+    if (ex.complexity) block += " | מורכבות: " + ex.complexity;
+    block += "\n";
+    block += JSON.stringify(ex.data, null, 2) + "\n";
+    if (ex.correction) block += "הערת מאמת: " + ex.correction + "\n";
+  });
+
+  block += "--- סוף דוגמאות ---\n";
+  return block;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -182,18 +263,21 @@ function _s09_fetchTxtContent(txtUrl) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// קריאת Gemini — חילוץ מובנה
+// קריאת Gemini — חילוץ מובנה + Few-Shot
 // ══════════════════════════════════════════════════════════════════
 
-function _s09_callGemini(txtContent, docData) {
+function _s09_callGemini(txtContent, docData, fewShotExamples) {
   try {
     const apiKey = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY");
     const url    = "https://generativelanguage.googleapis.com/v1beta/models/" +
                    S09_GEMINI_MODEL + ":generateContent?key=" + apiKey;
 
+    // [v1.1.0] בניית בלוק הדוגמאות
+    const fewShotBlock = _s09_buildFewShotBlock(fewShotExamples);
+
     const prompt = `אתה מומחה לניתוח מסמכים רפואיים בעברית.
 קרא את המסמך הבא וחלץ ממנו מידע רפואי מובנה.
-
+${fewShotBlock}
 פרטי המסמך:
 - כותרת: ${docData.docTitle}
 - מנפיק: ${docData.docIssuer}
@@ -312,7 +396,6 @@ function _s09_writeToSheets(ss, extracted, docData) {
   const sourceUrl     = docData.sourceUrl ||
                         "https://drive.google.com/file/d/" + docData.fileId + "/view";
 
-  // גליון 1 — יומן_אירועים_רפואי (תמיד)
   if (extracted.events && extracted.events.length > 0) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.events);
     extracted.events.forEach(e => {
@@ -330,7 +413,6 @@ function _s09_writeToSheets(ss, extracted, docData) {
     sheetsWritten.push("יומן אירועים");
   }
 
-  // גליון 2 — תרופות_קבועות
   if (extracted.medications && extracted.medications.length > 0) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.medications);
     extracted.medications.forEach(m => {
@@ -351,7 +433,6 @@ function _s09_writeToSheets(ss, extracted, docData) {
     sheetsWritten.push("תרופות");
   }
 
-  // גליון 3 — יומן_מצב_רפואי
   if (extracted.medical_status && extracted.medical_status.length > 0) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.medStatus);
     extracted.medical_status.forEach(s => {
@@ -372,7 +453,6 @@ function _s09_writeToSheets(ss, extracted, docData) {
     sheetsWritten.push("מצב רפואי");
   }
 
-  // גליון 4 — בדיקות_דם
   if (extracted.blood_tests && extracted.blood_tests.length > 0) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.bloodTests);
     extracted.blood_tests.forEach(b => {
@@ -392,7 +472,6 @@ function _s09_writeToSheets(ss, extracted, docData) {
     sheetsWritten.push("בדיקות דם");
   }
 
-  // גליון 5 — בדיקות_גנטיות
   if (extracted.genetic_tests && extracted.genetic_tests.length > 0) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.geneticTests);
     extracted.genetic_tests.forEach(g => {
@@ -410,7 +489,6 @@ function _s09_writeToSheets(ss, extracted, docData) {
     sheetsWritten.push("בדיקות גנטיות");
   }
 
-  // גליון 6 — הנחיות_רפואיות_ומשימות
   if (extracted.instructions && extracted.instructions.length > 0) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.instructions);
     extracted.instructions.forEach(i => {
