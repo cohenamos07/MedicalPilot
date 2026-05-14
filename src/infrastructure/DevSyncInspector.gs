@@ -1,8 +1,8 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 2.0 | @updated 14/05/2026 19:30 | @service DEV_SYNC
+ * @version 2.1 | @updated 14/05/2026 19:45 | @service DEV_SYNC
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/DevSyncInspector.gs
- * שינוי: [FIX-8] הוספת ניקוי מטמון jsDelivr אחרי כל עדכון INDEX.md — מבטיח גישה מיידית לסוכני AI
+ * שינוי: [FIX-9] רענון דוח אוטומטי אחרי כל פעולת דחיפה/משיכה — מונע לופ מדומה
  */
 
 const DEV_SYNC_SHEET_NAME = "מסנכרן_קבצים";
@@ -64,32 +64,22 @@ function devSync_ScanAndFillSheet() {
 
     if (existsEditor && existsGit) {
       if (!versionEditor && !versionGit) {
-        status = "ללא גרסה";
-        action = "בדוק והחליט";
+        status = "ללא גרסה"; action = "בדוק והחליט";
       } else if (versionEditor === versionGit) {
-        status = "תואם";
-        action = "תואם — אין צורך";
+        status = "תואם"; action = "תואם — אין צורך";
       } else {
         const dateEditor = devSync_extractDate(versionEditor);
         const dateGit    = devSync_extractDate(versionGit);
         if (dateEditor && dateGit) {
-          if (dateEditor > dateGit) {
-            status = "שונה"; action = "↑ דחוף לגיט";
-          } else if (dateGit > dateEditor) {
-            status = "שונה"; action = "↓ משוך מגיט";
-          } else {
-            status = "שונה"; action = "↑ דחוף לגיט";
-          }
-        } else if (dateEditor && !dateGit) {
-          status = "שונה"; action = "↑ דחוף לגיט";
-        } else if (!dateEditor && dateGit) {
-          status = "שונה"; action = "↓ משוך מגיט";
-        } else {
-          status = "שונה"; action = "בדוק והחליט";
-        }
+          if (dateEditor > dateGit)      { status = "שונה"; action = "↑ דחוף לגיט"; }
+          else if (dateGit > dateEditor) { status = "שונה"; action = "↓ משוך מגיט"; }
+          else                           { status = "שונה"; action = "↑ דחוף לגיט"; }
+        } else if (dateEditor && !dateGit)  { status = "שונה"; action = "↑ דחוף לגיט"; }
+        else if (!dateEditor && dateGit)    { status = "שונה"; action = "↓ משוך מגיט"; }
+        else                                { status = "שונה"; action = "בדוק והחליט"; }
       }
     } else if (existsEditor && !existsGit) {
-      status = "חסר בגיט"; action = "↑ דחוף לגיט";
+      status = "חסר בגיט";  action = "↑ דחוף לגיט";
     } else if (!existsEditor && existsGit) {
       status = "חסר בעורך"; action = "↓ משוך מגיט";
     } else {
@@ -116,28 +106,27 @@ function devSync_ScanAndFillSheet() {
 
   devSync_ApplyConditionalFormatting();
 
-  // [FIX-6] + [FIX-7] + [FIX-8] עדכון INDEX.md + ניקוי מטמון jsDelivr
-  const indexOk  = devSync_generateAndPushIndex(gitMap);
-  const purgeOk  = indexOk ? devSync_purgeJsDelivr() : false;
+  const indexOk = devSync_generateAndPushIndex(gitMap);
+  const purgeOk = indexOk ? devSync_purgeJsDelivr() : false;
 
   if (indexOk && purgeOk) {
-    ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\n✅ INDEX.md עודכן.\n✅ jsDelivr מנוקה — גישה מיידית לסוכני AI.");
+    ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\n✅ INDEX.md עודכן.\n✅ jsDelivr מנוקה.");
   } else if (indexOk && !purgeOk) {
-    ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\n✅ INDEX.md עודכן.\n⚠️ ניקוי jsDelivr נכשל — יתעדכן תוך כמה דקות.");
+    ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\n✅ INDEX.md עודכן.\n⚠️ ניקוי jsDelivr נכשל.");
   } else {
     ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\n❌ INDEX.md נכשל — בדוק לוגים.");
   }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// יצירת INDEX.md ודחיפה לגיטהאב — [FIX-6] + [FIX-7]
+// יצירת INDEX.md ודחיפה לגיטהאב
 // ══════════════════════════════════════════════════════════════════
 
 function devSync_generateAndPushIndex(gitMap) {
   try {
     const token = PropertiesService.getScriptProperties().getProperty('GITHUB_PAT');
     if (!token) {
-      Logger.log("[DevSyncInspector] GITHUB_PAT חסר — לא ניתן לעדכן INDEX.md");
+      Logger.log("[DevSyncInspector] GITHUB_PAT חסר.");
       return false;
     }
 
@@ -151,12 +140,9 @@ function devSync_generateAndPushIndex(gitMap) {
     lines.push("");
     lines.push("## תיקיית src/infrastructure");
 
-    const sortedNames = Object.keys(gitMap).sort();
-    sortedNames.forEach(function(name) {
-      const info     = gitMap[name];
-      const filePath = info.path;
-      const fileName = name + ".gs";
-      lines.push("- [" + fileName + "](" + jsdBase + filePath + ")");
+    Object.keys(gitMap).sort().forEach(function(name) {
+      const filePath = gitMap[name].path;
+      lines.push("- [" + name + ".gs](" + jsdBase + filePath + ")");
     });
 
     lines.push("");
@@ -170,9 +156,8 @@ function devSync_generateAndPushIndex(gitMap) {
     lines.push("- שם: MedicalPilot");
     lines.push("- ענף: main");
 
-    const content = lines.join("\n");
-    const success = devSync_pushRawToGitHub("INDEX.md", content, token);
-    if (success) Logger.log("[DevSyncInspector] INDEX.md עודכן בגיטהאב בהצלחה.");
+    const success = devSync_pushRawToGitHub("INDEX.md", lines.join("\n"), token);
+    if (success) Logger.log("[DevSyncInspector] INDEX.md עודכן בהצלחה.");
     return success;
 
   } catch (e) {
@@ -182,24 +167,22 @@ function devSync_generateAndPushIndex(gitMap) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ניקוי מטמון jsDelivr — [FIX-8]
+// ניקוי מטמון jsDelivr
 // ══════════════════════════════════════════════════════════════════
 
 function devSync_purgeJsDelivr() {
   try {
     const purgeUrl = "https://purge.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/INDEX.md";
     const response = UrlFetchApp.fetch(purgeUrl, {
-      method:             "get",
-      muteHttpExceptions: true
+      method: "get", muteHttpExceptions: true
     });
     const code = response.getResponseCode();
     if (code === 200) {
       Logger.log("[DevSyncInspector] jsDelivr מנוקה בהצלחה.");
       return true;
-    } else {
-      Logger.log("[DevSyncInspector] jsDelivr Purge נכשל — קוד: " + code);
-      return false;
     }
+    Logger.log("[DevSyncInspector] jsDelivr Purge נכשל — קוד: " + code);
+    return false;
   } catch (e) {
     Logger.log("[DevSyncInspector] devSync_purgeJsDelivr: " + e.toString());
     return false;
@@ -242,7 +225,7 @@ function devSync_pushRawToGitHub(filePath, content, token) {
     });
 
     if (putResponse.getResponseCode() !== 200 && putResponse.getResponseCode() !== 201) {
-      Logger.log("[DevSyncInspector] שגיאה בדחיפת " + filePath + ": " + putResponse.getContentText());
+      Logger.log("[DevSyncInspector] שגיאה בדחיפת " + filePath);
       return false;
     }
     return true;
@@ -290,24 +273,26 @@ function devSync_ApplyConditionalFormatting() {
     );
     sheet.setConditionalFormatRules(filteredRules);
 
-    const ruleGreen = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextEqualTo("תואם").setBackground("#B7E1CD").setFontColor("#000000")
-      .setRanges([statusRange]).build();
-    const ruleYellow1 = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextContains("שונה").setBackground("#FCE8B2").setFontColor("#000000")
-      .setRanges([statusRange]).build();
-    const ruleYellow2 = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextContains("חסר בגיט").setBackground("#FCE8B2").setFontColor("#000000")
-      .setRanges([statusRange]).build();
-    const ruleRed = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextContains("חסר בעורך").setBackground("#F4CCCC").setFontColor("#000000")
-      .setRanges([statusRange]).build();
-    const ruleGray = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextContains("ללא גרסה").setBackground("#E8E8E8").setFontColor("#666666")
-      .setRanges([statusRange]).build();
+    const rules = [
+      SpreadsheetApp.newConditionalFormatRule()
+        .whenTextEqualTo("תואם").setBackground("#B7E1CD").setFontColor("#000000")
+        .setRanges([statusRange]).build(),
+      SpreadsheetApp.newConditionalFormatRule()
+        .whenTextContains("שונה").setBackground("#FCE8B2").setFontColor("#000000")
+        .setRanges([statusRange]).build(),
+      SpreadsheetApp.newConditionalFormatRule()
+        .whenTextContains("חסר בגיט").setBackground("#FCE8B2").setFontColor("#000000")
+        .setRanges([statusRange]).build(),
+      SpreadsheetApp.newConditionalFormatRule()
+        .whenTextContains("חסר בעורך").setBackground("#F4CCCC").setFontColor("#000000")
+        .setRanges([statusRange]).build(),
+      SpreadsheetApp.newConditionalFormatRule()
+        .whenTextContains("ללא גרסה").setBackground("#E8E8E8").setFontColor("#666666")
+        .setRanges([statusRange]).build()
+    ];
 
     const updatedRules = sheet.getConditionalFormatRules();
-    updatedRules.push(ruleGreen, ruleYellow1, ruleYellow2, ruleRed, ruleGray);
+    rules.forEach(function(r) { updatedRules.push(r); });
     sheet.setConditionalFormatRules(updatedRules);
   } catch (e) {
     Logger.log("[DevSyncInspector] " + e.toString());
@@ -332,9 +317,7 @@ function devSync_getEditorFilesMap() {
     (data.files || []).forEach(function(file) {
       if (file.type === "SERVER_JS" && file.name) {
         if (DEV_SYNC_EXCLUDED.indexOf(file.name) !== -1) return;
-        const source      = file.source || "";
-        const versionLine = devSync_extractVersionLine(source);
-        map[file.name]    = { versionLine: versionLine };
+        map[file.name] = { versionLine: devSync_extractVersionLine(file.source || "") };
       }
     });
   } catch (e) {
@@ -370,8 +353,10 @@ function devSync_getGitFilesMap() {
         const nameWithoutExt = item.name.replace(/\.gs$/i, "");
         if (DEV_SYNC_EXCLUDED.indexOf(nameWithoutExt) !== -1) return;
         const fileContent   = devSync_fetchGitFileContent(item.path, token);
-        const versionLine   = devSync_extractVersionLine(fileContent);
-        map[nameWithoutExt] = { path: item.path, versionLine: versionLine };
+        map[nameWithoutExt] = {
+          path:        item.path,
+          versionLine: devSync_extractVersionLine(fileContent)
+        };
       }
     });
   } catch (e) {
@@ -428,7 +413,7 @@ function devSync_OpenSheet() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ביצוע פעולה על שורה מסומנת
+// ביצוע פעולה על שורה מסומנת — [FIX-9] רענון אוטומטי אחרי פעולה
 // ══════════════════════════════════════════════════════════════════
 
 function devSync_RunActionOnSelectedRow() {
@@ -457,13 +442,26 @@ function devSync_RunActionOnSelectedRow() {
     return;
   }
 
+  if (action.includes("תואם")) {
+    ui.alert("הקובץ '" + fileName + "' תואם — אין צורך בסנכרון.");
+    return;
+  }
+
   if (action.includes("↓") || action.includes("שחזר מהגיט")) {
     syncFileFromGitToEditor(gitPath, fileName);
-  } else if (action.includes("↑") || action.includes("דחוף לגיט")) {
-    syncEditorFileToGitHub(fileName, gitPath);
-  } else if (action.includes("תואם")) {
-    ui.alert("הקובץ '" + fileName + "' תואם — אין צורך בסנכרון.");
-  } else {
-    ui.alert("לא ניתן להחליט אוטומטית — בדוק ידנית: " + fileName);
+    // [FIX-9] רענון דוח אוטומטי
+    Utilities.sleep(1500);
+    devSync_ScanAndFillSheet();
+    return;
   }
+
+  if (action.includes("↑") || action.includes("דחוף לגיט")) {
+    syncEditorFileToGitHub(fileName, gitPath);
+    // [FIX-9] רענון דוח אוטומטי
+    Utilities.sleep(1500);
+    devSync_ScanAndFillSheet();
+    return;
+  }
+
+  ui.alert("לא ניתן להחליט אוטומטית — בדוק ידנית: " + fileName);
 }
