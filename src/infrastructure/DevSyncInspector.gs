@@ -1,8 +1,8 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 1.7 | @updated 06/05/2026 16:00 | @service DEV_SYNC
+ * @version 1.8 | @updated 14/05/2026 13:50 | @service DEV_SYNC
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/DevSyncInspector.gs
- * שינוי: [FIX-5] הסרת קבצי TestLab וגיבויים מהדוח — אינם רלוונטיים לסנכרון
+ * שינוי: [FIX-6] הוספת devSync_generateAndPushIndex — עדכון אוטומטי של INDEX.md בסוף כל הפקת דוח
  */
 
 const DEV_SYNC_SHEET_NAME = "מסנכרן_קבצים";
@@ -130,7 +130,107 @@ function devSync_ScanAndFillSheet() {
   }
 
   devSync_ApplyConditionalFormatting();
-  ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.");
+
+  // [FIX-6] עדכון INDEX.md אוטומטי בסוף כל דוח
+  devSync_generateAndPushIndex(gitMap);
+
+  ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\nINDEX.md עודכן בגיטהאב.");
+}
+
+// ══════════════════════════════════════════════════════════════════
+// יצירת INDEX.md ודחיפה לגיטהאב — [FIX-6]
+// ══════════════════════════════════════════════════════════════════
+
+function devSync_generateAndPushIndex(gitMap) {
+  try {
+    const token = PropertiesService.getScriptProperties().getProperty('GITHUB_PAT');
+    if (!token) {
+      Logger.log("[DevSyncInspector] GITHUB_PAT חסר — לא ניתן לעדכן INDEX.md");
+      return;
+    }
+
+    const now     = new Date();
+    const dateStr = Utilities.formatDate(now, "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
+    const baseUrl = "https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/";
+
+    const lines = [];
+    lines.push("# MedicalPilot — INDEX");
+    lines.push("עדכון אחרון: " + dateStr);
+    lines.push("");
+    lines.push("## תיקיית src/infrastructure");
+
+    const sortedNames = Object.keys(gitMap).sort();
+    sortedNames.forEach(function(name) {
+      const info     = gitMap[name];
+      const filePath = info.path;
+      const fileName = name + ".gs";
+      lines.push("- [" + fileName + "](" + baseUrl + filePath + ")");
+    });
+
+    lines.push("");
+    lines.push("## שורש הריפוזיטורי");
+    lines.push("- [CONTEXT.md](" + baseUrl + "CONTEXT.md)");
+    lines.push("- [INDEX.md](" + baseUrl + "INDEX.md)");
+    lines.push("- [README.md](" + baseUrl + "README.md)");
+    lines.push("");
+    lines.push("## פרטי ריפוזיטורי");
+    lines.push("- בעלים: cohenamos07");
+    lines.push("- שם: MedicalPilot");
+    lines.push("- ענף: main");
+
+    const content = lines.join("\n");
+    devSync_pushRawToGitHub("INDEX.md", content, token);
+
+  } catch (e) {
+    Logger.log("[DevSyncInspector] devSync_generateAndPushIndex: " + e.toString());
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// דחיפת קובץ גולמי לגיטהאב — [FIX-6]
+// ══════════════════════════════════════════════════════════════════
+
+function devSync_pushRawToGitHub(filePath, content, token) {
+  try {
+    const url     = "https://api.github.com/repos/cohenamos07/MedicalPilot/contents/" + filePath;
+    const headers = {
+      "Authorization": "token " + token,
+      "Accept":        "application/vnd.github.v3+json"
+    };
+
+    let sha = null;
+    const getResponse = UrlFetchApp.fetch(url, {
+      method:             "get",
+      headers:            headers,
+      muteHttpExceptions: true
+    });
+    if (getResponse.getResponseCode() === 200) {
+      sha = JSON.parse(getResponse.getContentText()).sha;
+    }
+
+    const payload = {
+      message: "Auto-update INDEX.md from DevSyncInspector",
+      content: Utilities.base64Encode(content, Utilities.Charset.UTF_8),
+      branch:  "main"
+    };
+    if (sha) payload.sha = sha;
+
+    const putResponse = UrlFetchApp.fetch(url, {
+      method:             "put",
+      headers:            headers,
+      contentType:        "application/json",
+      payload:            JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+
+    if (putResponse.getResponseCode() !== 200 && putResponse.getResponseCode() !== 201) {
+      Logger.log("[DevSyncInspector] שגיאה בדחיפת " + filePath + ": " + putResponse.getContentText());
+    } else {
+      Logger.log("[DevSyncInspector] " + filePath + " עודכן בגיטהאב בהצלחה.");
+    }
+  } catch (e) {
+    Logger.log("[DevSyncInspector] devSync_pushRawToGitHub: " + e.toString());
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
