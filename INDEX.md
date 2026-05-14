@@ -1,5 +1,5 @@
 # MedicalPilot — INDEX
-עדכון אחרון: 14/05/2026 19:37
+עדכון אחרון: 14/05/2026 19:38
 
 ## תיקיית src/infrastructure
 - [Auth_Check.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Auth_Check.gs)
@@ -27,6 +27,7 @@
 - [System_Doc_Builder.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/System_Doc_Builder.gs)
 - [System_HealthCheck.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/System_HealthCheck.gs)
 - [System_Logger.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/System_Logger.gs)
+- [ViewEngine.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/ViewEngine.gs)
 
 ## שורש הריפוזיטורי
 - [CONTEXT.md](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/CONTEXT.md)
