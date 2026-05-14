@@ -1,15 +1,13 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 1.9 | @updated 14/05/2026 17:30 | @service DEV_SYNC
+ * @version 2.0 | @updated 14/05/2026 19:30 | @service DEV_SYNC
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/DevSyncInspector.gs
- * שינוי: [FIX-7] INDEX.md מכיל כעת כתובות jsDelivr במקום raw.githubusercontent — מבטיח תוכן עדכני לסוכני AI
+ * שינוי: [FIX-8] הוספת ניקוי מטמון jsDelivr אחרי כל עדכון INDEX.md — מבטיח גישה מיידית לסוכני AI
  */
 
 const DEV_SYNC_SHEET_NAME = "מסנכרן_קבצים";
 const DEV_SYNC_GIT_FOLDER = "src/infrastructure";
 const DEV_SYNC_SCRIPT_ID  = "1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf";
-
-// קבצים שיודרו מהדוח
 const DEV_SYNC_EXCLUDED   = ["TestLab", "עותק של TestLab.gs"];
 
 // ══════════════════════════════════════════════════════════════════
@@ -74,42 +72,31 @@ function devSync_ScanAndFillSheet() {
       } else {
         const dateEditor = devSync_extractDate(versionEditor);
         const dateGit    = devSync_extractDate(versionGit);
-
         if (dateEditor && dateGit) {
           if (dateEditor > dateGit) {
-            status = "שונה";
-            action = "↑ דחוף לגיט";
+            status = "שונה"; action = "↑ דחוף לגיט";
           } else if (dateGit > dateEditor) {
-            status = "שונה";
-            action = "↓ משוך מגיט";
+            status = "שונה"; action = "↓ משוך מגיט";
           } else {
-            status = "שונה";
-            action = "↑ דחוף לגיט";
+            status = "שונה"; action = "↑ דחוף לגיט";
           }
         } else if (dateEditor && !dateGit) {
-          status = "שונה";
-          action = "↑ דחוף לגיט";
+          status = "שונה"; action = "↑ דחוף לגיט";
         } else if (!dateEditor && dateGit) {
-          status = "שונה";
-          action = "↓ משוך מגיט";
+          status = "שונה"; action = "↓ משוך מגיט";
         } else {
-          status = "שונה";
-          action = "בדוק והחליט";
+          status = "שונה"; action = "בדוק והחליט";
         }
       }
     } else if (existsEditor && !existsGit) {
-      status = "חסר בגיט";
-      action = "↑ דחוף לגיט";
+      status = "חסר בגיט"; action = "↑ דחוף לגיט";
     } else if (!existsEditor && existsGit) {
-      status = "חסר בעורך";
-      action = "↓ משוך מגיט";
+      status = "חסר בעורך"; action = "↓ משוך מגיט";
     } else {
-      status = "חסר בשני הצדדים";
-      action = "";
+      status = "חסר בשני הצדדים"; action = "";
     }
 
     const gitPath = DEV_SYNC_GIT_FOLDER + "/" + name + ".gs";
-
     rows.push([
       name,
       gitPath,
@@ -129,11 +116,14 @@ function devSync_ScanAndFillSheet() {
 
   devSync_ApplyConditionalFormatting();
 
-  // [FIX-6] + [FIX-7] עדכון INDEX.md אוטומטי בסוף כל דוח
-  const indexOk = devSync_generateAndPushIndex(gitMap);
+  // [FIX-6] + [FIX-7] + [FIX-8] עדכון INDEX.md + ניקוי מטמון jsDelivr
+  const indexOk  = devSync_generateAndPushIndex(gitMap);
+  const purgeOk  = indexOk ? devSync_purgeJsDelivr() : false;
 
-  if (indexOk) {
-    ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\n✅ INDEX.md עודכן בגיטהאב.");
+  if (indexOk && purgeOk) {
+    ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\n✅ INDEX.md עודכן.\n✅ jsDelivr מנוקה — גישה מיידית לסוכני AI.");
+  } else if (indexOk && !purgeOk) {
+    ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\n✅ INDEX.md עודכן.\n⚠️ ניקוי jsDelivr נכשל — יתעדכן תוך כמה דקות.");
   } else {
     ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\n❌ INDEX.md נכשל — בדוק לוגים.");
   }
@@ -151,9 +141,9 @@ function devSync_generateAndPushIndex(gitMap) {
       return false;
     }
 
-    const now       = new Date();
-    const dateStr   = Utilities.formatDate(now, "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
-    const jsdBase   = "https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/";
+    const now     = new Date();
+    const dateStr = Utilities.formatDate(now, "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
+    const jsdBase = "https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/";
 
     const lines = [];
     lines.push("# MedicalPilot — INDEX");
@@ -166,7 +156,6 @@ function devSync_generateAndPushIndex(gitMap) {
       const info     = gitMap[name];
       const filePath = info.path;
       const fileName = name + ".gs";
-      // [FIX-7] כתובות jsDelivr — מבטיחות תוכן עדכני לסוכני AI
       lines.push("- [" + fileName + "](" + jsdBase + filePath + ")");
     });
 
@@ -183,10 +172,7 @@ function devSync_generateAndPushIndex(gitMap) {
 
     const content = lines.join("\n");
     const success = devSync_pushRawToGitHub("INDEX.md", content, token);
-
-    if (success) {
-      Logger.log("[DevSyncInspector] INDEX.md עודכן בגיטהאב בהצלחה.");
-    }
+    if (success) Logger.log("[DevSyncInspector] INDEX.md עודכן בגיטהאב בהצלחה.");
     return success;
 
   } catch (e) {
@@ -196,7 +182,32 @@ function devSync_generateAndPushIndex(gitMap) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// דחיפת קובץ גולמי לגיטהאב — [FIX-6]
+// ניקוי מטמון jsDelivr — [FIX-8]
+// ══════════════════════════════════════════════════════════════════
+
+function devSync_purgeJsDelivr() {
+  try {
+    const purgeUrl = "https://purge.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/INDEX.md";
+    const response = UrlFetchApp.fetch(purgeUrl, {
+      method:             "get",
+      muteHttpExceptions: true
+    });
+    const code = response.getResponseCode();
+    if (code === 200) {
+      Logger.log("[DevSyncInspector] jsDelivr מנוקה בהצלחה.");
+      return true;
+    } else {
+      Logger.log("[DevSyncInspector] jsDelivr Purge נכשל — קוד: " + code);
+      return false;
+    }
+  } catch (e) {
+    Logger.log("[DevSyncInspector] devSync_purgeJsDelivr: " + e.toString());
+    return false;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// דחיפת קובץ גולמי לגיטהאב
 // ══════════════════════════════════════════════════════════════════
 
 function devSync_pushRawToGitHub(filePath, content, token) {
@@ -209,9 +220,7 @@ function devSync_pushRawToGitHub(filePath, content, token) {
 
     let sha = null;
     const getResponse = UrlFetchApp.fetch(url, {
-      method:             "get",
-      headers:            headers,
-      muteHttpExceptions: true
+      method: "get", headers: headers, muteHttpExceptions: true
     });
     if (getResponse.getResponseCode() === 200) {
       sha = JSON.parse(getResponse.getContentText()).sha;
@@ -225,10 +234,10 @@ function devSync_pushRawToGitHub(filePath, content, token) {
     if (sha) payload.sha = sha;
 
     const putResponse = UrlFetchApp.fetch(url, {
-      method:             "put",
-      headers:            headers,
-      contentType:        "application/json",
-      payload:            JSON.stringify(payload),
+      method:      "put",
+      headers:     headers,
+      contentType: "application/json",
+      payload:     JSON.stringify(payload),
       muteHttpExceptions: true
     });
 
@@ -236,7 +245,6 @@ function devSync_pushRawToGitHub(filePath, content, token) {
       Logger.log("[DevSyncInspector] שגיאה בדחיפת " + filePath + ": " + putResponse.getContentText());
       return false;
     }
-
     return true;
 
   } catch (e) {
@@ -260,9 +268,7 @@ function devSync_extractDate(versionLine) {
     const hour  = match[4] ? parseInt(match[4], 10) : 0;
     const min   = match[5] ? parseInt(match[5], 10) : 0;
     return new Date(year, month, day, hour, min, 0);
-  } catch (e) {
-    return null;
-  }
+  } catch (e) { return null; }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -285,28 +291,19 @@ function devSync_ApplyConditionalFormatting() {
     sheet.setConditionalFormatRules(filteredRules);
 
     const ruleGreen = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextEqualTo("תואם")
-      .setBackground("#B7E1CD").setFontColor("#000000")
+      .whenTextEqualTo("תואם").setBackground("#B7E1CD").setFontColor("#000000")
       .setRanges([statusRange]).build();
-
     const ruleYellow1 = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextContains("שונה")
-      .setBackground("#FCE8B2").setFontColor("#000000")
+      .whenTextContains("שונה").setBackground("#FCE8B2").setFontColor("#000000")
       .setRanges([statusRange]).build();
-
     const ruleYellow2 = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextContains("חסר בגיט")
-      .setBackground("#FCE8B2").setFontColor("#000000")
+      .whenTextContains("חסר בגיט").setBackground("#FCE8B2").setFontColor("#000000")
       .setRanges([statusRange]).build();
-
     const ruleRed = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextContains("חסר בעורך")
-      .setBackground("#F4CCCC").setFontColor("#000000")
+      .whenTextContains("חסר בעורך").setBackground("#F4CCCC").setFontColor("#000000")
       .setRanges([statusRange]).build();
-
     const ruleGray = SpreadsheetApp.newConditionalFormatRule()
-      .whenTextContains("ללא גרסה")
-      .setBackground("#E8E8E8").setFontColor("#666666")
+      .whenTextContains("ללא גרסה").setBackground("#E8E8E8").setFontColor("#666666")
       .setRanges([statusRange]).build();
 
     const updatedRules = sheet.getConditionalFormatRules();
@@ -326,13 +323,11 @@ function devSync_getEditorFilesMap() {
   try {
     const url      = "https://script.googleapis.com/v1/projects/" + DEV_SYNC_SCRIPT_ID + "/content";
     const response = UrlFetchApp.fetch(url, {
-      method:             "get",
-      headers:            { "Authorization": "Bearer " + ScriptApp.getOAuthToken() },
+      method:  "get",
+      headers: { "Authorization": "Bearer " + ScriptApp.getOAuthToken() },
       muteHttpExceptions: true
     });
-
     if (response.getResponseCode() !== 200) return map;
-
     const data = JSON.parse(response.getContentText());
     (data.files || []).forEach(function(file) {
       if (file.type === "SERVER_JS" && file.name) {
@@ -365,11 +360,8 @@ function devSync_getGitFilesMap() {
     };
 
     const listResponse = UrlFetchApp.fetch(baseUrl, {
-      method:             "get",
-      headers:            headers,
-      muteHttpExceptions: true
+      method: "get", headers: headers, muteHttpExceptions: true
     });
-
     if (listResponse.getResponseCode() !== 200) return map;
 
     const files = JSON.parse(listResponse.getContentText());
@@ -377,9 +369,9 @@ function devSync_getGitFilesMap() {
       if (item.type === "file" && item.name.endsWith(".gs")) {
         const nameWithoutExt = item.name.replace(/\.gs$/i, "");
         if (DEV_SYNC_EXCLUDED.indexOf(nameWithoutExt) !== -1) return;
-        const fileContent    = devSync_fetchGitFileContent(item.path, token);
-        const versionLine    = devSync_extractVersionLine(fileContent);
-        map[nameWithoutExt]  = { path: item.path, versionLine: versionLine };
+        const fileContent   = devSync_fetchGitFileContent(item.path, token);
+        const versionLine   = devSync_extractVersionLine(fileContent);
+        map[nameWithoutExt] = { path: item.path, versionLine: versionLine };
       }
     });
   } catch (e) {
@@ -400,11 +392,8 @@ function devSync_fetchGitFileContent(filePath, token) {
       "Accept":        "application/vnd.github.v3+json"
     };
     const response = UrlFetchApp.fetch(url, {
-      method:             "get",
-      headers:            headers,
-      muteHttpExceptions: true
+      method: "get", headers: headers, muteHttpExceptions: true
     });
-
     if (response.getResponseCode() === 200) {
       const json = JSON.parse(response.getContentText());
       return Utilities.newBlob(Utilities.base64Decode(json.content)).getDataAsString();
