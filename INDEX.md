@@ -1,9 +1,10 @@
 # MedicalPilot — INDEX
-עדכון אחרון: 24/04/2026 17:15
+עדכון אחרון: 14/05/2026 15:04
 
 ## תיקיית src/infrastructure
-- [appsscript.json](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/appsscript.json)
 - [Auth_Check.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Auth_Check.gs)
+- [COLUMN_MAP.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/COLUMN_MAP.gs)
+- [DevSyncInspector.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/DevSyncInspector.gs)
 - [EditorToGitHub.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/EditorToGitHub.gs)
 - [GitHubSync.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/GitHubSync.gs)
 - [GitToEditor.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/GitToEditor.gs)
@@ -13,9 +14,15 @@
 - [Mod_Brain_OCR.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Mod_Brain_OCR.gs)
 - [Mod_Ingestion.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Mod_Ingestion.gs)
 - [NetworkDiagnostics.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/NetworkDiagnostics.gs)
+- [QA_Tests.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/QA_Tests.gs)
 - [S04_DriveSync.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S04_DriveSync.gs)
 - [S05_MetaExtract.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S05_MetaExtract.gs)
+- [S06_ConvertTXT.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S06_ConvertTXT.gs)
 - [S07_Classify.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S07_Classify.gs)
+- [S08_Validate.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S08_Validate.gs)
+- [S09_ExtractMedical.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S09_ExtractMedical.gs)
+- [S10_Validate.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S10_Validate.gs)
+- [S_Scheduler.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S_Scheduler.gs)
 - [Service_Folders.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Service_Folders.gs)
 - [System_Doc_Builder.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/System_Doc_Builder.gs)
 - [System_HealthCheck.gs](https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/System_HealthCheck.gs)
