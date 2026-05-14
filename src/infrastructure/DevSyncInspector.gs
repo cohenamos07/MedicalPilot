@@ -1,8 +1,8 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 1.8 | @updated 14/05/2026 13:50 | @service DEV_SYNC
+ * @version 1.9 | @updated 14/05/2026 17:30 | @service DEV_SYNC
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/DevSyncInspector.gs
- * שינוי: [FIX-6] הוספת devSync_generateAndPushIndex — עדכון אוטומטי של INDEX.md בסוף כל הפקת דוח
+ * שינוי: [FIX-7] INDEX.md מכיל כעת כתובות jsDelivr במקום raw.githubusercontent — מבטיח תוכן עדכני לסוכני AI
  */
 
 const DEV_SYNC_SHEET_NAME = "מסנכרן_קבצים";
@@ -50,8 +50,6 @@ function devSync_ScanAndFillSheet() {
   const rows = [];
 
   allNames.forEach(function(name) {
-
-    // [FIX-5] דילוג על קבצי TestLab וגיבויים
     if (DEV_SYNC_EXCLUDED.indexOf(name) !== -1) return;
 
     const editorInfo = editorMap[name] || null;
@@ -131,14 +129,18 @@ function devSync_ScanAndFillSheet() {
 
   devSync_ApplyConditionalFormatting();
 
-  // [FIX-6] עדכון INDEX.md אוטומטי בסוף כל דוח
-  devSync_generateAndPushIndex(gitMap);
+  // [FIX-6] + [FIX-7] עדכון INDEX.md אוטומטי בסוף כל דוח
+  const indexOk = devSync_generateAndPushIndex(gitMap);
 
-  ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\nINDEX.md עודכן בגיטהאב.");
+  if (indexOk) {
+    ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\n✅ INDEX.md עודכן בגיטהאב.");
+  } else {
+    ui.alert("דוח סנכרון עודכן — " + rows.length + " קבצים.\n❌ INDEX.md נכשל — בדוק לוגים.");
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// יצירת INDEX.md ודחיפה לגיטהאב — [FIX-6]
+// יצירת INDEX.md ודחיפה לגיטהאב — [FIX-6] + [FIX-7]
 // ══════════════════════════════════════════════════════════════════
 
 function devSync_generateAndPushIndex(gitMap) {
@@ -146,12 +148,12 @@ function devSync_generateAndPushIndex(gitMap) {
     const token = PropertiesService.getScriptProperties().getProperty('GITHUB_PAT');
     if (!token) {
       Logger.log("[DevSyncInspector] GITHUB_PAT חסר — לא ניתן לעדכן INDEX.md");
-      return;
+      return false;
     }
 
-    const now     = new Date();
-    const dateStr = Utilities.formatDate(now, "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
-    const baseUrl = "https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/";
+    const now       = new Date();
+    const dateStr   = Utilities.formatDate(now, "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
+    const jsdBase   = "https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/";
 
     const lines = [];
     lines.push("# MedicalPilot — INDEX");
@@ -164,14 +166,15 @@ function devSync_generateAndPushIndex(gitMap) {
       const info     = gitMap[name];
       const filePath = info.path;
       const fileName = name + ".gs";
-      lines.push("- [" + fileName + "](" + baseUrl + filePath + ")");
+      // [FIX-7] כתובות jsDelivr — מבטיחות תוכן עדכני לסוכני AI
+      lines.push("- [" + fileName + "](" + jsdBase + filePath + ")");
     });
 
     lines.push("");
     lines.push("## שורש הריפוזיטורי");
-    lines.push("- [CONTEXT.md](" + baseUrl + "CONTEXT.md)");
-    lines.push("- [INDEX.md](" + baseUrl + "INDEX.md)");
-    lines.push("- [README.md](" + baseUrl + "README.md)");
+    lines.push("- [CONTEXT.md](" + jsdBase + "CONTEXT.md)");
+    lines.push("- [INDEX.md](" + jsdBase + "INDEX.md)");
+    lines.push("- [README.md](" + jsdBase + "README.md)");
     lines.push("");
     lines.push("## פרטי ריפוזיטורי");
     lines.push("- בעלים: cohenamos07");
@@ -179,10 +182,16 @@ function devSync_generateAndPushIndex(gitMap) {
     lines.push("- ענף: main");
 
     const content = lines.join("\n");
-    devSync_pushRawToGitHub("INDEX.md", content, token);
+    const success = devSync_pushRawToGitHub("INDEX.md", content, token);
+
+    if (success) {
+      Logger.log("[DevSyncInspector] INDEX.md עודכן בגיטהאב בהצלחה.");
+    }
+    return success;
 
   } catch (e) {
     Logger.log("[DevSyncInspector] devSync_generateAndPushIndex: " + e.toString());
+    return false;
   }
 }
 
@@ -225,11 +234,14 @@ function devSync_pushRawToGitHub(filePath, content, token) {
 
     if (putResponse.getResponseCode() !== 200 && putResponse.getResponseCode() !== 201) {
       Logger.log("[DevSyncInspector] שגיאה בדחיפת " + filePath + ": " + putResponse.getContentText());
-    } else {
-      Logger.log("[DevSyncInspector] " + filePath + " עודכן בגיטהאב בהצלחה.");
+      return false;
     }
+
+    return true;
+
   } catch (e) {
     Logger.log("[DevSyncInspector] devSync_pushRawToGitHub: " + e.toString());
+    return false;
   }
 }
 
@@ -324,7 +336,6 @@ function devSync_getEditorFilesMap() {
     const data = JSON.parse(response.getContentText());
     (data.files || []).forEach(function(file) {
       if (file.type === "SERVER_JS" && file.name) {
-        // [FIX-5] דילוג על קבצים מוחרגים
         if (DEV_SYNC_EXCLUDED.indexOf(file.name) !== -1) return;
         const source      = file.source || "";
         const versionLine = devSync_extractVersionLine(source);
@@ -365,7 +376,6 @@ function devSync_getGitFilesMap() {
     files.forEach(function(item) {
       if (item.type === "file" && item.name.endsWith(".gs")) {
         const nameWithoutExt = item.name.replace(/\.gs$/i, "");
-        // [FIX-5] דילוג על קבצים מוחרגים
         if (DEV_SYNC_EXCLUDED.indexOf(nameWithoutExt) !== -1) return;
         const fileContent    = devSync_fetchGitFileContent(item.path, token);
         const versionLine    = devSync_extractVersionLine(fileContent);
