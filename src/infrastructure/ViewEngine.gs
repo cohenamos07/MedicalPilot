@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — ViewEngine.gs
- * @version 1.0.0 | @updated 14/05/2026 19:00 | @service VIEW_ENGINE
+ * @version 1.3.1 | @updated 18/05/2026 19:55 | @service VIEW_ENGINE
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/ViewEngine.gs
  * תיאור: מנוע מבטים — מסנן עמודות ושורות לפי הקשר עבודה
  * שימוש: כל כפתור איקון בגיליון קורא לפונקציית עטיפה המפעילה את switchView
@@ -8,6 +8,22 @@
 
 const VIEW_SHEET_NAME = "ניהול_מיילים";
 const VIEW_TOTAL_COLS = 26;
+
+// ══════════════════════════════════════════════════════════════════
+// מיפוי איקונים — עמודה ← שם סקריפט
+// ══════════════════════════════════════════════════════════════════
+
+const ICON_MAP = [
+  { col: 1,  script: "runArchiveView"  },
+  { col: 2,  script: "runExpandView"   },
+  { col: 3,  script: "runGmailView"    },
+  { col: 4,  script: "runDriveView"    },
+  { col: 5,  script: "runMetadataView" },
+  { col: 10, script: "runConvertView"  },
+  { col: 12, script: "runClassifyView" },
+  { col: 13, script: "runExtractView"  },
+  { col: 21, script: "runQAView"       }
+];
 
 // ══════════════════════════════════════════════════════════════════
 // הגדרת מבטים — VIEW_CONFIG
@@ -130,11 +146,127 @@ function switchView(viewKey) {
       }
     }
 
+    // שלב ה — מיקום מחדש של האיקונים
+    repositionIcons(sheet);
+
     Logger.log("[ViewEngine] מבט פעיל: " + config.label);
 
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-switchView: " + e.toString());
     SpreadsheetApp.getUi().alert("שגיאה בהחלפת מבט: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// מיקום מחדש של האיקונים לאחר שינוי מבט
+// ══════════════════════════════════════════════════════════════════
+
+function repositionIcons(sheet) {
+  try {
+    if (!sheet) {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      sheet = ss.getSheetByName(VIEW_SHEET_NAME);
+    }
+
+    const images = sheet.getImages();
+    if (!images || images.length === 0) {
+      Logger.log("[ViewEngine] repositionIcons: אין איקונים בגיליון");
+      return;
+    }
+
+    images.forEach(function(img) {
+      const altText = img.getAltTextTitle();
+      if (!altText) return;
+
+      const mapping = ICON_MAP.find(function(m) { return m.script === altText; });
+      if (!mapping) return;
+
+      img.setAnchorCell(sheet.getRange(2, mapping.col));
+      img.setAnchorCellXOffset(2);
+      img.setAnchorCellYOffset(2);
+
+      Logger.log("[ViewEngine] איקון " + altText + " הוחזר לעמודה " + mapping.col);
+    });
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-repositionIcons: " + e.toString());
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// הכנה חד פעמית — setupIcons
+// מוחק איקונים קיימים ומכניס מחדש מתיקיית Drive עם גודל דינמי
+// ══════════════════════════════════════════════════════════════════
+
+function setupIcons() {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(VIEW_SHEET_NAME);
+
+    if (!sheet) {
+      SpreadsheetApp.getUi().alert("גיליון '" + VIEW_SHEET_NAME + "' לא נמצא.");
+      return;
+    }
+
+    const ICONS_FOLDER_ID = "1LMQWPaoXisYz8OoeeUee5lW1qNJqrP-K";
+
+    // קריאת גובה שורה 2 דינמית
+    const rowHeight = sheet.getRowHeight(2);
+    const iconSize  = rowHeight - 4;
+
+    // שלב א — מחיקת כל האיקונים הקיימים בשורה 2
+    const images = sheet.getImages();
+    images.forEach(function(img) {
+      const anchor = img.getAnchorCell();
+      if (anchor && anchor.getRow() === 2) {
+        img.remove();
+      }
+    });
+
+    // שלב ב — שליפת קבצים מתיקיית Drive
+    const folder = DriveApp.getFolderById(ICONS_FOLDER_ID);
+    const files  = folder.getFiles();
+
+    // מיפוי שם קובץ ← עמודה
+    const fileMap = {
+      "runArchiveView.png":  { col: 1  },
+      "runExpandView.png":   { col: 2  },
+      "runGmailView.png":    { col: 3  },
+      "runDriveView.png":    { col: 4  },
+      "runMetadataView.png": { col: 5  },
+      "runConvertView.png":  { col: 10 },
+      "runClassifyView.png": { col: 12 },
+      "runExtractView.png":  { col: 13 },
+      "runQAView.png":       { col: 21 }
+    };
+
+    // שלב ג — הכנסת כל איקון למיקום הנכון בגודל דינמי
+    while (files.hasNext()) {
+      const file     = files.next();
+      const fileName = file.getName();
+      const def      = fileMap[fileName];
+      if (!def) continue;
+
+      const scriptName = fileName.replace(".png", "");
+      const blob       = file.getBlob();
+
+      const img = sheet.insertImage(blob, def.col, 2);
+      img.setAltTextTitle(scriptName);
+      img.assignScript(scriptName);
+      img.setWidth(iconSize);
+      img.setHeight(iconSize);
+      img.setAnchorCellXOffset(2);
+      img.setAnchorCellYOffset(2);
+
+      Logger.log("[ViewEngine] איקון הוכנס: " + scriptName + " ← עמודה " + def.col + " | גודל: " + iconSize + "px");
+    }
+
+    SpreadsheetApp.getUi().alert("✅ האיקונים הוגדרו בהצלחה. גודל: " + iconSize + "px");
+    Logger.log("[ViewEngine] setupIcons הושלם.");
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-setupIcons: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה ב-setupIcons: " + e.message);
   }
 }
 
