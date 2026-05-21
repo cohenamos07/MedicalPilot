@@ -1,7 +1,7 @@
 # MedicalPilot — INDEX
-עדכון אחרון: 18/05/2026 20:28
+תאריך עדכון: 21/05/2026 12:08
 
-## תיקיית src/infrastructure
+## קבצים src/infrastructure
 - [Auth_Check.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Auth_Check.gs)
 - [COLUMN_MAP.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/COLUMN_MAP.gs)
 - [DevSyncInspector.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/DevSyncInspector.gs)
@@ -29,12 +29,12 @@
 - [System_Logger.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/System_Logger.gs)
 - [ViewEngine.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/ViewEngine.gs)
 
-## שורש הריפוזיטורי
+## קישורי תשתית
 - [CONTEXT.md](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/CONTEXT.md)
 - [INDEX.md](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/INDEX.md)
 - [README.md](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/README.md)
 
-## פרטי ריפוזיטורי
+## פרטי מאגר
 - בעלים: cohenamos07
-- שם: MedicalPilot
+- מאגר: MedicalPilot
 - ענף: main
