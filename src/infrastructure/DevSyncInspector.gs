@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 2.8 | @updated 24/05/2026 18:50 | @service DEV_SYNC
+ * @version 2.9 | @updated 24/05/2026 19:30 | @service DEV_SYNC
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/DevSyncInspector.gs
  * @impacts מנוע סנכרון ודיווח בין עורך GAS לגיטהאב — 13 עמודות + אזור מרחבי.
  *          אחריות: נתוני דוח בלבד (שורות 5+) + כותרות N+ בשורה 4.
@@ -12,29 +12,29 @@
 // קבועי מערכת
 // ════════════════════════════════════════════════════════════════════
 
-const DEV_SYNC_SHEET_NAME         = "מסנכרן_קבצים";
-const DEV_SYNC_GIT_FOLDER         = "src/infrastructure";
-const DEV_SYNC_SCRIPT_ID          = "1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf";
-const DEV_SYNC_EXCLUDED           = ["TestLab", "עותק של TestLab.gs"];
-const DEV_SYNC_GITHUB_API_BASE    = "https://api.github.com/repos/cohenamos07/MedicalPilot/contents/";
-const DEV_SYNC_GITHUB_WEB_BASE    = "https://github.com/cohenamos07/MedicalPilot/blob/main/";
+const DEV_SYNC_SHEET_NAME          = "מסנכרן_קבצים";
+const DEV_SYNC_GIT_FOLDER          = "src/infrastructure";
+const DEV_SYNC_SCRIPT_ID           = "1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf";
+const DEV_SYNC_EXCLUDED            = ["TestLab", "עותק של TestLab.gs"];
+const DEV_SYNC_GITHUB_API_BASE     = "https://api.github.com/repos/cohenamos07/MedicalPilot/contents/";
+const DEV_SYNC_GITHUB_WEB_BASE     = "https://github.com/cohenamos07/MedicalPilot/blob/main/";
 
 // צבעים
-const DEV_SYNC_COLOR_HEADER       = "#1a3a5c";
-const DEV_SYNC_COLOR_HEADER_TXT   = "#FFFFFF";
-const DEV_SYNC_COLOR_GREEN        = "#B7E1CD";
-const DEV_SYNC_COLOR_YELLOW       = "#FCE8B2";
-const DEV_SYNC_COLOR_RED          = "#F4CCCC";
+const DEV_SYNC_COLOR_HEADER        = "#1a3a5c";
+const DEV_SYNC_COLOR_HEADER_TXT    = "#FFFFFF";
+const DEV_SYNC_COLOR_GREEN         = "#B7E1CD";
+const DEV_SYNC_COLOR_YELLOW        = "#FCE8B2";
+const DEV_SYNC_COLOR_RED           = "#F4CCCC";
 
 // מבנה שורות ועמודות
-const DEV_SYNC_HEADER_ROW         = 4;
-const DEV_SYNC_DATA_START_ROW     = 5;
-const DEV_SYNC_IMPACTS_HEADER_ROW = 45;
+const DEV_SYNC_HEADER_ROW          = 4;
+const DEV_SYNC_DATA_START_ROW      = 5;
+const DEV_SYNC_IMPACTS_HEADER_ROW  = 45;
 const DEV_SYNC_IMPACTS_CONTENT_ROW = 46;
-const DEV_SYNC_SPATIAL_COL_START  = 14;
-const DEV_SYNC_SPATIAL_COL_WIDTH  = 250;
-const DEV_SYNC_CONTENT_ROW_HEIGHT = 300;
-const DEV_SYNC_PREVIEW_MAX_CHARS  = 80;
+const DEV_SYNC_SPATIAL_COL_START   = 14;
+const DEV_SYNC_SPATIAL_COL_WIDTH   = 250;
+const DEV_SYNC_CONTENT_ROW_HEIGHT  = 300;
+const DEV_SYNC_PREVIEW_MAX_CHARS   = 80;
 
 // ════════════════════════════════════════════════════════════════════
 // SCAN — אחראי על שורות 5+ ו-N+ בשורה 4 בלבד
@@ -90,50 +90,42 @@ function devSync_RunScanButton() {
     const versionLineGit    = gitInfo    ? gitInfo.versionLine    : "";
     const partsEditor       = devSync_parseVersionParts(versionLineEditor);
     const partsGit          = devSync_parseVersionParts(versionLineGit);
-
-    // [FIX-1] השוואה נכונה — שורה מלאה תחילה
-    const status  = devSync_calcStatus(!!editorInfo, !!gitInfo, versionLineEditor, versionLineGit);
-    const notes   = devSync_calcNotes(!!editorInfo, !!gitInfo);
-    const gitPath = gitInfo ? gitInfo.path : (DEV_SYNC_GIT_FOLDER + "/" + name + ".gs");
+    const status            = devSync_calcStatus(!!editorInfo, !!gitInfo, versionLineEditor, versionLineGit);
+    const notes             = devSync_calcNotes(!!editorInfo, !!gitInfo);
+    const gitPath           = gitInfo ? gitInfo.path : (DEV_SYNC_GIT_FOLDER + "/" + name + ".gs");
 
     rows.push([
-      name,                                        // A
-      "[ צפה בטקסט 👁️ ]",                         // B
-      "'" + partsEditor.updated,                   // C
-      "'" + partsGit.updated,                      // D
-      partsEditor.version,                         // E
-      partsGit.version,                            // F
-      partsEditor.service,                         // G
-      partsGit.service,                            // H
-      status,                                      // I
-      notes,                                       // J
-      gitPath,                                     // K
-      DEV_SYNC_GITHUB_API_BASE + gitPath,          // L
-      DEV_SYNC_GITHUB_WEB_BASE + gitPath           // M
+      name,                                                    // A
+      "[ צפה בטקסט 👁️ ]",                                     // B
+      "'" + partsEditor.updated,                               // C
+      "'" + partsGit.updated,                                  // D
+      partsEditor.version,                                     // E
+      partsGit.version,                                        // F
+      partsEditor.service,                                     // G
+      partsGit.service,                                        // H
+      status,                                                  // I
+      notes,                                                   // J
+      gitPath,                                                 // K
+      "'" + DEV_SYNC_GITHUB_API_BASE + gitPath,               // L ← טקסט רגיל
+      "'" + DEV_SYNC_GITHUB_WEB_BASE + gitPath                // M ← טקסט רגיל
     ]);
   });
 
   if (rows.length > 0) {
-    // פורמט טקסט לתאריכים
-    sheet.getRange(DEV_SYNC_DATA_START_ROW, 3, rows.length, 1).setNumberFormat("@");
-    sheet.getRange(DEV_SYNC_DATA_START_ROW, 4, rows.length, 1).setNumberFormat("@");
-
-    // [FIX-2] עמודה L — טקסט רגיל, לא היפרלינק
+    sheet.getRange(DEV_SYNC_DATA_START_ROW, 3,  rows.length, 1).setNumberFormat("@");
+    sheet.getRange(DEV_SYNC_DATA_START_ROW, 4,  rows.length, 1).setNumberFormat("@");
     sheet.getRange(DEV_SYNC_DATA_START_ROW, 12, rows.length, 1).setNumberFormat("@");
-
+    sheet.getRange(DEV_SYNC_DATA_START_ROW, 13, rows.length, 1).setNumberFormat("@");
     sheet.getRange(DEV_SYNC_DATA_START_ROW, 1, rows.length, 13).setValues(rows);
   }
 
-  // עיצוב מינימלי — עמודה I בלבד
   devSync_ApplyConditionalFormatting(sheet, rows.length);
 
-  // אזור מרחבי
   const colMapping = devSync_buildSpatialArea(sheet, allNames, editorMap, gitMap);
   PropertiesService.getScriptProperties().setProperty(
     'DEV_SYNC_COL_MAP', JSON.stringify(colMapping)
   );
 
-  // INDEX.md
   const indexOk = devSync_generateAndPushIndex(gitMap);
   const purgeOk = indexOk ? devSync_purgeJsDelivr() : false;
 
@@ -146,8 +138,7 @@ function devSync_RunScanButton() {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// [FIX-3] ניווט לתא @impacts — מוקצה לאיקון
-// קופץ לשורה 46 בעמודה הנכונה לפי שורה נבחרת
+// ניווט לתא @impacts — מוקצה לאיקון
 // ════════════════════════════════════════════════════════════════════
 
 function devSync_NavigateToImpacts() {
@@ -162,26 +153,15 @@ function devSync_NavigateToImpacts() {
   }
 
   const fileName = sheet.getRange(row, 1).getValue();
-  if (!fileName) {
-    SpreadsheetApp.getUi().alert("לא נמצא שם קובץ בשורה זו.");
-    return;
-  }
+  if (!fileName) { SpreadsheetApp.getUi().alert("לא נמצא שם קובץ."); return; }
 
   const props       = PropertiesService.getScriptProperties();
   const mappingJson = props.getProperty('DEV_SYNC_COL_MAP');
-  if (!mappingJson) {
-    SpreadsheetApp.getUi().alert("מיפוי עמודות לא נמצא — הרץ דוח תחילה.");
-    return;
-  }
+  if (!mappingJson) { SpreadsheetApp.getUi().alert("הרץ דוח תחילה."); return; }
 
-  const mapping   = JSON.parse(mappingJson);
-  const targetCol = mapping[String(fileName)];
-  if (!targetCol) {
-    SpreadsheetApp.getUi().alert("לא נמצאה עמודה עבור: " + fileName);
-    return;
-  }
+  const targetCol = JSON.parse(mappingJson)[String(fileName)];
+  if (!targetCol) { SpreadsheetApp.getUi().alert("לא נמצאה עמודה עבור: " + fileName); return; }
 
-  // קפיצה לשורה 46 — תוכן @impacts
   sheet.setActiveRange(sheet.getRange(DEV_SYNC_IMPACTS_CONTENT_ROW, targetCol));
 }
 
@@ -244,7 +224,7 @@ function devSync_SyncToEditor() {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// ניווט — Simple Trigger
+// שמירת שורה נבחרת — Simple Trigger
 // ════════════════════════════════════════════════════════════════════
 
 function onSelectionChange(e) {
@@ -252,13 +232,10 @@ function onSelectionChange(e) {
     const range = e.range;
     const sheet = range.getSheet();
     if (sheet.getName() !== DEV_SYNC_SHEET_NAME) return;
-
-    const col   = range.getColumn();
-    const row   = range.getRow();
-    const props = PropertiesService.getScriptProperties();
-
+    const col = range.getColumn();
+    const row = range.getRow();
     if (row >= DEV_SYNC_DATA_START_ROW && row < DEV_SYNC_IMPACTS_HEADER_ROW && col !== 2) {
-      props.setProperty('DEV_SYNC_LAST_ROW', String(row));
+      PropertiesService.getScriptProperties().setProperty('DEV_SYNC_LAST_ROW', String(row));
     }
   } catch (err) {
     Logger.log("[DevSyncInspector] onSelectionChange: " + err.toString());
@@ -305,10 +282,6 @@ function devSync_ApplyConditionalFormatting(sheet, rowCount) {
 
 // ════════════════════════════════════════════════════════════════════
 // בניית אזור מרחבי
-// שורה 4  — כותרת ספרייה (N+ בלבד)
-// שורה 5  — תצוגה מקדימה @impacts
-// שורה 45 — כותרת + [ ✕ חזור ]
-// שורה 46 — טקסט @impacts מלא ← יעד הקפיצה
 // ════════════════════════════════════════════════════════════════════
 
 function devSync_buildSpatialArea(sheet, allNames, editorMap, gitMap) {
@@ -327,7 +300,6 @@ function devSync_buildSpatialArea(sheet, allNames, editorMap, gitMap) {
     if (gitInfo && gitInfo.impactsText)            impactsText = gitInfo.impactsText;
     else if (editorInfo && editorInfo.impactsText) impactsText = editorInfo.impactsText;
 
-    // תצוגה מקדימה — שורה אחת
     let preview = "(אין תיאור @impacts)";
     if (impactsText) {
       const firstLine = impactsText.split("\n")[0].trim();
@@ -336,7 +308,7 @@ function devSync_buildSpatialArea(sheet, allNames, editorMap, gitMap) {
         : firstLine;
     }
 
-    // שורה 4 — כותרת ספרייה (N+ בלבד)
+    // שורה 4 — כותרת ספרייה
     const r4 = sheet.getRange(DEV_SYNC_HEADER_ROW, colIndex);
     r4.setValue(name);
     r4.setBackground(DEV_SYNC_COLOR_HEADER);
@@ -354,7 +326,7 @@ function devSync_buildSpatialArea(sheet, allNames, editorMap, gitMap) {
     r5.setFontColor("#555555");
     r5.setVerticalAlignment("middle");
 
-    // שורה 45 — כותרת + חזרה
+    // שורה 45 — כותרת + הוראת חזרה
     const r45 = sheet.getRange(DEV_SYNC_IMPACTS_HEADER_ROW, colIndex);
     r45.setValue(name + "  [ Ctrl+Home לחזרה ]");
     r45.setBackground(DEV_SYNC_COLOR_HEADER);
@@ -364,7 +336,7 @@ function devSync_buildSpatialArea(sheet, allNames, editorMap, gitMap) {
     r45.setVerticalAlignment("middle");
     r45.setWrap(false);
 
-    // שורה 46 — טקסט מלא ← יעד הקפיצה
+    // שורה 46 — תוכן מלא
     const r46 = sheet.getRange(DEV_SYNC_IMPACTS_CONTENT_ROW, colIndex);
     r46.setValue(impactsText || "(אין תיאור @impacts)");
     r46.setWrap(true);
@@ -381,29 +353,25 @@ function devSync_buildSpatialArea(sheet, allNames, editorMap, gitMap) {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// [FIX-1] חישוב סטטוס — השוואת שורה מלאה תחילה
+// חישוב סטטוס — השוואת שורה מלאה תחילה
 // ════════════════════════════════════════════════════════════════════
 
 function devSync_calcStatus(existsEditor, existsGit, versionLineEditor, versionLineGit) {
-  if (!existsEditor)  return "⬇ סנכרן לעורך";
-  if (!existsGit)     return "⬆ סנכרן לגיטהאב";
+  if (!existsEditor) return "⬇ סנכרן לעורך";
+  if (!existsGit)    return "⬆ סנכרן לגיטהאב";
 
-  // השוואת שורה מלאה — הכי מדויקת
   if (versionLineEditor && versionLineGit && versionLineEditor === versionLineGit) {
     return "תואם";
   }
 
-  // אין גרסאות — לא ניתן להשוות
   if (!versionLineEditor && !versionLineGit) return "⬆ סנכרן לגיטהאב";
 
-  // השוואת תאריכים כגיבוי
   const dateEditor = devSync_extractDate(versionLineEditor);
   const dateGit    = devSync_extractDate(versionLineGit);
 
   if (dateEditor && dateGit) {
     if (dateEditor > dateGit) return "⬆ סנכרן לגיטהאב";
     if (dateGit > dateEditor) return "⬇ סנכרן לעורך";
-    // תאריכים זהים אבל שורות שונות — עורך חדיש יותר
     return "⬆ סנכרן לגיטהאב";
   }
   if (dateEditor && !dateGit)  return "⬆ סנכרן לגיטהאב";
@@ -636,7 +604,7 @@ function devSync_extractImpactsText(source, isHtml) {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// פירוק שורת גרסה לחלקים
+// פירוק שורת גרסה
 // ════════════════════════════════════════════════════════════════════
 
 function devSync_parseVersionParts(versionLine) {
