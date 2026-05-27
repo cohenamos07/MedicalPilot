@@ -1,14 +1,14 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.6.0 | @updated 12/05/2026 18:30 | @service COLUMN_MAP
+ * @version 2.6.1 | @updated 24/05/2026 19:50 | @service COLUMN_MAP
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/COLUMN_MAP.gs
- * שינוי: [FIX-1] עדכון דוגמאות_למידה — 8 עמודות בסדר הנכון (תוכן קודם, מזהים טכניים בסוף)
- *         [FIX-2] הוספת S08 כממלא ב-ניהול_מיילים (I,J,K,L,M,U)
- *         [FIX-3] תיקון פונקציות כפולות (_colToLetter, _letterToCol, buildDevSyncSheet)
- *         [FIX-4] הוספת מבנה עמודות לגליון S10_למידה_רפואי לפי קטגוריות
- *         [FIX-5] הוספת buildS10LearningSheet — יוצרת גליון למידה ומגנה על כותרת שורה 1
+ * @impacts מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
+ *          גיליונות: ניהול_מיילים (26 עמודות), דוגמאות_למידה, מנהל_מחלצים, S10, מסנכרן_קבצים.
+ *          תלויים ישירים: S03 (A-H), S05 (M,O,P,R,S,T), S06 (M,O,P,Q,S,T,X,Y,Z),
+ *          S07 (I,J,K,L,M,N,Q,R,S,T), S08 (I,J,K,L,M,U), S09 (גיליון S10).
+ *          שינוי מספר עמודה = שבירת כל שירות שכותב אליה — לא לשנות ללא בדיקת כל התלויים.
+ *          פונקציות printSheetMap, restoreHeaders, checkWritePermissions — כלי אבחון ידני בלבד.
  */
-
 // ══════════════════════════════════════════════════════════════════
 // תיעוד — מבנה עמודות גליון ניהול_מיילים
 // ══════════════════════════════════════════════════════════════════
