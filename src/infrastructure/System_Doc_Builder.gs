@@ -1,11 +1,21 @@
 /**
  * MedicalPilot — System_Doc_Builder.gs
- * @version 1.5.0 | @updated 25/05/2026 21:35 | @service INFRA
+ * @version 1.5.3 | @updated 27/05/2026 20:23 | @service INFRA
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/System_Doc_Builder.gs
  * @impacts בניית גיליונות תיעוד מערכת וניהול משימות פיתוח.
  *          כולל: גיליון תיעוד AI, גיליון קשרי שירות, גיליון ניהול_משימות.
  *          פונקציות משימות: הוספה, סגירה, דוח יומי וסיום סשן.
  *          נקרא מציורים בגיליון ומהתפריט — אינו חלק מזרימת עיבוד אוטומטי.
+ * שינוי: [v1.5.3] task_SyncToday הפכה לטופס HTML אינטראקטיבי (showModalDialog).
+ *                נוספה task_AddFromDialog — שמירת משימה יחידה מהטופס עם כל השדות.
+ *                תמיכה בסטטוס, עדיפות, מודול, תיאור, Task_ID אוטומטי, תאריך פתיחה/סגירה.
+ * שינוי: [v1.5.2] תוקן באג קריטי ב-task_LoadList — getLastRow() הושפע מ-Data Validation
+ *                על 200 שורות וגרם לכתיבה לשורה 205+. עבר לסריקת עמודת Task_ID.
+ *                נוסף try-catch ו-flush. תוקנה בדיקת כפילויות (case-insensitive).
+ *                תוקן באג עדיפות ריקה ב-task_SyncToday.
+ * שינוי: [v1.5.1] נוספה task_SyncToday — טעינה אינטראקטיבית של משימות יום מאייקון.
+ *                פורמט קלט: מודול|תיאור|עדיפות (שורה אחת למשימה).
+ *                צמד לאייקון C2 בגיליון ניהול_משימות.
  * שינוי: [v1.5.0] task_SessionStart אוחדה עם task_RunReport —
  *                רענון צבעים וספירת משימות בוצעו בתחילת הפונקציה,
  *                ולאחר מכן מוצג סדר יום מקובץ לפי ספרייה ודחיפות.
@@ -250,7 +260,7 @@ function updateSystemContext() {
 
 // ══════════════════════════════════════════════════════════════════
 // ניהול משימות — Task Manager
-// @version 1.5.0 | @updated 25/05/2026 21:35 | @service INFRA
+// @version 1.5.1 | @updated 27/05/2026 | @service INFRA
 // מבנה עמודות:
 //   A=Task_ID | B=Open_Date | C=Closed_Date | D=Status
 //   E=Module  | F=Description | G=Priority  | H=Notes
@@ -319,8 +329,9 @@ function task_SetupSheet() {
   SpreadsheetApp.getUi().alert(
     "✅ גיליון ניהול_משימות הוגדר.\n\n" +
     "הצמד ציורים:\n" +
-    "A2 → task_SessionStart\n" +
+    "A2 → task_SessionStart  (פתיחת סשן + דוח)\n" +
     "B2 → task_ChangePriority\n" +
+    "C2 → task_SyncToday     (סנכרון משימות יום ← זה האייקון החדש)\n" +
     "D2 → task_ToggleStatus\n" +
     "F2 → task_EndOfDay"
   );
@@ -506,33 +517,60 @@ function task_LoadList(tasks) {
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(TASK_SHEET_NAME);
   if (!sheet) { ui.alert("גיליון לא נמצא — הרץ task_SetupSheet תחילה."); return; }
-  const now      = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
-  const lastRow  = sheet.getLastRow();
-  let existingDesc = [];
-  if (lastRow >= TASK_DATA_START) {
-    const existing = sheet.getRange(TASK_DATA_START, COL_DESC, lastRow - TASK_DATA_START + 1, 1).getValues();
-    existingDesc   = existing.map(r => r[0].toString().trim());
+  try {
+    const now = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
+
+    // סריקת עמודת Task_ID למציאת השורה האחרונה עם נתונים.
+    // getLastRow() עלול להחזיר 204 כאשר Data Validation מוגדר ל-200 שורות
+    // ב-task_SetupSheet, מה שגרם לכתיבת משימות לשורה 205+ ולא נראות.
+    const rawLastRow  = sheet.getLastRow();
+    let   lastDataRow = TASK_DATA_START - 1;
+    if (rawLastRow >= TASK_DATA_START) {
+      const ids = sheet.getRange(TASK_DATA_START, COL_TASK_ID, rawLastRow - TASK_DATA_START + 1, 1).getValues();
+      for (let i = ids.length - 1; i >= 0; i--) {
+        if (ids[i][0] !== "" && ids[i][0] !== null && ids[i][0] !== 0) {
+          lastDataRow = TASK_DATA_START + i;
+          break;
+        }
+      }
+    }
+
+    let existingDesc = [];
+    if (lastDataRow >= TASK_DATA_START) {
+      const existing = sheet.getRange(TASK_DATA_START, COL_DESC, lastDataRow - TASK_DATA_START + 1, 1).getValues();
+      existingDesc   = existing.map(r => r[0].toString().trim().toLowerCase());
+    }
+
+    let nextRow = lastDataRow + 1;
+    let added   = 0;
+    let skipped = 0;
+
+    tasks.forEach(function(task) {
+      const desc     = task.description.trim();
+      const descLow  = desc.toLowerCase();
+      if (existingDesc.some(ex => ex === descLow)) { skipped++; return; }
+      const taskId   = nextRow - TASK_DATA_START + 1;
+      const priority = (task.priority && task.priority.trim()) ? task.priority.trim() : "🔵 רגיל";
+      sheet.getRange(nextRow, 1, 1, 8).setValues([[
+        taskId, now, "", "🔴 פתוח", task.module, desc, priority, ""
+      ]]);
+      sheet.getRange(nextRow, 1, 1, 8).setBackground(TASK_COLOR_RED);
+      existingDesc.push(descLow);
+      nextRow++;
+      added++;
+    });
+
+    SpreadsheetApp.flush();
+
+    ui.alert(
+      "✅ טעינת משימות הושלמה\n\n" +
+      "נוספו:          " + added   + "\n" +
+      "דולגו (כפילות): " + skipped
+    );
+  } catch (e) {
+    Logger.log("שגיאה ב-task_LoadList: " + e.message + "\n" + e.stack);
+    ui.alert("❌ שגיאה בטעינת משימות:\n" + e.message);
   }
-  let nextRow = Math.max(lastRow + 1, TASK_DATA_START);
-  let added   = 0;
-  let skipped = 0;
-  tasks.forEach(function(task) {
-    const desc = task.description.trim();
-    if (existingDesc.some(ex => ex === desc)) { skipped++; return; }
-    const taskId = nextRow - TASK_DATA_START + 1;
-    sheet.getRange(nextRow, 1, 1, 8).setValues([[
-      taskId, now, "", "🔴 פתוח", task.module, desc, task.priority, ""
-    ]]);
-    sheet.getRange(nextRow, 1, 1, 8).setBackground(TASK_COLOR_RED);
-    existingDesc.push(desc);
-    nextRow++;
-    added++;
-  });
-  ui.alert(
-    "✅ טעינת משימות הושלמה\n\n" +
-    "נוספו:          " + added   + "\n" +
-    "דולגו (כפילות): " + skipped
-  );
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -581,4 +619,183 @@ function task_EndOfDay() {
   summary += "\n═══════════════════════════════\n";
   summary += "העתק את הסיכום למסמך החפיפה.";
   ui.alert("סיום יום — מסמך חפיפה", summary, ui.ButtonSet.OK);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// הוספת משימה יחידה מטופס HTML — נקרא מ-task_SyncToday דרך google.script.run
+// ══════════════════════════════════════════════════════════════════
+
+function task_AddFromDialog(data) {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(TASK_SHEET_NAME);
+  if (!sheet) return "❌ גיליון לא נמצא — הרץ task_SetupSheet תחילה";
+
+  try {
+    const now = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
+
+    // סריקת עמודת Task_ID למציאת השורה האחרונה — זהה לתיקון ב-task_LoadList
+    const rawLastRow = sheet.getLastRow();
+    let lastDataRow  = TASK_DATA_START - 1;
+    if (rawLastRow >= TASK_DATA_START) {
+      const ids = sheet.getRange(TASK_DATA_START, COL_TASK_ID, rawLastRow - TASK_DATA_START + 1, 1).getValues();
+      for (let i = ids.length - 1; i >= 0; i--) {
+        if (ids[i][0] !== "" && ids[i][0] !== null && ids[i][0] !== 0) {
+          lastDataRow = TASK_DATA_START + i;
+          break;
+        }
+      }
+    }
+
+    // בדיקת כפילויות
+    if (lastDataRow >= TASK_DATA_START) {
+      const existing    = sheet.getRange(TASK_DATA_START, COL_DESC, lastDataRow - TASK_DATA_START + 1, 1).getValues();
+      const existingDesc = existing.map(r => r[0].toString().trim().toLowerCase());
+      if (existingDesc.some(ex => ex === data.description.trim().toLowerCase())) {
+        return "⚠️ משימה עם אותו תיאור כבר קיימת בגיליון";
+      }
+    }
+
+    const nextRow    = lastDataRow + 1;
+    const taskId     = nextRow - TASK_DATA_START + 1;
+    const status     = data.status   || "🔴 פתוח";
+    const priority   = (data.priority && data.priority.trim()) ? data.priority.trim() : "🔵 רגיל";
+    const closedDate = status.includes("סגור") ? now : "";
+
+    let bgColor = TASK_COLOR_RED;
+    if (status.includes("סגור"))   bgColor = TASK_COLOR_GREEN;
+    if (status.includes("בביצוע")) bgColor = TASK_COLOR_YELLOW;
+
+    sheet.getRange(nextRow, 1, 1, 8).setValues([[
+      taskId, now, closedDate, status, data.module.trim(), data.description.trim(), priority, ""
+    ]]);
+    sheet.getRange(nextRow, 1, 1, 8).setBackground(bgColor);
+    SpreadsheetApp.flush();
+
+    return "✅ משימה #" + taskId + " נוספה בהצלחה";
+  } catch (e) {
+    Logger.log("שגיאה ב-task_AddFromDialog: " + e.message + "\n" + e.stack);
+    return "❌ שגיאה: " + e.message;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// כפתור רענון (C2) — טופס הוספת משימה אינטראקטיבי
+// ══════════════════════════════════════════════════════════════════
+
+function task_SyncToday() {
+  const htmlContent = `<!DOCTYPE html>
+<html dir="rtl">
+<head>
+  <base target="_top">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{direction:rtl;font-family:Arial,sans-serif;padding:18px 20px;background:#f8f9fa;color:#222;font-size:13px}
+    h3{color:#1a3a5c;font-size:15px;border-bottom:2px solid #1a3a5c;padding-bottom:8px;margin-bottom:14px}
+    .field{margin-bottom:11px}
+    label{display:block;font-weight:bold;font-size:12px;color:#444;margin-bottom:4px}
+    input,select,textarea{width:100%;padding:7px 9px;border:1px solid #ccc;border-radius:4px;font-size:13px;font-family:Arial,sans-serif;direction:rtl}
+    input:focus,select:focus,textarea:focus{outline:none;border-color:#1a3a5c;box-shadow:0 0 0 2px #d0e4f7}
+    textarea{height:68px;resize:vertical}
+    .auto-val{background:#eef2f6;color:#666;padding:6px 9px;border-radius:4px;font-size:12px;border:1px solid #dde3ea}
+    .row2{display:flex;gap:10px}
+    .row2 .field{flex:1}
+    #closedBlock{display:none;margin-bottom:11px}
+    .buttons{margin-top:14px;display:flex;gap:8px;justify-content:center}
+    .btn-add{background:#1a3a5c;color:#fff;border:none;border-radius:4px;padding:9px 26px;font-size:13px;cursor:pointer;font-weight:bold}
+    .btn-add:hover{background:#254e7a}
+    .btn-add:disabled{background:#aaa;cursor:default}
+    .btn-cancel{background:#fff;border:1px solid #bbb;border-radius:4px;padding:9px 20px;font-size:13px;cursor:pointer}
+    #msg{margin-top:10px;text-align:center;font-size:13px;min-height:18px}
+  </style>
+</head>
+<body>
+  <h3>➕ הוספת משימה חדשה</h3>
+
+  <div class="field">
+    <label>מודול</label>
+    <input type="text" id="module" placeholder="לדוגמה: S08, INFRA, DevSyncInspector">
+  </div>
+
+  <div class="field">
+    <label>תיאור</label>
+    <textarea id="desc" placeholder="תיאור המשימה..."></textarea>
+  </div>
+
+  <div class="row2">
+    <div class="field">
+      <label>עדיפות</label>
+      <select id="priority">
+        <option value="🔥 גבוה">🔥 גבוה</option>
+        <option value="🔵 רגיל" selected>🔵 רגיל</option>
+        <option value="⚪ נמוך">⚪ נמוך</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>סטטוס</label>
+      <select id="status" onchange="onStatusChange(this.value)">
+        <option value="🔴 פתוח" selected>🔴 פתוח</option>
+        <option value="🟡 בביצוע">🟡 בביצוע</option>
+        <option value="✅ סגור">✅ סגור</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="row2">
+    <div class="field">
+      <label>מזהה משימה</label>
+      <div class="auto-val">אוטומטי</div>
+    </div>
+    <div class="field">
+      <label>תאריך פתיחה</label>
+      <div class="auto-val">עכשיו (אוטומטי)</div>
+    </div>
+  </div>
+
+  <div id="closedBlock">
+    <label>תאריך סגירה</label>
+    <div class="auto-val">עכשיו (אוטומטי)</div>
+  </div>
+
+  <div id="msg"></div>
+
+  <div class="buttons">
+    <button class="btn-add" id="btnAdd" onclick="doSubmit()">➕ הוסף משימה</button>
+    <button class="btn-cancel" onclick="google.script.host.close()">ביטול</button>
+  </div>
+
+  <script>
+    function onStatusChange(val) {
+      document.getElementById('closedBlock').style.display =
+        val.indexOf('סגור') !== -1 ? 'block' : 'none';
+    }
+    function doSubmit() {
+      var mod  = document.getElementById('module').value.trim();
+      var desc = document.getElementById('desc').value.trim();
+      var prio = document.getElementById('priority').value;
+      var stat = document.getElementById('status').value;
+      var msg  = document.getElementById('msg');
+      if (!mod)  { msg.textContent = '⚠️ יש להזין מודול.';  return; }
+      if (!desc) { msg.textContent = '⚠️ יש להזין תיאור.'; return; }
+      msg.textContent = '⏳ שומר...';
+      document.getElementById('btnAdd').disabled = true;
+      google.script.run
+        .withSuccessHandler(function(res) {
+          msg.textContent = res;
+          setTimeout(function(){ google.script.host.close(); }, 1400);
+        })
+        .withFailureHandler(function(err) {
+          msg.textContent = '❌ ' + err.message;
+          document.getElementById('btnAdd').disabled = false;
+        })
+        .task_AddFromDialog({module:mod, description:desc, priority:prio, status:stat});
+    }
+  </script>
+</body>
+</html>`;
+
+  const html = HtmlService.createHtmlOutput(htmlContent)
+    .setWidth(440)
+    .setHeight(490)
+    .setTitle("הוספת משימה");
+  SpreadsheetApp.getUi().showModalDialog(html, "➕ הוספת משימה חדשה");
 }
