@@ -1,5 +1,5 @@
 # MedicalPilot — INDEX
-תאריך עדכון: 27/05/2026 18:09
+תאריך עדכון: 27/05/2026 20:26
 
 ## קבצים src/infrastructure
 - [Auth_Check.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Auth_Check.gs)
