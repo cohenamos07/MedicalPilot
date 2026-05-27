@@ -1,5 +1,5 @@
 # MedicalPilot — INDEX
-תאריך עדכון: 24/05/2026 19:34
+תאריך עדכון: 27/05/2026 18:09
 
 ## קבצים src/infrastructure
 - [Auth_Check.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Auth_Check.gs)
@@ -19,8 +19,10 @@
 - [S05_MetaExtract.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S05_MetaExtract.gs)
 - [S06_ConvertTXT.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S06_ConvertTXT.gs)
 - [S07_Classify.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S07_Classify.gs)
+- [S08_Sidebar.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S08_Sidebar.gs)
 - [S08_Validate.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S08_Validate.gs)
 - [S09_ExtractMedical.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S09_ExtractMedical.gs)
+- [S10_Sidebar.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S10_Sidebar.gs)
 - [S10_Validate.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S10_Validate.gs)
 - [S_Scheduler.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S_Scheduler.gs)
 - [Service_Folders.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Service_Folders.gs)
