@@ -1,9 +1,16 @@
 /**
  * MedicalPilot — System_Doc_Builder.gs
- * @version 1.0.0 | @updated 06/05/2026 16:30 | @service INFRA
+ * @version 1.5.0 | @updated 25/05/2026 21:35 | @service INFRA
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/System_Doc_Builder.gs
- * שינוי: [FIX-1] כותרת תקנית לסטנדרט המערכת
- * הערה: תוכן updateSystemContext מיושן — יעודכן בנפרד
+ * @impacts בניית גיליונות תיעוד מערכת וניהול משימות פיתוח.
+ *          כולל: גיליון תיעוד AI, גיליון קשרי שירות, גיליון ניהול_משימות.
+ *          פונקציות משימות: הוספה, סגירה, דוח יומי וסיום סשן.
+ *          נקרא מציורים בגיליון ומהתפריט — אינו חלק מזרימת עיבוד אוטומטי.
+ * שינוי: [v1.5.0] task_SessionStart אוחדה עם task_RunReport —
+ *                רענון צבעים וספירת משימות בוצעו בתחילת הפונקציה,
+ *                ולאחר מכן מוצג סדר יום מקובץ לפי ספרייה ודחיפות.
+ *                task_RunReport הפכה לעטיפה שקוראת ל-task_SessionStart
+ *                בלבד — לא נמחקת כדי לא לשבור ציורים מוצמדים.
  */
 
 // ══════════════════════════════════════════════════════════════════
@@ -100,8 +107,8 @@ function scanCodeFiles_v2() {
   const files   = DriveApp.getFilesByType(MimeType.GOOGLE_APPS_SCRIPT);
   let results   = [];
   while (files.hasNext()) {
-    const file      = files.next();
-    const content   = file.getBlob().getDataAsString();
+    const file       = files.next();
+    const content    = file.getBlob().getDataAsString();
     const moduleInfo = extractModuleMetadata(content);
     const functions  = extractFunctions_v2(content, moduleInfo.module);
     results.push({
@@ -118,10 +125,10 @@ function scanCodeFiles_v2() {
 
 function extractModuleMetadata(content) {
   return {
-    module:      getMatch(content, /Module:\s*(.*)/)                         || "—",
-    version:     getMatch(content, /Version:\s*([0-9]+\.[0-9]+\.[0-9]+)/)   || "—",
-    role:        getMatch(content, /Role:\s*(.*)/)                           || "—",
-    description: getMatch(content, /Description:\s*(.*)/)                   || "—"
+    module:      getMatch(content, /Module:\s*(.*)/)                       || "—",
+    version:     getMatch(content, /Version:\s*([0-9]+\.[0-9]+\.[0-9]+)/) || "—",
+    role:        getMatch(content, /Role:\s*(.*)/)                         || "—",
+    description: getMatch(content, /Description:\s*(.*)/)                 || "—"
   };
 }
 
@@ -148,7 +155,6 @@ function updateMappingTable_v2(sheet, sheetData, codeData) {
   const header   = ["סוג", "שם", "תיאור", "שדות", "תלות", "גרסה"];
   sheet.getRange(startRow, 1, 1, header.length)
     .setValues([header]).setFontWeight("bold").setBackground("#cfe2f3");
-
   let rows = [];
   sheetData.forEach(item => {
     rows.push([item.type, item.name, item.description, item.fields, item.dependency, item.version]);
@@ -159,7 +165,6 @@ function updateMappingTable_v2(sheet, sheetData, codeData) {
       rows.push([fn.type, fn.name, fn.description, fn.fields, fn.dependency, fn.version]);
     });
   });
-
   sheet.getRange(startRow + 1, 1, rows.length, header.length).setValues(rows);
   rows.forEach((row, i) => {
     if (row[2] === "חסר תיעוד" || row[5] === "—") {
@@ -174,7 +179,6 @@ function getMatch(text, regex) { const m = text.match(regex); return m ? m[1].tr
 
 // ══════════════════════════════════════════════════════════════════
 // עדכון גיליון תיעוד מערכת AI
-// הערה: מיפוי השירותים מיושן — יעודכן בנפרד
 // ══════════════════════════════════════════════════════════════════
 
 function updateSystemContext() {
@@ -185,31 +189,26 @@ function updateSystemContext() {
     if (!sheet) { sheet = ss.insertSheet(sheetName); }
     sheet.clearContents();
     sheet.clearFormats();
-
     const headers = [["Model_Instructions", "Version_Protocol", "AI_Preferences", "Backup_Procedure", "System_Notes", "Current_Versions", "Critical_Modules"]];
     sheet.getRange("A1:G1").setValues(headers)
       .setBackground("#333333").setFontColor("#ffffff")
       .setFontWeight("bold").setHorizontalAlignment("center");
-
     const now = Utilities.formatDate(new Date(), "GMT+3", "yyyy-MM-dd HH:mm");
     sheet.getRange("A2").setValue("סטטוס יומי (" + now + "): מוכן לעדכון.");
     sheet.getRange("A2:G2").setBackground("#fff2cc").setFontWeight("bold");
     sheet.setFrozenRows(2);
-
     const rulesRow = [[
       "כללי עבודה:\n1. כל התוכן נכתב בעברית בלבד.\n2. אסור לשנות מבנה גיליונות.\n3. אסור להחזיר קוד חלקי.\n4. חובה להגיש תכנון לפני כתיבת קוד.\n5. כל קוד חייב לכלול גרסה ותיאור שינוי.\n6. כל שינוי מתועד בגליון.\n7. שורות 22+ להיסטוריה בלבד.",
       "כללי ניהול גרסאות:\n1. גרסאות LAB ו-PROD נפרדות.\n2. אין לדלג על מספרי גרסאות.\n3. שינוי קטן = Patch, בינוני = Minor, גדול = Major.\n4. כל שינוי קוד מחייב עדכון גרסה.\n5. כל שינוי גרסה מתועד ב-Current_Versions.",
       "העדפות AI:\n1. תשובות ברורות ומפורטות.\n2. עברית כברירת מחדל.\n3. קוד מלא בלבד בתיבת העתקה.\n4. תכנון לפני קוד.\n5. הסברים צעד-אחר-צעד.\n6. שמות פונקציות ברורים.\n7. אין לחשוף מידע רגיש.\n8. עמוס מוגבל ביד ימין — תמיד תיבת העתקה.\n9. עמוס אינו מתכנת — קוד מלא בלבד.",
       "נהלי גיבוי:\n1. גיבוי ידני לפני כל שינוי.\n2. גיבוי לפני כל שינוי גרסה.\n3. שמירת Snapshot לכל שינוי משמעותי.\n4. אין למחוק גיבויים.\n5. כל גיבוי מתועד בהיסטוריה.",
       "כלל סנכרון גיטהאב:\n1. כל קובץ בגיטהאב חייב להיות קיים בשמו המדויק בעורך.\n2. אין להעלות לגיטהאב פונקציות שאינן בקובץ עצמאי בעורך.\n3. לפני העלאה — ודא שהקובץ קיים בעורך.\n\nכלל עדכון אוטומטי:\n1. אין לעדכן ידנית.\n2. יש להשתמש תמיד בכלי הסנכרון:\n   - updateSystemContext לגיליון\n   - pushContextToGitHub לגיטהאב\n   - endSessionSync לשניהם יחד.",
-      "גרסאות נוכחיות:\nPROD: v97.5\nLAB: v97.5\nתאריך עדכון: 09/04/2026",
+      "גרסאות נוכחיות:\nPROD: v10.5\nLAB: v10.7\nתאריך עדכון: 25/05/2026",
       "מודולים קריטיים:\nSystem_Logger.gs — תלוי שורה 6\nMenu_PROD.gs — תפריט ייצור\nMenu_LAB.gs — תפריט מעבדה\nMain.gs — נקודת כניסה\nGitHubSync.gs — סנכרון קוד"
     ]];
     sheet.getRange("A3:G3").setValues(rulesRow).setVerticalAlignment("top");
-
     sheet.getRange("A4").setValue("מיפוי 15 שירותים:");
     sheet.getRange("A4:G4").setBackground("#cfe2f3").setFontWeight("bold");
-
     const servicesData = [
       ["S01", "בדיקת בוקר טוב",   "System_HealthCheck.gs", "פעיל",        ""],
       ["S02", "הרשאות גישה",       "Auth_Check.gs",         "פעיל",        ""],
@@ -228,27 +227,358 @@ function updateSystemContext() {
       ["S15", "בדיקות QA",         "QA_Tests.gs",           "חלקי",        "מכסה 30% בלבד"]
     ];
     sheet.getRange("A5:E19").setValues(servicesData);
-
     sheet.getRange("A20").setValue("משימה הבאה:");
     sheet.getRange("B20").setValue("פיתוח S08 אימות ידני + סנכרון מלא");
     sheet.getRange("A20:G20").setBackground("#d9ead3").setFontWeight("bold");
-
     sheet.getRange("A21:D21").setValues([[
       "קישורים קריטיים:",
       "גיליון: docs.google.com/spreadsheets/d/1uYnt-wleYpuk1ZrX7fTn2HDZ12PNWBEFRDGqHQN_U4I",
       "עורך: script.google.com/u/0/home/projects/1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf",
       "גיטהאב: github.com/cohenamos07/MedicalPilot"
     ]]);
-
     sheet.setColumnWidth(1, 120); sheet.setColumnWidth(2, 200);
     sheet.setColumnWidth(3, 200); sheet.setColumnWidth(4, 200);
     sheet.setColumnWidth(5, 250); sheet.setColumnWidth(6, 180);
     sheet.setColumnWidth(7, 220);
     sheet.getRange("A1:G21").setWrap(true);
-
     SpreadsheetApp.getUi().alert("תיעוד מערכת AI עודכן בהצלחה");
   } catch (e) {
     Logger.log("שגיאה בעדכון תיעוד: " + e.message);
     SpreadsheetApp.getUi().alert("שגיאה בעדכון הגיליון: " + e.message);
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ניהול משימות — Task Manager
+// @version 1.5.0 | @updated 25/05/2026 21:35 | @service INFRA
+// מבנה עמודות:
+//   A=Task_ID | B=Open_Date | C=Closed_Date | D=Status
+//   E=Module  | F=Description | G=Priority  | H=Notes
+// הקפאה: 4 עמודות ראשונות (A–D)
+// ══════════════════════════════════════════════════════════════════
+
+const TASK_SHEET_NAME   = "ניהול_משימות";
+const TASK_HEADER_ROW   = 4;
+const TASK_DATA_START   = 5;
+const TASK_COLOR_HEADER = "#1a3a5c";
+const TASK_COLOR_WHITE  = "#FFFFFF";
+const TASK_COLOR_RED    = "#F4CCCC";
+const TASK_COLOR_GREEN  = "#B7E1CD";
+const TASK_COLOR_YELLOW = "#FCE8B2";
+
+const COL_TASK_ID     = 1;  // A
+const COL_OPEN_DATE   = 2;  // B
+const COL_CLOSED_DATE = 3;  // C
+const COL_STATUS      = 4;  // D
+const COL_MODULE      = 5;  // E
+const COL_DESC        = 6;  // F
+const COL_PRIORITY    = 7;  // G
+const COL_NOTES       = 8;  // H
+
+// ══════════════════════════════════════════════════════════════════
+// SETUP — מריצים פעם אחת בלבד
+// ══════════════════════════════════════════════════════════════════
+
+function task_SetupSheet() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  let   sheet = ss.getSheetByName(TASK_SHEET_NAME);
+  if (!sheet) sheet = ss.insertSheet(TASK_SHEET_NAME);
+  sheet.clearContents();
+  sheet.clearFormats();
+  sheet.setRowHeight(1, 20);
+  sheet.getRange(1, 1, 1, 8).setBackground(TASK_COLOR_WHITE);
+  sheet.setRowHeight(2, 50);
+  sheet.getRange(2, 1, 1, 8).setBackground(TASK_COLOR_WHITE);
+  sheet.setRowHeight(3, 20);
+  sheet.getRange(3, 1, 1, 8).setBackground(TASK_COLOR_WHITE);
+  const headers     = ["Task_ID","Open_Date","Closed_Date","Status","Module","Description","Priority","Notes"];
+  const headerRange = sheet.getRange(TASK_HEADER_ROW, 1, 1, headers.length);
+  headerRange.setValues([headers]);
+  headerRange.setBackground(TASK_COLOR_HEADER);
+  headerRange.setFontColor(TASK_COLOR_WHITE);
+  headerRange.setFontWeight("bold");
+  headerRange.setHorizontalAlignment("center");
+  headerRange.setFontSize(11);
+  sheet.setRowHeight(TASK_HEADER_ROW, 35);
+  sheet.setColumnWidth(COL_TASK_ID,     80);
+  sheet.setColumnWidth(COL_OPEN_DATE,   130);
+  sheet.setColumnWidth(COL_CLOSED_DATE, 130);
+  sheet.setColumnWidth(COL_STATUS,      110);
+  sheet.setColumnWidth(COL_MODULE,      150);
+  sheet.setColumnWidth(COL_DESC,        350);
+  sheet.setColumnWidth(COL_PRIORITY,    90);
+  sheet.setColumnWidth(COL_NOTES,       200);
+  sheet.setFrozenRows(TASK_HEADER_ROW);
+  sheet.setFrozenColumns(4);
+  const statusRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["🔴 פתוח", "🟡 בביצוע", "✅ סגור"], true).build();
+  const priorityRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["🔥 גבוה", "🔵 רגיל", "⚪ נמוך"], true).build();
+  sheet.getRange(TASK_DATA_START, COL_STATUS,   200, 1).setDataValidation(statusRule);
+  sheet.getRange(TASK_DATA_START, COL_PRIORITY, 200, 1).setDataValidation(priorityRule);
+  SpreadsheetApp.getUi().alert(
+    "✅ גיליון ניהול_משימות הוגדר.\n\n" +
+    "הצמד ציורים:\n" +
+    "A2 → task_SessionStart\n" +
+    "B2 → task_ChangePriority\n" +
+    "D2 → task_ToggleStatus\n" +
+    "F2 → task_EndOfDay"
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פתיחת סשן — רענון צבעים + ספירה + סדר יום מקובץ
+// (אוחד עם task_RunReport החל מ-v1.5.0)
+// ══════════════════════════════════════════════════════════════════
+
+function task_SessionStart() {
+  const ui    = SpreadsheetApp.getUi();
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(TASK_SHEET_NAME);
+  if (!sheet) { ui.alert("גיליון לא נמצא — הרץ task_SetupSheet תחילה."); return; }
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < TASK_DATA_START) { ui.alert("אין משימות פתוחות בגיליון."); return; }
+
+  const rowCount = lastRow - TASK_DATA_START + 1;
+  const data     = sheet.getRange(TASK_DATA_START, 1, rowCount, 8).getValues();
+
+  // ── שלב א׳: רענון צבעים + ספירה ──────────────────────────────
+  let open = 0, inProgress = 0, closed = 0;
+  data.forEach(function(row, i) {
+    const status   = String(row[COL_STATUS - 1]).trim();
+    const rowRange = sheet.getRange(TASK_DATA_START + i, 1, 1, 8);
+    if      (status.includes("סגור"))   { rowRange.setBackground(TASK_COLOR_GREEN);  closed++;     }
+    else if (status.includes("בביצוע")) { rowRange.setBackground(TASK_COLOR_YELLOW); inProgress++; }
+    else if (status.includes("פתוח"))   { rowRange.setBackground(TASK_COLOR_RED);    open++;       }
+  });
+
+  // ── שלב ב׳: שליפת משימות פתוחות לסדר יום ────────────────────
+  const openTasks = [];
+  data.forEach(function(row) {
+    const status = String(row[COL_STATUS - 1]).trim();
+    if (!status.includes("סגור") && row[COL_TASK_ID - 1] !== "") {
+      openTasks.push({
+        id:       row[COL_TASK_ID   - 1],
+        module:   String(row[COL_MODULE   - 1]).trim(),
+        desc:     String(row[COL_DESC     - 1]).trim(),
+        priority: String(row[COL_PRIORITY - 1]).trim(),
+        status:   status
+      });
+    }
+  });
+
+  if (openTasks.length === 0) {
+    ui.alert(
+      "📊 דוח משימות\n\n" +
+      "🔴 פתוח:    " + open       + "\n" +
+      "🟡 בביצוע:  " + inProgress + "\n" +
+      "✅ סגור:    " + closed      + "\n" +
+      "─────────────────\n" +
+      "סה\"כ: " + (open + inProgress + closed) + "\n\n" +
+      "🎉 אין משימות פתוחות — הגיליון נקי!"
+    );
+    return;
+  }
+
+  // ── שלב ג׳: מיון וקיבוץ לפי ספרייה ודחיפות ──────────────────
+  const priorityOrder = { "🔥 גבוה": 1, "🔵 רגיל": 2, "⚪ נמוך": 3 };
+  openTasks.sort(function(a, b) {
+    if (a.module < b.module) return -1;
+    if (a.module > b.module) return  1;
+    return (priorityOrder[a.priority] || 9) - (priorityOrder[b.priority] || 9);
+  });
+
+  const grouped = {};
+  openTasks.forEach(function(t) {
+    if (!grouped[t.module]) grouped[t.module] = [];
+    grouped[t.module].push(t);
+  });
+
+  // ── שלב ד׳: בניית טקסט מאוחד ─────────────────────────────────
+  const now = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
+  let agenda  = "📊 דוח משימות — " + now + "\n";
+  agenda     += "🔴 פתוח: " + open + "  |  🟡 בביצוע: " + inProgress + "  |  ✅ סגור: " + closed + "\n";
+  agenda     += "══════════════════════════════\n\n";
+  agenda     += "📋 סדר יום — משימות פתוחות: " + openTasks.length + "\n";
+  agenda     += "══════════════════════════════\n\n";
+
+  Object.keys(grouped).sort().forEach(function(module) {
+    agenda += "📁 " + module + "\n";
+    agenda += "──────────────────────────────\n";
+    grouped[module].forEach(function(t) {
+      agenda += t.priority + " #" + t.id + " — " + t.desc + "\n";
+    });
+    agenda += "\n";
+  });
+
+  agenda += "══════════════════════════════\n";
+  agenda += "העתק לצ'אט עם הסוכן להתחלת עבודה.";
+
+  ui.alert("סדר יום לסשן", agenda, ui.ButtonSet.OK);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// עטיפה לאחורה-תאימות — מפנה ל-task_SessionStart
+// לא נמחקת כדי לא לשבור ציורים מוצמדים ישנים
+// ══════════════════════════════════════════════════════════════════
+
+function task_RunReport() {
+  task_SessionStart();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// שינוי תעדוף — על שורה מסומנת
+// ══════════════════════════════════════════════════════════════════
+
+function task_ChangePriority() {
+  const ui    = SpreadsheetApp.getUi();
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(TASK_SHEET_NAME);
+  if (!sheet) { ui.alert("גיליון לא נמצא."); return; }
+  const row = sheet.getActiveCell().getRow();
+  if (row < TASK_DATA_START) { ui.alert("יש לבחור שורת משימה תחילה."); return; }
+  const values      = sheet.getRange(row, 1, 1, 8).getValues()[0];
+  const taskId      = values[COL_TASK_ID  - 1];
+  const desc        = values[COL_DESC     - 1];
+  const currentPrio = values[COL_PRIORITY - 1];
+  const status      = String(values[COL_STATUS - 1]).trim();
+  if (status.includes("סגור")) { ui.alert("משימה #" + taskId + " סגורה — לא ניתן לשנות תעדוף."); return; }
+  const result = ui.prompt(
+    "שינוי תעדוף — משימה #" + taskId,
+    "משימה: " + desc + "\n" +
+    "תעדוף נוכחי: " + currentPrio + "\n\n" +
+    "1 = 🔥 גבוה\n" +
+    "2 = 🔵 רגיל\n" +
+    "3 = ⚪ נמוך",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (result.getSelectedButton() !== ui.Button.OK) return;
+  const choice = result.getResponseText().trim();
+  let newPrio;
+  if      (choice === "1") newPrio = "🔥 גבוה";
+  else if (choice === "2") newPrio = "🔵 רגיל";
+  else if (choice === "3") newPrio = "⚪ נמוך";
+  else { ui.alert("בחירה לא תקינה."); return; }
+  sheet.getRange(row, COL_PRIORITY).setValue(newPrio);
+  ui.alert("✅ תעדוף משימה #" + taskId + " עודכן ל-" + newPrio);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פתיחה / סגירה — על שורה מסומנת
+// ══════════════════════════════════════════════════════════════════
+
+function task_ToggleStatus() {
+  const ui    = SpreadsheetApp.getUi();
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(TASK_SHEET_NAME);
+  if (!sheet) { ui.alert("גיליון לא נמצא."); return; }
+  const row = sheet.getActiveCell().getRow();
+  if (row < TASK_DATA_START) { ui.alert("יש לבחור שורת משימה תחילה."); return; }
+  const values = sheet.getRange(row, 1, 1, 8).getValues()[0];
+  const taskId = values[COL_TASK_ID - 1];
+  const desc   = values[COL_DESC   - 1];
+  const status = String(values[COL_STATUS - 1]).trim();
+  const now    = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
+  if (status.includes("סגור")) {
+    const confirm = ui.alert("פתיחה מחדש — משימה #" + taskId, "משימה: " + desc + "\n\nלפתוח מחדש?", ui.ButtonSet.YES_NO);
+    if (confirm !== ui.Button.YES) return;
+    sheet.getRange(row, COL_STATUS).setValue("🔴 פתוח");
+    sheet.getRange(row, COL_CLOSED_DATE).setValue("");
+    sheet.getRange(row, 1, 1, 8).setBackground(TASK_COLOR_RED);
+    ui.alert("✅ משימה #" + taskId + " נפתחה מחדש.");
+  } else {
+    const confirm = ui.alert("סגירת משימה #" + taskId, "משימה: " + desc + "\n\nלסגור?", ui.ButtonSet.YES_NO);
+    if (confirm !== ui.Button.YES) return;
+    sheet.getRange(row, COL_STATUS).setValue("✅ סגור");
+    sheet.getRange(row, COL_CLOSED_DATE).setValue(now);
+    sheet.getRange(row, 1, 1, 8).setBackground(TASK_COLOR_GREEN);
+    ui.alert("✅ משימה #" + taskId + " נסגרה.");
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// טעינת רשימת משימות מהסוכן — עם בדיקת כפילויות
+// ══════════════════════════════════════════════════════════════════
+
+function task_LoadList(tasks) {
+  const ui    = SpreadsheetApp.getUi();
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(TASK_SHEET_NAME);
+  if (!sheet) { ui.alert("גיליון לא נמצא — הרץ task_SetupSheet תחילה."); return; }
+  const now      = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
+  const lastRow  = sheet.getLastRow();
+  let existingDesc = [];
+  if (lastRow >= TASK_DATA_START) {
+    const existing = sheet.getRange(TASK_DATA_START, COL_DESC, lastRow - TASK_DATA_START + 1, 1).getValues();
+    existingDesc   = existing.map(r => r[0].toString().trim());
+  }
+  let nextRow = Math.max(lastRow + 1, TASK_DATA_START);
+  let added   = 0;
+  let skipped = 0;
+  tasks.forEach(function(task) {
+    const desc = task.description.trim();
+    if (existingDesc.some(ex => ex === desc)) { skipped++; return; }
+    const taskId = nextRow - TASK_DATA_START + 1;
+    sheet.getRange(nextRow, 1, 1, 8).setValues([[
+      taskId, now, "", "🔴 פתוח", task.module, desc, task.priority, ""
+    ]]);
+    sheet.getRange(nextRow, 1, 1, 8).setBackground(TASK_COLOR_RED);
+    existingDesc.push(desc);
+    nextRow++;
+    added++;
+  });
+  ui.alert(
+    "✅ טעינת משימות הושלמה\n\n" +
+    "נוספו:          " + added   + "\n" +
+    "דולגו (כפילות): " + skipped
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// סיום יום — מסמך חפיפה
+// ══════════════════════════════════════════════════════════════════
+
+function task_EndOfDay() {
+  const ui    = SpreadsheetApp.getUi();
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(TASK_SHEET_NAME);
+  if (!sheet) { ui.alert("גיליון לא נמצא."); return; }
+  const lastRow = sheet.getLastRow();
+  if (lastRow < TASK_DATA_START) { ui.alert("אין משימות בגיליון."); return; }
+  const rowCount = lastRow - TASK_DATA_START + 1;
+  const data     = sheet.getRange(TASK_DATA_START, 1, rowCount, 8).getValues();
+  const now      = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
+  const closedList = [];
+  const openList   = [];
+  data.forEach(function(row) {
+    const taskId = row[COL_TASK_ID - 1];
+    const module = row[COL_MODULE  - 1];
+    const desc   = row[COL_DESC   - 1];
+    const status = String(row[COL_STATUS - 1]).trim();
+    if (!taskId) return;
+    if (status.includes("סגור")) {
+      closedList.push("#" + taskId + " [" + module + "] " + desc);
+    } else {
+      openList.push("#" + taskId + " [" + module + "] " + desc + " (" + status + ")");
+    }
+  });
+  let summary  = "═══════════════════════════════\n";
+  summary     += "מסמך חפיפה — " + now + "\n";
+  summary     += "═══════════════════════════════\n\n";
+  summary     += "✅ נסגרו:\n";
+  if (closedList.length === 0) {
+    summary += "  (אין)\n";
+  } else {
+    closedList.forEach(function(t) { summary += "  • " + t + "\n"; });
+  }
+  summary += "\n🔴 נשארו פתוחות:\n";
+  if (openList.length === 0) {
+    summary += "  (אין — כל המשימות סגורות 🎉)\n";
+  } else {
+    openList.forEach(function(t) { summary += "  • " + t + "\n"; });
+  }
+  summary += "\n═══════════════════════════════\n";
+  summary += "העתק את הסיכום למסמך החפיפה.";
+  ui.alert("סיום יום — מסמך חפיפה", summary, ui.ButtonSet.OK);
 }
