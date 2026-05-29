@@ -7,20 +7,44 @@ on:
 permissions:
   pull-requests: write
   contents: read
-  
+
 jobs:
   review-changes:
-   runs-on: ubuntu-latest
-   steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required to accurately trace the git history
 
-     - name: Get list of changed
-       uses: tj-actions/changed-f
-       id: changed-files
+      - name: Get list of changed files
+        uses: tj-actions/changed-files@v45 # Utilizing the latest secure version
+        id: changed-files
 
-     - name: Post diff comment
-       uses: int128/diff-actions@v
-       if: always()
+      - name: Post diff comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // 1. Collect changed files from the previous step output
+            const allChangedFiles = `${{ steps.changed-files.outputs.all_changed_files }}`;
+            
+            if (!allChangedFiles) {
+              console.log("No changed files found.");
+              return;
+            }
+
+            // 2. Format the list into clean Markdown bullet points
+            const fileList = allChangedFiles
+              .split(' ')
+              .map(file => `* \`${file}\``)
+              .join('\n');
+
+            const commentBody = `### 📂 PR File Changes\nThe following files have been modified in this pull request:\n\n${fileList}`;
+
+            // 3. Post the Markdown comment back to the Pull Request
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: commentBody
+            });
