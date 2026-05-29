@@ -1,18 +1,28 @@
 /**
  * MedicalPilot — Menu_PROD.gs
- * @version 10.5 | @updated 12/05/2026 18:30 | @service MENU_PROD
+ * @version 10.7 | @updated 29/05/2026 13:30 | @service MENU_PROD
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Menu_PROD.gs
- * שינוי: [v10.5] הטמעת שירות S10 — בקרה וחילוץ מרובה אירועים ממסמך
+ * @impacts תפריט ייצור ראשי של המערכת — מציג שירותים פעילים בלבד.
+ *          מבנה: ⚙️ הכנת מערכת | 🔄 קליטת נתונים | 🧠 עיבוד AI | 🗂️ ניהול מערכת.
+ *          קורא ל: checkSystemMorning, checkUserAccess (S01/S02),
+ *          runEmailIngestion, syncDriveFiles, extractMetaData (S03/S04/S05),
+ *          run_MedicalPilot_V2_6_2 (S06), classifyDocument (S07),
+ *          showMainSidebar (S08), runS09 (S09), showS10Sidebar (S10),
+ *          uploadToGitHub, getConfig.
+ *          תלויים: כל שירותי הייצור — שינוי שם פונקציה כאן שובר את הקריאה.
+ * שינוי: [v10.7] פתיחת S07 — classifyDocument במקום msgBlocked
+ *         [v10.6] תיקון S06 — שם+פונקציה מ-OCR ל-TXT (run_MedicalPilot_V2_6_2)
+ *         [v10.5] הטמעת שירות S10 — בקרה וחילוץ מרובה אירועים ממסמך
  *         [v10.4] גרסה קודמת
  */
 
 function buildProdMenu() {
-  buildProdMenu_v10_5();
+  buildProdMenu_v10_7();
 }
 
-function buildProdMenu_v10_5() {
+function buildProdMenu_v10_7() {
   var ui   = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('PR v10.5');
+  var menu = ui.createMenu('PR v10.7');
 
   var subMenuSetup = ui.createMenu('⚙️ הכנת מערכת')
     .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
@@ -26,13 +36,13 @@ function buildProdMenu_v10_5() {
     .addItem('סריקת Drive',              'syncDriveFiles')
     .addItem('חילוץ מטא-דאטה ומיון',    'extractMetaData')
     .addItem('סנכרון סטטוסים',           'syncStatusBeforeOCR')
-    .addItem('המרת קבצים ל-OCR',         'runBatchOCR_Test');
+    .addItem('המרת קבצים ל-TXT',         'run_MedicalPilot_V2_6_2');
   menu.addSubMenu(subMenuIngestion);
 
   menu.addSeparator();
 
   var subMenuAI = ui.createMenu('🧠 עיבוד AI')
-    .addItem('סיווג מסמכים',              'msgBlocked')
+    .addItem('סיווג מסמכים',              'classifyDocument')
     .addItem('אימות ידני ולמידה (S08)',   'showMainSidebar')
     .addItem('חילוץ אירועים רפואיים (S09)', 'runS09')
     .addItem('אימות אירועים (S10)',        'showS10Sidebar')
@@ -54,12 +64,14 @@ function buildProdMenu_v10_5() {
 // גרסאות קודמות — מפנות לעדכנית
 // ══════════════════════════════════════════════════════════════════
 
-function buildProdMenu_v10_4()  { buildProdMenu_v10_5(); }
-function buildProdMenu_v97_9()  { buildProdMenu_v10_5(); }
-function buildProdMenu_v97_8()  { buildProdMenu_v10_5(); }
-function buildProdMenu_v97_7()  { buildProdMenu_v10_5(); }
-function buildProdMenu_v97_6()  { buildProdMenu_v10_5(); }
-function buildProdMenu_v97_5()  { buildProdMenu_v10_5(); }
+function buildProdMenu_v10_6()  { buildProdMenu_v10_7(); }
+function buildProdMenu_v10_5()  { buildProdMenu_v10_7(); }
+function buildProdMenu_v10_4()  { buildProdMenu_v10_7(); }
+function buildProdMenu_v97_9()  { buildProdMenu_v10_7(); }
+function buildProdMenu_v97_8()  { buildProdMenu_v10_7(); }
+function buildProdMenu_v97_7()  { buildProdMenu_v10_7(); }
+function buildProdMenu_v97_6()  { buildProdMenu_v10_7(); }
+function buildProdMenu_v97_5()  { buildProdMenu_v10_7(); }
 
 // ══════════════════════════════════════════════════════════════════
 // הודעת חסימה — שירותים בפיתוח
