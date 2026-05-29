@@ -1,6 +1,12 @@
 /**
  * MedicalPilot — S08_Validate.gs
- * @version 1.0.6 | @updated 08/05/2026 | @service S08
+ * @version 1.0.9 | @updated 28/05/2026 | @service S08
+ * שינוי: [v1.0.9] נוספה s08_findLearningDuplicate — חיפוש אוטומטי בגיליון דוגמאות_למידה
+ *                 בטעינת הסיידבר לפי מנפיק+קטגוריה של השורה הנוכחית.
+ *                 _s08_saveToLearning מחזיר matchedIssuer ו-matchedCategory לתצוגת learnDupCard.
+ * שינוי: [v1.0.8] תוקן באג: s08_updateAndLearn ו-s08_learnOnly דרסו את msg מ-_s08_saveToLearning.
+ *                 מספר השורה מגיליון דוגמאות_למידה עובר כעת לסיידבר ומוצג בסרגל הסטטוס.
+ * שינוי: [v1.0.7] _s08_saveToLearning — הודעת כפול כוללת מספר שורה מגיליון דוגמאות_למידה.
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S08_Validate.gs
  * שינוי: [v1.0.6-א] s08_fetchTxtContent — שליפת תוכן TXT דרך GAS (עוקף הרשאת iframe)
  *         [v1.0.6-ד] Dialog מוגדל ל-1100×750
@@ -172,6 +178,69 @@ function s08_highlightActiveRow(row) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// [v1.0.9] חיפוש שורה כפולה ישירות בגיליון ניהול_מיילים
+// ══════════════════════════════════════════════════════════════════
+
+function s08_findDuplicateInSheet(issuer, category, currentRow) {
+  try {
+    if (!issuer || !category) return null;
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("ניהול_מיילים");
+    if (!sheet) return null;
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return null;
+    const issuerVals   = sheet.getRange(2, 10, lastRow - 1, 1).getValues();
+    const categoryVals = sheet.getRange(2, 12, lastRow - 1, 1).getValues();
+    for (let i = 0; i < issuerVals.length; i++) {
+      const rowNum = i + 2;
+      if (rowNum === currentRow) continue;
+      if (
+        issuerVals[i][0].toString().trim()   === issuer.trim()   &&
+        categoryVals[i][0].toString().trim() === category.trim()
+      ) {
+        return { dupRow: rowNum };
+      }
+    }
+    return null;
+  } catch (e) {
+    Logger.log("s08_findDuplicateInSheet: " + e.message);
+    return null;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v1.0.9] חיפוש כפול אוטומטי בגיליון דוגמאות_למידה לפי מנפיק+קטגוריה
+// ══════════════════════════════════════════════════════════════════
+
+function s08_findLearningDuplicate(issuer, category) {
+  try {
+    const ss         = SpreadsheetApp.getActiveSpreadsheet();
+    const learnSheet = ss.getSheetByName("דוגמאות_למידה");
+    if (!learnSheet) return null;
+    const lastRow = learnSheet.getLastRow();
+    if (lastRow < 2) return null;
+    const existing = learnSheet.getRange(2, 1, lastRow - 1, 3).getValues();
+    for (let i = 0; i < existing.length; i++) {
+      if (
+        existing[i][1] && existing[i][2] &&
+        existing[i][1].toString().trim() === (issuer   || "").trim() &&
+        existing[i][2].toString().trim() === (category || "").trim()
+      ) {
+        return {
+          dupRow:          i + 2,
+          matchedIssuer:   existing[i][1].toString().trim(),
+          matchedCategory: existing[i][2].toString().trim()
+        };
+      }
+    }
+    return null;
+  } catch (e) {
+    Logger.log("s08_findLearningDuplicate: " + e.message);
+    return null;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // [v1.0.6-א] שליפת תוכן קובץ TXT דרך GAS — עוקף הרשאת iframe
 // ══════════════════════════════════════════════════════════════════
 
@@ -265,7 +334,11 @@ function s08_updateAndLearn(row, title, issuer, date, category, note) {
     const learnResult = _s08_saveToLearning(sheet, row, title, issuer, category, date, note);
     if (!learnResult.success) return learnResult;
     Logger.log("[S08] עדכון ולמידה שורה " + row);
-    return { success: true, msg: "💾 עדכון בוצע ונשלח לגיליון הלמידה", isDuplicate: learnResult.isDuplicate };
+    return {
+      success:     true,
+      isDuplicate: learnResult.isDuplicate,
+      msg:         learnResult.isDuplicate ? learnResult.msg : "💾 עדכון בוצע ונשלח לגיליון הלמידה"
+    };
   } catch (e) {
     Logger.log("[S08] שגיאה: " + e.message);
     return { success: false, msg: "❌ שגיאה: " + e.message };
@@ -284,7 +357,11 @@ function s08_learnOnly(row, title, issuer, date, category, note) {
     const learnResult = _s08_saveToLearning(sheet, row, title, issuer, category, date, note);
     if (!learnResult.success) return learnResult;
     Logger.log("[S08] למידה יזומה שורה " + row);
-    return { success: true, msg: "🧠 דוגמת למידה נוצרה בהצלחה", isDuplicate: learnResult.isDuplicate };
+    return {
+      success:     true,
+      isDuplicate: learnResult.isDuplicate,
+      msg:         learnResult.isDuplicate ? learnResult.msg : "🧠 דוגמת למידה נוצרה בהצלחה"
+    };
   } catch (e) {
     Logger.log("[S08] שגיאה: " + e.message);
     return { success: false, msg: "❌ שגיאה: " + e.message };
@@ -310,10 +387,16 @@ function _s08_saveToLearning(sheet, row, title, issuer, category, date, note) {
           existing[i][1].toString().trim() === (issuer   || "").trim() &&
           existing[i][2].toString().trim() === (category || "").trim()
         ) {
+          const dupLearnRow     = i + 2;
+          const matchedIssuer   = existing[i][1].toString().trim();
+          const matchedCategory = existing[i][2].toString().trim();
           return {
-            success:     true,
-            isDuplicate: true,
-            msg:         "⚠️ קיימת כבר דוגמה דומה (מנפיק + קטגוריה זהים) — לא נוסף שוב"
+            success:         true,
+            isDuplicate:     true,
+            dupRow:          dupLearnRow,
+            matchedIssuer:   matchedIssuer,
+            matchedCategory: matchedCategory,
+            msg:             '⚠️ כפל חשוד — שורה ' + dupLearnRow + ' | מנפיק: "' + matchedIssuer + '" | קטגוריה: "' + matchedCategory + '"'
           };
         }
       }
