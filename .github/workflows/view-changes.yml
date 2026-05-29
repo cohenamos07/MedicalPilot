@@ -1,0 +1,26 @@
+name: View Pull Request Changes
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  pull-requests: write
+  contents: read
+  
+jobs:
+  review-changes:
+   runs-on: ubuntu-latest
+   steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+     - name: Get list of changed
+       uses: tj-actions/changed-f
+       id: changed-files
+
+     - name: Post diff comment
+       uses: int128/diff-actions@v
+       if: always()
