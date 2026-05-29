@@ -1,11 +1,15 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 2.9 | @updated 24/05/2026 19:30 | @service DEV_SYNC
+ * @version 3.0 | @updated 29/05/2026 16:00 | @service DEV_SYNC
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/DevSyncInspector.gs
- * @impacts מנוע סנכרון ודיווח בין עורך GAS לגיטהאב — 13 עמודות + אזור מרחבי.
+ * @impacts מנוע סנכרון ודיווח בין עורך GAS לגיטהאב — 15 עמודות + אזור מרחבי.
  *          אחריות: נתוני דוח בלבד (שורות 5+) + כותרות N+ בשורה 4.
- *          ViewEngine אחראי לשורות 1-3, עמודות A-M בשורה 4, רוחב עמודות והקפאות.
+ *          ViewEngine אחראי לשורות 1-3, עמודות A-O בשורה 4, רוחב עמודות והקפאות.
  *          תלויות: GITHUB_PAT ב-Script Properties, Apps Script API, GitHub Contents API.
+ * שינוי: [v3.0] הוספת Editor_Lines (E) ו-Git_Lines (F) — ספירת שורות קוד להשוואה.
+ *               הזזת Version_Editor→G, Version_Git→H, Service_Editor→I, Service_Git→J,
+ *               Sync_Status→K, System_Notes→L, System_Path→M, Git_Raw_Link→N, Git_Web_Link→O.
+ *         [v2.9] גרסה קודמת
  */
 
 // ════════════════════════════════════════════════════════════════════
@@ -31,7 +35,7 @@ const DEV_SYNC_HEADER_ROW          = 4;
 const DEV_SYNC_DATA_START_ROW      = 5;
 const DEV_SYNC_IMPACTS_HEADER_ROW  = 45;
 const DEV_SYNC_IMPACTS_CONTENT_ROW = 46;
-const DEV_SYNC_SPATIAL_COL_START   = 14;
+const DEV_SYNC_SPATIAL_COL_START   = 16;
 const DEV_SYNC_SPATIAL_COL_WIDTH   = 250;
 const DEV_SYNC_CONTENT_ROW_HEIGHT  = 300;
 const DEV_SYNC_PREVIEW_MAX_CHARS   = 80;
@@ -90,33 +94,37 @@ function devSync_RunScanButton() {
     const versionLineGit    = gitInfo    ? gitInfo.versionLine    : "";
     const partsEditor       = devSync_parseVersionParts(versionLineEditor);
     const partsGit          = devSync_parseVersionParts(versionLineGit);
+    const editorLines       = editorInfo ? devSync_countLines(editorInfo.source) : "";
+    const gitLines          = gitInfo    ? devSync_countLines(gitInfo.source)    : "";
     const status            = devSync_calcStatus(!!editorInfo, !!gitInfo, versionLineEditor, versionLineGit);
     const notes             = devSync_calcNotes(!!editorInfo, !!gitInfo);
     const gitPath           = gitInfo ? gitInfo.path : (DEV_SYNC_GIT_FOLDER + "/" + name + ".gs");
 
     rows.push([
-      name,                                                    // A
-      "[ צפה בטקסט 👁️ ]",                                     // B
-      "'" + partsEditor.updated,                               // C
-      "'" + partsGit.updated,                                  // D
-      partsEditor.version,                                     // E
-      partsGit.version,                                        // F
-      partsEditor.service,                                     // G
-      partsGit.service,                                        // H
-      status,                                                  // I
-      notes,                                                   // J
-      gitPath,                                                 // K
-      "'" + DEV_SYNC_GITHUB_API_BASE + gitPath,               // L ← טקסט רגיל
-      "'" + DEV_SYNC_GITHUB_WEB_BASE + gitPath                // M ← טקסט רגיל
+      name,                                                    // A — File_Name
+      "[ צפה בטקסט 👁️ ]",                                     // B — View_Summary
+      "'" + partsEditor.updated,                               // C — Updated_Editor
+      "'" + partsGit.updated,                                  // D — Updated_Git
+      editorLines,                                             // E — Editor_Lines ← חדש
+      gitLines,                                                // F — Git_Lines    ← חדש
+      partsEditor.version,                                     // G — Version_Editor
+      partsGit.version,                                        // H — Version_Git
+      partsEditor.service,                                     // I — Service_Editor
+      partsGit.service,                                        // J — Service_Git
+      status,                                                  // K — Sync_Status
+      notes,                                                   // L — System_Notes
+      gitPath,                                                 // M — System_Path
+      "'" + DEV_SYNC_GITHUB_API_BASE + gitPath,               // N — Git_Raw_Link
+      "'" + DEV_SYNC_GITHUB_WEB_BASE + gitPath                // O — Git_Web_Link
     ]);
   });
 
   if (rows.length > 0) {
     sheet.getRange(DEV_SYNC_DATA_START_ROW, 3,  rows.length, 1).setNumberFormat("@");
     sheet.getRange(DEV_SYNC_DATA_START_ROW, 4,  rows.length, 1).setNumberFormat("@");
-    sheet.getRange(DEV_SYNC_DATA_START_ROW, 12, rows.length, 1).setNumberFormat("@");
-    sheet.getRange(DEV_SYNC_DATA_START_ROW, 13, rows.length, 1).setNumberFormat("@");
-    sheet.getRange(DEV_SYNC_DATA_START_ROW, 1, rows.length, 13).setValues(rows);
+    sheet.getRange(DEV_SYNC_DATA_START_ROW, 14, rows.length, 1).setNumberFormat("@");
+    sheet.getRange(DEV_SYNC_DATA_START_ROW, 15, rows.length, 1).setNumberFormat("@");
+    sheet.getRange(DEV_SYNC_DATA_START_ROW, 1, rows.length, 15).setValues(rows);
   }
 
   devSync_ApplyConditionalFormatting(sheet, rows.length);
@@ -135,6 +143,15 @@ function devSync_RunScanButton() {
      indexOk            ? "✅ INDEX.md | ⚠️ jsDelivr" :
                           "❌ INDEX.md נכשל")
   );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ספירת שורות קוד
+// ════════════════════════════════════════════════════════════════════
+
+function devSync_countLines(source) {
+  if (!source) return 0;
+  return source.split(/\r?\n/).length;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -180,18 +197,18 @@ function devSync_SyncToGit() {
     ui.alert("יש לבחור שורת קובץ תחילה."); return;
   }
 
-  const values   = sheet.getRange(row, 1, 1, 13).getValues()[0];
+  const values   = sheet.getRange(row, 1, 1, 15).getValues()[0];
   const fileName = values[0];
-  const status   = values[8];
-  const gitPath  = values[10];
+  const status   = values[10];
+  const gitPath  = values[12];
 
   if (!fileName || !gitPath) { ui.alert("נתונים חסרים."); return; }
   if (status === "תואם")     { ui.alert("'" + fileName + "' כבר תואם."); return; }
 
   syncEditorFileToGitHub(fileName, gitPath);
   Utilities.sleep(1500);
-  sheet.getRange(row, 9).setValue("תואם").setBackground(DEV_SYNC_COLOR_GREEN);
-  sheet.getRange(row, 10).setValue("");
+  sheet.getRange(row, 11).setValue("תואם").setBackground(DEV_SYNC_COLOR_GREEN);
+  sheet.getRange(row, 12).setValue("");
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -209,18 +226,18 @@ function devSync_SyncToEditor() {
     ui.alert("יש לבחור שורת קובץ תחילה."); return;
   }
 
-  const values   = sheet.getRange(row, 1, 1, 13).getValues()[0];
+  const values   = sheet.getRange(row, 1, 1, 15).getValues()[0];
   const fileName = values[0];
-  const status   = values[8];
-  const gitPath  = values[10];
+  const status   = values[10];
+  const gitPath  = values[12];
 
   if (!fileName || !gitPath) { ui.alert("נתונים חסרים."); return; }
   if (status === "תואם")     { ui.alert("'" + fileName + "' כבר תואם."); return; }
 
   syncFileFromGitToEditor(gitPath, fileName);
   Utilities.sleep(1500);
-  sheet.getRange(row, 9).setValue("תואם").setBackground(DEV_SYNC_COLOR_GREEN);
-  sheet.getRange(row, 10).setValue("");
+  sheet.getRange(row, 11).setValue("תואם").setBackground(DEV_SYNC_COLOR_GREEN);
+  sheet.getRange(row, 12).setValue("");
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -243,16 +260,16 @@ function onSelectionChange(e) {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// עיצוב מותנה — עמודה I בלבד
+// עיצוב מותנה — עמודה K בלבד (הוזזה מ-I)
 // ════════════════════════════════════════════════════════════════════
 
 function devSync_ApplyConditionalFormatting(sheet, rowCount) {
   try {
     if (rowCount === 0) return;
-    const statusRange = sheet.getRange(DEV_SYNC_DATA_START_ROW, 9, rowCount, 1);
+    const statusRange = sheet.getRange(DEV_SYNC_DATA_START_ROW, 11, rowCount, 1);
 
     const filtered = sheet.getConditionalFormatRules().filter(rule =>
-      !rule.getRanges().some(r => r.getColumn() === 9)
+      !rule.getRanges().some(r => r.getColumn() === 11)
     );
     sheet.setConditionalFormatRules(filtered);
 
@@ -489,7 +506,8 @@ function devSync_getEditorFilesMap() {
       const source = file.source || "";
       map[file.name] = {
         versionLine: devSync_extractVersionLine(source),
-        impactsText: devSync_extractImpactsText(source, !!isHtml)
+        impactsText: devSync_extractImpactsText(source, !!isHtml),
+        source:      source
       };
     });
   } catch (e) { Logger.log("devSync_getEditorFilesMap: " + e.toString()); }
@@ -523,7 +541,8 @@ function devSync_getGitFilesMap() {
       map[nameWithoutExt] = {
         path:        item.path,
         versionLine: devSync_extractVersionLine(content),
-        impactsText: devSync_extractImpactsText(content, !!isHtml)
+        impactsText: devSync_extractImpactsText(content, !!isHtml),
+        source:      content
       };
     });
   } catch (e) { Logger.log("devSync_getGitFilesMap: " + e.toString()); }
