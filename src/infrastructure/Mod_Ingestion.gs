@@ -1,7 +1,8 @@
 /**
  * MedicalPilot — Mod_Ingestion.gs
  * שירות S03 — סריקת Gmail וקליטת קבצים
- * @version 97.9.1 | @updated 11/04/2026 | @service S03
+ * @version 97.9.2 | @updated 28/05/2026 | @service S03
+ * שינוי: [v97.9.2] סינון קבצי .gif — נדחים הן ב-Gmail_isValidAttachment והן ב-runMedicalProcess.
  */
 
 const GMAIL_INBOX_FOLDER_ID = "1HSzOwL7YIzC8FvgGtuxCKYzfKk0RsHO5";
@@ -17,7 +18,9 @@ function runMedicalProcess() {
   threads.forEach((thread) => {
     const lastMsg = thread.getMessages().pop();
     lastMsg.getAttachments().forEach((att) => {
-      if (att.getSize() > 2500) {
+      const _name = att.getName().toLowerCase();
+      const _isGif = _name.endsWith('.gif') || att.getContentType() === 'image/gif';
+      if (!_isGif && att.getSize() > 2500) {
         const driveFile = DriveApp.getFolderById(GMAIL_INBOX_FOLDER_ID).createFile(att);
         const fileId = driveFile.getId();
         if (existingIds.indexOf(fileId) === -1) {
@@ -54,6 +57,8 @@ function Gmail_fetchThreads(labelName) {
 
 function Gmail_isValidAttachment(att) {
   try {
+    const name = att.getName().toLowerCase();
+    if (name.endsWith('.gif') || att.getContentType() === 'image/gif') return false;
     return att.getSize() > 2500;
   } catch (e) {
     Logger.log("Error in Gmail_isValidAttachment: " + e.message);
