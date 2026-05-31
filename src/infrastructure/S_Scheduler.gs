@@ -1,11 +1,14 @@
 /**
  * MedicalPilot — S_Scheduler.gs
- * @version 1.0.0 | @updated 30/04/2026 18:00 | @service SCHEDULER
+ * @version 1.0.1 | @updated 31/05/2026 21:02 | @service SCHEDULER
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S_Scheduler.gs
- * תפקיד: ניהול גובים מתוזמנים — הפעלה ועצירה מהתפריט
- * שינוי: גרסה ראשונה — גוב המרת TXT
+ * @impacts ניהול גובים מתוזמנים — הפעלה ועצירה מהתפריט.
+ *          מנהל טריגר לילי להמרת קבצים ל-TXT (nightlyConvertBatch).
+ *          תלויות: S06_ConvertTXT.gs.
+ *          נקרא מהתפריט בלבד — אינו חלק מזרימת עיבוד אוטומטי.
+ * שינוי: [v1.0.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *         [v1.0.0] גרסה ראשונה — גוב המרת TXT
  */
-
 // ══════════════════════════════════════════════════════════════════
 // רישום גובים — הגדרות קבועות
 // ══════════════════════════════════════════════════════════════════
