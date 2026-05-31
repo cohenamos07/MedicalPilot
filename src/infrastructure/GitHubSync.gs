@@ -1,8 +1,14 @@
 
 /**
  * MedicalPilot — GitHubSync.gs
- * שירות סנכרון גיטהאב
- * @version 98.0 | @updated 26/04/2026 | @service S10
+ * @version 98.1 | @updated 31/05/2026 19:12 | @service S10
+ * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/GitHubSync.gs
+ * @impacts שירות סנכרון גיטהאב — פונקציות עזר לדחיפת תוכן לריפוזיטורי.
+ *          כולל: pushContextToGitHub, endSessionSync, testGitHubConnection.
+ *          תלויות: GITHUB_PAT ב-Script Properties.
+ *          נקרא מהתפריט ומ-EditorToGitHub — אינו חלק מזרימת עיבוד אוטומטי.
+ * שינוי: [v98.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *         [v98.0] גרסה קודמת
  */
 
 function pushContextToGitHub() {
