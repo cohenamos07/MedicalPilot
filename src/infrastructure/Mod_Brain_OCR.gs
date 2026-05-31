@@ -1,10 +1,13 @@
 /**
  * MedicalPilot — Mod_Brain_OCR.gs
- * מודול OCR — הועבר לארכוב
- * @version 1.4.0 | @updated 04/05/2026 13:45 | @service S06
- * ARCHIVED — הוחלף על ידי S06_ConvertTXT.gs החל מ-v1.5.0
- * Gemini Vision מטפל ב-PDF ותמונות ישירות — OCR של Drive אינו נדרש
- * שינוי: [ARCHIVE] runBatchOCR_Test הושבת — קוד מקורי שמור ב-runBatchOCR_ARCHIVED
+ * @version 1.4.1 | @updated 31/05/2026 20:40 | @service S06
+ * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Mod_Brain_OCR.gs
+ * @impacts מודול OCR — מועבר לארכוב מלא. הוחלף על ידי S06_ConvertTXT.gs מ-v1.5.0.
+ *          Gemini Vision מטפל ב-PDF ותמונות ישירות — OCR של Drive אינו נדרש.
+ *          runBatchOCR_Test מוחלף ב-stub שמונע הרצה בטעות.
+ *          syncStatusBeforeOCR — ארכוב, לא בשימוש בזרימה הנוכחית.
+ * שינוי: [v1.4.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *         [v1.4.0] [ARCHIVE] runBatchOCR_Test הושבת — קוד מקורי שמור ב-runBatchOCR_ARCHIVED
  */
 
 // ══════════════════════════════════════════════════════════════════
