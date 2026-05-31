@@ -1,15 +1,17 @@
 <!--
   MedicalPilot — S08_Sidebar.html
-  @version 1.0.6 | @updated 08/05/2026 | @service S08
+  @version 1.0.7 | @updated 31/05/2026 20:50 | @service S08
   @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S08_Sidebar.html
-  תיאור: ממשק Dialog לאימות ידני ולמידה — S08
-  שינוי: [v1.0.6-א] TXT מוצג כטקסט בתוך pre — עוקף הרשאת iframe
-         [v1.0.6-ב] עמודה R מוצגת מתחת לזיהוי + כפתור קפיצה
-         [v1.0.6-ג] ?rm=minimal בpreview URL להקטנת סרגל Google Drive
-         [v1.0.6-ד] Dialog מוגדל ל-1100×750 (מוגדר ב-GAS)
-         [v1.0.5]   badge סטטוס M, כפתורי הדבק, Drag&Drop
-         [v1.0.4]   ניווט שורות, כפתור סגור, טוגל מקורי/TXT
-  תלוי ב: S08_Validate.gs v1.0.6
+  @impacts ממשק Dialog לאימות ידני ולמידה — S08.
+           מציג מסמך מקורי + טקסט TXT + שדות עריכה לכותרת/מנפיק/תאריך/קטגוריה.
+           כפתורים: אישור, עדכון ולמידה, למידה יזומה, מחיקה.
+           תלוי ב: S08_Validate.gs — כל הלוגיקה מתבצעת שם.
+  שינוי: [v1.0.7] הוספת @impacts וכותרת מלאה לפי סטנדרט
+          [v1.0.6-ד] Dialog מוגדל ל-1100×750
+          [v1.0.6-ג] ?rm=minimal בpreview URL
+          [v1.0.6-ב] עמודה R מוצגת מתחת לזיהוי + כפתור קפיצה
+          [v1.0.6-א] TXT מוצג כטקסט בתוך pre — עוקף הרשאת iframe
+-->
 -->
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
@@ -196,6 +198,22 @@
   .dup-details-grid.visible { display: grid; }
   .dup-key  { color: #795548; font-weight: 600; }
   .dup-val  { color: #333; }
+
+  /* [v1.0.9] כרטיס כפול מגיליון למידה */
+  .learn-dup-card {
+    background: #f3e5f5;
+    border: 1px solid #ce93d8;
+    border-right: 4px solid #7b1fa2;
+    border-radius: 6px;
+    padding: 7px 10px;
+    flex-shrink: 0;
+    display: none;
+    gap: 6px;
+    flex-direction: column;
+  }
+  .learn-dup-card.visible { display: flex; }
+  .learn-dup-title { font-size: 11px; font-weight: 700; color: #4a148c; }
+  .learn-dup-grid  { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 11px; }
 
   /* ════ שדות ════ */
   .field-group { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
@@ -420,6 +438,17 @@
       </div>
     </div>
 
+    <!-- [v1.0.9] כרטיס כפול מגיליון דוגמאות_למידה -->
+    <div class="learn-dup-card" id="learnDupCard">
+      <div class="learn-dup-title">⚠️ כפל חשוד — גיליון דוגמאות_למידה</div>
+      <div class="learn-dup-grid">
+        <span class="dup-key">שורה בגיליון:</span>   <span class="dup-val" id="learnDupRow">—</span>
+        <span class="dup-key">מנפיק זוהה:</span>     <span class="dup-val" id="learnDupIssuer">—</span>
+        <span class="dup-key">קטגוריה זוהתה:</span>  <span class="dup-val" id="learnDupCategory">—</span>
+        <span class="dup-key">סיבת חשד:</span>       <span class="dup-val">מנפיק + קטגוריה זהים לשורה קיימת</span>
+      </div>
+    </div>
+
     <div class="section-title">נתוני AI — לאימות ועריכה</div>
 
     <div class="field-group">
@@ -571,6 +600,8 @@
     document.getElementById('dupCard').classList.remove('visible');
     document.getElementById('dupJumpBtn').classList.remove('visible');
     document.getElementById('dupDetailsGrid').classList.remove('visible');
+    // [v1.0.9] איפוס כרטיס כפול למידה
+    document.getElementById('learnDupCard').classList.remove('visible');
     if (d.duplicateFlag) { loadDuplicateData(d.duplicateFlag); }
 
     document.getElementById('docTitle').value  = d.docTitle  || '';
@@ -783,13 +814,23 @@
       .s08_approve(ROW);
   }
 
+  // [v1.0.9] כרטיס כפול מגיליון למידה
+  function showLearnDup(res) {
+    disableBtns(false);
+    document.getElementById('learnDupRow').textContent      = res.dupRow          || '—';
+    document.getElementById('learnDupIssuer').textContent   = res.matchedIssuer   || '—';
+    document.getElementById('learnDupCategory').textContent = res.matchedCategory || '—';
+    document.getElementById('learnDupCard').classList.add('visible');
+    setStatus('info', res.msg);
+  }
+
   function doUpdate() {
     setStatus('info', 'שומר ושולח ללמידה...');
     disableBtns(true);
     google.script.run
       .withSuccessHandler(function(res) {
         disableBtns(false);
-        if (res && res.isDuplicate) { setStatus('info', res.msg); }
+        if (res && res.isDuplicate) { showLearnDup(res); }
         else { handleResult(res); }
       })
       .withFailureHandler(handleError)
@@ -807,7 +848,7 @@
     google.script.run
       .withSuccessHandler(function(res) {
         disableBtns(false);
-        if (res && res.isDuplicate) { setStatus('info', res.msg); }
+        if (res && res.isDuplicate) { showLearnDup(res); }
         else { handleResult(res); }
       })
       .withFailureHandler(handleError)
