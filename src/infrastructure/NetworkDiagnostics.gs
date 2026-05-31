@@ -1,11 +1,15 @@
 /**
  * MedicalPilot — NetworkDiagnostics.gs
- * @version 99.1 | @updated 29/04/2026 18:50 | @service S01
+ * @version 99.2 | @updated 31/05/2026 20:42 | @service S01
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/NetworkDiagnostics.gs
- * תפקיד: בדיקות רשת + אבחון AI + ניהול מאזן מחלצים
- * שינוי: תיקון getAvailableExtractor — LOW QUOTA לא נדלג עליו כל עוד יש remaining
+ * @impacts בדיקות רשת, אבחון AI וניהול מאזן מחלצים.
+ *          כולל: checkExternalNetwork, checkGitHubConnectivity, runSystemHealthCheck.
+ *          מנהל את getAvailableExtractor — ניתוב בקשות Gemini לפי מכסה זמינה.
+ *          תלויות: גליון מנהל_משאבים, GITHUB_PAT, GEMINI_API_KEY.
+ *          נקרא מהתפריט ומשירותים S06/S07 — אינו חלק מזרימת עיבוד אוטומטי.
+ * שינוי: [v99.2] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *         [v99.1] תיקון getAvailableExtractor — LOW QUOTA לא נדלג כל עוד יש remaining
  */
-
 // ══════════════════════════════════════════════════════════════════
 // קבועים — מנהל מחלצים
 // ══════════════════════════════════════════════════════════════════
