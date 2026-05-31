@@ -1,8 +1,13 @@
 /**
  * MedicalPilot — EditorToGitHub.gs
- * @version 100.2 | @updated 08/05/2026 | @service S10
+ * @version 100.3 | @updated 31/05/2026 19:12 | @service S10
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/EditorToGitHub.gs
- * שינוי: [v100.2] הוספת S08_Validate, S08_Sidebar, COLUMN_MAP, S06, S07, QA_Tests,
+ * @impacts מנוע סנכרון קוד מהעורך לגיטהאב — דוחף קבצי GAS לריפוזיטורי.
+ *          מסנכרן 22 קבצי תשתית + יוצר VERSIONS.md ו-INDEX.md אוטומטית.
+ *          תלויות: GITHUB_PAT ב-Script Properties.
+ *          נקרא מהתפריט ומ-DevSyncInspector — אינו חלק מזרימת עיבוד אוטומטי.
+ * שינוי: [v100.3] הוספת @impacts לכותרת
+ *         [v100.2] הוספת S08_Validate, S08_Sidebar, COLUMN_MAP, S06, S07, QA_Tests,
  *                  DevSyncInspector, S_Scheduler לרשימת הסנכרון
  *         [v100.2] pushVersionsFile — יצירת VERSIONS.md אוטומטית אחרי כל סנכרון
  *         [v100.2] updateIndexFile — עדכון INDEX.md אוטומטי אחרי כל סנכרון
