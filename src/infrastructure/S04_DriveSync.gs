@@ -1,10 +1,14 @@
 /**
  * MedicalPilot — S04_DriveSync.gs
- * @version 1.2.0 | @updated 05/05/2026 19:30 | @service S04
+ * @version 1.2.1 | @updated 31/05/2026 20:44 | @service S04
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S04_DriveSync.gs
- * שינוי: [FIX-1] כותרת תקנית לסטנדרט המערכת
+ * @impacts סריקת Drive וקליטת קבצים לגליון ניהול_מיילים.
+ *          כותב לעמודות A-H ו-W. מונע כפילויות לפי File_ID.
+ *          תלויות: Drive API, גליון ניהול_מיילים, Service_Folders.
+ *          מופעל מהתפריט — אינו חלק מזרימת עיבוד אוטומטי.
+ * שינוי: [v1.2.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *         [v1.2.0] [FIX-1] כותרת תקנית לסטנדרט המערכת
  */
-
 // ══════════════════════════════════════════════════════════════════
 // ניהול תאריך ריצה אחרונה (Incremental Sync)
 // ══════════════════════════════════════════════════════════════════
