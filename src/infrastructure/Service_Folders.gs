@@ -1,10 +1,14 @@
 /**
  * MedicalPilot — Service_Folders.gs
- * @version 1.2.0 | @updated 05/05/2026 19:35 | @service INFRA
+ * @version 1.2.1 | @updated 31/05/2026 21:03 | @service INFRA
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Service_Folders.gs
- * שינוי: [FIX-1] כותרת תקנית לסטנדרט המערכת
+ * @impacts ניהול תיקיות Drive של המערכת — יצירה ואחזור תיקיות שירות.
+ *          מספק getProjectFolders לכל שירות הצריך לשמור קבצים ב-Drive.
+ *          תלויות: Drive API.
+ *          נקרא מ-S06, S09 ושירותים נוספים הכותבים קבצים ל-Drive.
+ * שינוי: [v1.2.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *         [v1.2.0] [FIX-1] כותרת תקנית לסטנדרט המערכת
  */
-
 // ══════════════════════════════════════════════════════════════════
 // שירות תיקיות — סריקת שורש Drive והחזרת רשימת תיקיות + קבצים
 // ══════════════════════════════════════════════════════════════════
