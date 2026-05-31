@@ -1,10 +1,16 @@
 /**
  * MedicalPilot — S07_Classify.gs
- * סיווג מסמכים רפואיים בעזרת Gemini — כותרת, מנפיק, תאריך, קטגוריה
- * @version 2.3.4 | @updated 04/05/2026 13:15 | @service S07
+ * @version 2.3.6 | @updated 31/05/2026 19:50 | @service S07
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S07_Classify.gs
- * שינוי: [FIX-6] טריגר אצווה עבר מעמודה A לעמודה M
- *         [FIX-7] גודל אצווה הוקטן מ-5 ל-3
+ * @impacts סיווג מסמכים רפואיים בעזרת Gemini — כותרת, מנפיק, תאריך, קטגוריה.
+ *          קורא מ-TXT_URL (X) או Raw_Text (Z) — כותב ל-I,J,K,L,M,N,Q,R,S,T.
+ *          תלויות: GEMINI_API_KEY, מנהל_משאבים, דוגמאות_למידה, COLUMN_MAP.SHEETS_MAP.
+ *          מופעל מהתפריט (שורה בודדת / אצווה לפי עמודה M).
+ * שינוי: [v2.3.6] שיפור _calculateDuplicates_S07 — השוואת 5 קריטריונים מכותרת TXT:
+ *                 כותרת, מנפיק, תאריך, גודל, מספר מילים. סף: 3 מתוך 5.
+ *         [v2.3.5] תיקון _calculateDuplicates_S07 — מחזיר מספר שורה במקום true/false.
+ *         [v2.3.4] [FIX-6] טריגר אצווה עבר מעמודה A לעמודה M
+ *                  [FIX-7] גודל אצווה הוקטן מ-5 ל-3
  * עמודות: I=9 Doc_Title | J=10 Doc_Issuer | K=11 Doc_Date | L=12 Doc_Category |
  *          M=13 Pipeline_Status | N=14 Extraction_Status | Q=17 Complexity |
  *          R=18 Duplicate_Flag | S=19 Error_Code | T=20 Error_Detail
@@ -20,7 +26,6 @@ function classifyDocument() {
   const activeRow   = sheet.getActiveCell().getRow();
   const activeCol   = sheet.getActiveCell().getColumn();
 
-  // שורה שלמה נבחרה → ריצה בודדת
   if (activeRange.getNumColumns() >= sheet.getMaxColumns()) {
     if (activeRow < 2) {
       SpreadsheetApp.getUi().alert("⚠️ שורת כותרת — לא ניתן לסווג.");
@@ -30,13 +35,11 @@ function classifyDocument() {
     return;
   }
 
-  // [FIX-6] סמן על עמודה M → אצווה
   if (activeCol === 13) {
     _processS07Batch(sheet, 3);
     return;
   }
 
-  // כל תא אחר → ריצה בודדת על אותה שורה
   if (activeRow < 2) {
     SpreadsheetApp.getUi().alert("⚠️ שורת כותרת — לא ניתן לסווג.");
     return;
@@ -45,7 +48,7 @@ function classifyDocument() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// עיבוד אצווה — דולג בכישלון, לא עוצר
+// עיבוד אצווה
 // ══════════════════════════════════════════════════════════════════
 
 function _processS07Batch(sheet, batchSize) {
@@ -54,21 +57,16 @@ function _processS07Batch(sheet, batchSize) {
   let lastProcessed = 2;
 
   for (let i = 2; i <= lastRow && processed < batchSize; i++) {
-
-    // תנאי 1 — חייבת להיות File_ID
     const fileId = sheet.getRange(i, 1).getValue();
     if (!fileId) continue;
 
-    // תנאי 2 — דלג אם כבר מחולץ לפי Pipeline_Status
     const pipeline = sheet.getRange(i, 13).getValue();
     if (pipeline === "מחולץ") continue;
 
-    // תנאי 3 — [FIX-5] דלג אם Doc_Title כבר מלא
     const docTitle = sheet.getRange(i, 9).getValue();
     if (docTitle) continue;
 
-    // תנאי 4 — שגיאות זמניות ינסו שוב, קבועות ידולגו
-    const errorCode   = sheet.getRange(i, 19).getValue();
+    const errorCode = sheet.getRange(i, 19).getValue();
     if (errorCode === "S07_ERR") {
       const errorDetail = sheet.getRange(i, 20).getValue();
       const isTemporary = errorDetail && (
@@ -78,7 +76,6 @@ function _processS07Batch(sheet, batchSize) {
       if (!isTemporary) continue;
     }
 
-    // תנאי 5 — חייב להיות TXT_URL
     const txtUrl = sheet.getRange(i, 24).getValue();
     if (!txtUrl) continue;
 
@@ -140,11 +137,10 @@ function _safeClear(sheet, row, colName) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציית ליבה — מחזירה true בהצלחה, false בכישלון
+// פונקציית ליבה
 // ══════════════════════════════════════════════════════════════════
 
 function executeS07Classification(row) {
-
   if (row < 2) {
     Logger.log("[S07] דולג — שורה " + row + " היא כותרת.");
     return false;
@@ -156,7 +152,6 @@ function executeS07Classification(row) {
   const lastCol = sheet.getLastColumn();
   const data    = sheet.getRange(row, 1, 1, lastCol).getValues()[0];
 
-  // [FIX-4] ניקוי S, T, M, N בתחילת כל ניסיון
   _safeClear(sheet, row, "Error_Code");
   _safeClear(sheet, row, "Error_Detail");
   _safeClear(sheet, row, "Pipeline_Status");
@@ -174,8 +169,11 @@ function executeS07Classification(row) {
     if (!fullText || fullText.trim() === "")
       throw new Error("NO_TEXT_FOUND: הטקסט שהתקבל ריק");
 
-    if (_calculateDuplicates_S07(row, sheet, COL["TXT_URL"]))
-      _safeWrite(sheet, row, "Duplicate_Flag", "חשוד ככפול");
+    // [v2.3.6] בדיקת כפולים משופרת
+    const dupRow = _calculateDuplicates_S07(row, sheet, fullText);
+    if (dupRow) {
+      _safeWrite(sheet, row, "Duplicate_Flag", "חשוד ככפול — שורה " + dupRow);
+    }
 
     const extractor = getAvailableExtractor("SIMPLE");
     if (!extractor) throw new Error("NO_FREE_EXTRACTOR: Flash מוצה — נסה מחר");
@@ -200,11 +198,11 @@ function executeS07Classification(row) {
     _safeWrite(sheet, row, "Doc_Issuer",   aiResult.issuer   || "");
     _safeWrite(sheet, row, "Doc_Date",     aiResult.date     || "");
     _safeWrite(sheet, row, "Doc_Category", aiResult.category || "");
-    _safeWrite(sheet, row, "Complexity", "SIMPLE");
+    _safeWrite(sheet, row, "Complexity",   "SIMPLE");
 
     const extractionStatus = filled === 4 ? "חולץ מלא" : "חולץ חלקי";
     _safeWrite(sheet, row, "Extraction_Status", extractionStatus);
-    _safeWrite(sheet, row, "Pipeline_Status", "מחולץ");
+    _safeWrite(sheet, row, "Pipeline_Status",   "מחולץ");
 
     updateExtractorUsage(extractor.id);
 
@@ -226,25 +224,99 @@ function executeS07Classification(row) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// בדיקת כפולים לפי TXT_URL
+// [v2.3.6] בדיקת כפולים — 5 קריטריונים מכותרת TXT, סף 3/5
 // ══════════════════════════════════════════════════════════════════
 
-function _calculateDuplicates_S07(currentRow, sheet, txtUrlColIndex) {
+function _extractTxtHeader_S07(txtContent) {
+  if (!txtContent) return {};
+  const result = {};
+  const lines  = txtContent.split(/\r?\n/).slice(0, 6);
+  lines.forEach(function(line) {
+    const titleMatch = line.match(/^כותרת:\s*(.+?)\s{2,}/);
+    if (titleMatch) result.title = titleMatch[1].trim();
+
+    const issuerMatch = line.match(/^מנפיק:\s*(.+?)\s{2,}/);
+    if (issuerMatch) result.issuer = issuerMatch[1].trim();
+
+    const dateMatch = line.match(/^תאריך_מסמך:\s*(\S+)/);
+    if (dateMatch) result.date = dateMatch[1].trim();
+
+    const sizeMatch = line.match(/גודל_מקור:\s*(\S+\s*\S*)/);
+    if (sizeMatch) result.size = sizeMatch[1].trim();
+
+    const wordsMatch = line.match(/מספר_מילים:\s*(\d+)/);
+    if (wordsMatch) result.words = parseInt(wordsMatch[1], 10);
+  });
+  return result;
+}
+
+function _calculateDuplicates_S07(currentRow, sheet, currentTxtContent) {
   const MAX_ROWS = 500;
   const lastRow  = Math.min(sheet.getLastRow(), MAX_ROWS);
-  if (lastRow < 2) return false;
+  if (lastRow < 2) return null;
 
-  const currentUrl = (sheet.getRange(currentRow, txtUrlColIndex).getValue() || "").toLowerCase();
-  if (!currentUrl) return false;
+  const currentMeta = _extractTxtHeader_S07(currentTxtContent);
+  if (!currentMeta.title && !currentMeta.issuer && !currentMeta.date) return null;
 
-  const allUrls = sheet.getRange(2, txtUrlColIndex, lastRow - 1).getValues();
-  for (var i = 0; i < allUrls.length; i++) {
-    const rowIndex = i + 2;
-    if (rowIndex === currentRow) continue;
-    const cell = (allUrls[i][0] || "").toLowerCase();
-    if (cell && cell === currentUrl) return true;
+  const txtUrlCol = 24;
+
+  for (var i = 2; i <= lastRow; i++) {
+    if (i === currentRow) continue;
+
+    const otherTxtUrl = (sheet.getRange(i, txtUrlCol).getValue() || "").toString().trim();
+    if (!otherTxtUrl) continue;
+
+    let otherContent = "";
+    try {
+      otherContent = _fetchTextFromUrl_S07(otherTxtUrl);
+    } catch (e) {
+      continue;
+    }
+
+    const otherMeta = _extractTxtHeader_S07(otherContent);
+    if (!otherMeta.title && !otherMeta.issuer) continue;
+
+    let score = 0;
+
+    // קריטריון 1 — כותרת (contains)
+    if (currentMeta.title && otherMeta.title) {
+      const a = currentMeta.title.toLowerCase();
+      const b = otherMeta.title.toLowerCase();
+      if (a.includes(b) || b.includes(a)) score++;
+    }
+
+    // קריטריון 2 — מנפיק (מדויק)
+    if (currentMeta.issuer && otherMeta.issuer &&
+        currentMeta.issuer.toLowerCase() === otherMeta.issuer.toLowerCase()) {
+      score++;
+    }
+
+    // קריטריון 3 — תאריך (מדויק)
+    if (currentMeta.date && otherMeta.date &&
+        currentMeta.date === otherMeta.date) {
+      score++;
+    }
+
+    // קריטריון 4 — גודל קובץ (מדויק)
+    if (currentMeta.size && otherMeta.size &&
+        currentMeta.size === otherMeta.size) {
+      score++;
+    }
+
+    // קריטריון 5 — מספר מילים (סטייה עד 10%)
+    if (currentMeta.words && otherMeta.words) {
+      const diff = Math.abs(currentMeta.words - otherMeta.words);
+      const pct  = diff / Math.max(currentMeta.words, otherMeta.words);
+      if (pct <= 0.10) score++;
+    }
+
+    if (score >= 3) {
+      Logger.log("[S07] כפול זוהה: שורה " + currentRow + " ↔ שורה " + i + " | ניקוד: " + score + "/5");
+      return i;
+    }
   }
-  return false;
+
+  return null;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -321,7 +393,7 @@ function _callAiWithFullPrompt_S07(text, extractor, examples) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ולידציה מחמירה
+// ולידציה
 // ══════════════════════════════════════════════════════════════════
 
 function _isFilled_S07(v) {
@@ -354,7 +426,7 @@ function _validateAiResult_S07(ai) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// קריאת טקסט מ-TXT_URL — זורק שגיאה אמיתית
+// קריאת טקסט מ-TXT_URL
 // ══════════════════════════════════════════════════════════════════
 
 function _fetchTextFromUrl_S07(url) {
