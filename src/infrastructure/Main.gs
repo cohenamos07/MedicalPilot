@@ -1,9 +1,13 @@
 /**
  * MedicalPilot — Main.gs
- * @version 10.0 | @updated 27/04/2026 11:00 | @service MAIN
+ * @version 10.1 | @updated 31/05/2026 20:38 | @service MAIN
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Main.gs
+ * @impacts נקודת כניסה ראשית של המערכת — מפעיל onOpen ובונה תפריטים.
+ *          קורא ל: buildLabMenu (Menu_LAB) ו-buildProdMenu (Menu_PROD).
+ *          נטען אוטומטית בכל פתיחת הגיליון.
+ * שינוי: [v10.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *         [v10.0] גרסה קודמת
  */
-
 function onOpen() {
   try {
     if (typeof buildProdMenu === 'function') { buildProdMenu(); }
