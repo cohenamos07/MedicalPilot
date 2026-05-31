@@ -1,9 +1,13 @@
 <!--
   MedicalPilot — S10_Sidebar.html
-  @version 1.0.0 | @updated 12/05/2026 18:30 | @service S10
+  @version 1.0.1 | @updated 31/05/2026 20:57 | @service S10
   @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S10_Sidebar.html
-  תיאור: ממשק Dialog לאימות ידני ולמידה — S10 אירועים רפואיים
-  תלוי ב: S10_Validate.gs v1.0.0
+  @impacts ממשק Dialog לאימות ידני של אירועים רפואיים — S10.
+           מציג אירוע מחולץ לעריכה ואישור לפני שמירה לגליונות יעד.
+           כפתורים: אישור, עדכון ולמידה, למידה יזומה, מחיקה.
+           תלוי ב: S10_Validate.gs — כל הלוגיקה מתבצעת שם.
+  שינוי: [v1.0.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+          [v1.0.0] גרסה ראשונה
 -->
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
