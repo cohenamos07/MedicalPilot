@@ -1,7 +1,13 @@
 /**
  * MedicalPilot — System_HealthCheck.gs
- * Module: S02 — בדיקות בוקר וסטטוס מערכת
- * @version v97.9 | @updated 19/04/2026 | @service S02
+ * @version v97.10 | @updated 31/05/2026 21:04 | @service S02
+ * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/System_HealthCheck.gs
+ * @impacts בדיקות בוקר וסטטוס מערכת — מציג דוח תקינות כולל.
+ *          כולל: checkSystemMorning, checkPermissions.
+ *          בודק זמינות Gmail, Drive, GitHub API ומחלצי Gemini.
+ *          נקרא מהתפריט בלבד — אינו חלק מזרימת עיבוד אוטומטי.
+ * שינוי: [v97.10] הוספת @impacts, @git וכותרת מלאה לפי סטנדרט
+ *         [v97.9] גרסה קודמת
  */
 
 function checkSystemMorning() {
