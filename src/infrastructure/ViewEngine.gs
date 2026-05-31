@@ -1,9 +1,13 @@
 /**
  * MedicalPilot — ViewEngine.gs
- * @version 1.3.1 | @updated 18/05/2026 19:55 | @service VIEW_ENGINE
+ * @version 1.3.2 | @updated 31/05/2026 21:07 | @service VIEW_ENGINE
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/ViewEngine.gs
- * תיאור: מנוע מבטים — מסנן עמודות ושורות לפי הקשר עבודה
- * שימוש: כל כפתור איקון בגיליון קורא לפונקציית עטיפה המפעילה את switchView
+ * @impacts מנוע מבטים — מסנן עמודות ושורות לפי הקשר עבודה בגליון ניהול_מיילים.
+ *          9 מבטים: expand, gmail, drive, metadata, convert, classify, extract, qa, archive.
+ *          מנהל איקונים גרפיים בשורה 2 — repositionIcons אחרי כל החלפת מבט.
+ *          נקרא מאייקוני הגליון בלבד — אינו חלק מזרימת עיבוד אוטומטי.
+ * שינוי: [v1.3.2] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *         [v1.3.1] גרסה קודמת
  */
 
 const VIEW_SHEET_NAME = "ניהול_מיילים";
