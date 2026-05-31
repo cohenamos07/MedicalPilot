@@ -1,12 +1,14 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 3.0 | @updated 29/05/2026 16:00 | @service DEV_SYNC
+ * @version 3.1 | @updated 31/05/2026 16:40 | @service DEV_SYNC
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/DevSyncInspector.gs
  * @impacts מנוע סנכרון ודיווח בין עורך GAS לגיטהאב — 15 עמודות + אזור מרחבי.
  *          אחריות: נתוני דוח בלבד (שורות 5+) + כותרות N+ בשורה 4.
  *          ViewEngine אחראי לשורות 1-3, עמודות A-O בשורה 4, רוחב עמודות והקפאות.
  *          תלויות: GITHUB_PAT ב-Script Properties, Apps Script API, GitHub Contents API.
- * שינוי: [v3.0] הוספת Editor_Lines (E) ו-Git_Lines (F) — ספירת שורות קוד להשוואה.
+ * שינוי: [v3.1] הוספת שורה 47 באזור המרחבי — רשימת פונקציות חשופות לכל ספרייה.
+ *               נוספה devSync_extractFunctions לחילוץ פונקציות חשופות מקוד מקור.
+ *         [v3.0] הוספת Editor_Lines (E) ו-Git_Lines (F) — ספירת שורות קוד להשוואה.
  *               הזזת Version_Editor→G, Version_Git→H, Service_Editor→I, Service_Git→J,
  *               Sync_Status→K, System_Notes→L, System_Path→M, Git_Raw_Link→N, Git_Web_Link→O.
  *         [v2.9] גרסה קודמת
@@ -35,9 +37,11 @@ const DEV_SYNC_HEADER_ROW          = 4;
 const DEV_SYNC_DATA_START_ROW      = 5;
 const DEV_SYNC_IMPACTS_HEADER_ROW  = 45;
 const DEV_SYNC_IMPACTS_CONTENT_ROW = 46;
+const DEV_SYNC_FUNCTIONS_ROW       = 47;
 const DEV_SYNC_SPATIAL_COL_START   = 16;
 const DEV_SYNC_SPATIAL_COL_WIDTH   = 250;
 const DEV_SYNC_CONTENT_ROW_HEIGHT  = 300;
+const DEV_SYNC_FUNCTIONS_ROW_HEIGHT = 200;
 const DEV_SYNC_PREVIEW_MAX_CHARS   = 80;
 
 // ════════════════════════════════════════════════════════════════════
@@ -105,8 +109,8 @@ function devSync_RunScanButton() {
       "[ צפה בטקסט 👁️ ]",                                     // B — View_Summary
       "'" + partsEditor.updated,                               // C — Updated_Editor
       "'" + partsGit.updated,                                  // D — Updated_Git
-      editorLines,                                             // E — Editor_Lines ← חדש
-      gitLines,                                                // F — Git_Lines    ← חדש
+      editorLines,                                             // E — Editor_Lines
+      gitLines,                                                // F — Git_Lines
       partsEditor.version,                                     // G — Version_Editor
       partsGit.version,                                        // H — Version_Git
       partsEditor.service,                                     // I — Service_Editor
@@ -152,6 +156,23 @@ function devSync_RunScanButton() {
 function devSync_countLines(source) {
   if (!source) return 0;
   return source.split(/\r?\n/).length;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// חילוץ רשימת פונקציות חשופות — ללא פונקציות פנימיות (_prefix)
+// ════════════════════════════════════════════════════════════════════
+
+function devSync_extractFunctions(source, isHtml) {
+  if (!source || isHtml) return "(HTML — אין פונקציות GAS)";
+  const regex   = /^function\s+([a-zA-Z0-9_]+)\s*\(/gm;
+  const results = [];
+  let match;
+  while ((match = regex.exec(source)) !== null) {
+    const name = match[1];
+    if (!name.startsWith("_")) results.push(name);
+  }
+  if (results.length === 0) return "(לא נמצאו פונקציות חשופות)";
+  return results.join("\n");
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -260,7 +281,7 @@ function onSelectionChange(e) {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// עיצוב מותנה — עמודה K בלבד (הוזזה מ-I)
+// עיצוב מותנה — עמודה K בלבד
 // ════════════════════════════════════════════════════════════════════
 
 function devSync_ApplyConditionalFormatting(sheet, rowCount) {
@@ -298,7 +319,7 @@ function devSync_ApplyConditionalFormatting(sheet, rowCount) {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// בניית אזור מרחבי
+// בניית אזור מרחבי — כולל שורה 47 (פונקציות)
 // ════════════════════════════════════════════════════════════════════
 
 function devSync_buildSpatialArea(sheet, allNames, editorMap, gitMap) {
@@ -312,8 +333,12 @@ function devSync_buildSpatialArea(sheet, allNames, editorMap, gitMap) {
 
     const gitInfo    = gitMap[name]    || null;
     const editorInfo = editorMap[name] || null;
-    let   impactsText = "";
+    const isHtml     = name.toLowerCase().endsWith(".html") ||
+                       (editorInfo && editorInfo.isHtml) ||
+                       (gitInfo    && gitInfo.isHtml);
 
+    // ── @impacts ──────────────────────────────────────────────────
+    let impactsText = "";
     if (gitInfo && gitInfo.impactsText)            impactsText = gitInfo.impactsText;
     else if (editorInfo && editorInfo.impactsText) impactsText = editorInfo.impactsText;
 
@@ -324,6 +349,13 @@ function devSync_buildSpatialArea(sheet, allNames, editorMap, gitMap) {
         ? firstLine.substring(0, DEV_SYNC_PREVIEW_MAX_CHARS) + "..."
         : firstLine;
     }
+
+    // ── רשימת פונקציות ───────────────────────────────────────────
+    let functionsText = "";
+    const sourceForFunctions = (editorInfo && editorInfo.source)
+      ? editorInfo.source
+      : (gitInfo && gitInfo.source ? gitInfo.source : "");
+    functionsText = devSync_extractFunctions(sourceForFunctions, !!isHtml);
 
     // שורה 4 — כותרת ספרייה
     const r4 = sheet.getRange(DEV_SYNC_HEADER_ROW, colIndex);
@@ -353,24 +385,34 @@ function devSync_buildSpatialArea(sheet, allNames, editorMap, gitMap) {
     r45.setVerticalAlignment("middle");
     r45.setWrap(false);
 
-    // שורה 46 — תוכן מלא
+    // שורה 46 — תוכן @impacts מלא
     const r46 = sheet.getRange(DEV_SYNC_IMPACTS_CONTENT_ROW, colIndex);
     r46.setValue(impactsText || "(אין תיאור @impacts)");
     r46.setWrap(true);
     r46.setVerticalAlignment("top");
     r46.setFontSize(10);
 
+    // שורה 47 — רשימת פונקציות חשופות ← חדש
+    const r47 = sheet.getRange(DEV_SYNC_FUNCTIONS_ROW, colIndex);
+    r47.setValue(functionsText);
+    r47.setWrap(true);
+    r47.setVerticalAlignment("top");
+    r47.setFontSize(9);
+    r47.setFontColor("#333333");
+    r47.setBackground("#f0f4f8");
+
     colIndex++;
   });
 
-  sheet.setRowHeight(DEV_SYNC_IMPACTS_HEADER_ROW, 40);
+  sheet.setRowHeight(DEV_SYNC_IMPACTS_HEADER_ROW,  40);
   sheet.setRowHeight(DEV_SYNC_IMPACTS_CONTENT_ROW, DEV_SYNC_CONTENT_ROW_HEIGHT);
+  sheet.setRowHeight(DEV_SYNC_FUNCTIONS_ROW,        DEV_SYNC_FUNCTIONS_ROW_HEIGHT);
 
   return colMapping;
 }
 
 // ════════════════════════════════════════════════════════════════════
-// חישוב סטטוס — השוואת שורה מלאה תחילה
+// חישוב סטטוס
 // ════════════════════════════════════════════════════════════════════
 
 function devSync_calcStatus(existsEditor, existsGit, versionLineEditor, versionLineGit) {
@@ -507,7 +549,8 @@ function devSync_getEditorFilesMap() {
       map[file.name] = {
         versionLine: devSync_extractVersionLine(source),
         impactsText: devSync_extractImpactsText(source, !!isHtml),
-        source:      source
+        source:      source,
+        isHtml:      !!isHtml
       };
     });
   } catch (e) { Logger.log("devSync_getEditorFilesMap: " + e.toString()); }
@@ -542,7 +585,8 @@ function devSync_getGitFilesMap() {
         path:        item.path,
         versionLine: devSync_extractVersionLine(content),
         impactsText: devSync_extractImpactsText(content, !!isHtml),
-        source:      content
+        source:      content,
+        isHtml:      !!isHtml
       };
     });
   } catch (e) { Logger.log("devSync_getGitFilesMap: " + e.toString()); }
