@@ -1,8 +1,13 @@
 /**
  * MedicalPilot — Mod_Ingestion.gs
- * שירות S03 — סריקת Gmail וקליטת קבצים
- * @version 97.9.2 | @updated 28/05/2026 | @service S03
- * שינוי: [v97.9.2] סינון קבצי .gif — נדחים הן ב-Gmail_isValidAttachment והן ב-runMedicalProcess.
+ * @version 97.9.3 | @updated 31/05/2026 20:40 | @service S03
+ * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Mod_Ingestion.gs
+ * @impacts סריקת Gmail וקליטת קבצים מצורפים לגליון ניהול_מיילים.
+ *          כותב לעמודות A-H ו-W. מסנן קבצי .gif ופורמטים לא נתמכים.
+ *          תלויות: Gmail API, Drive API, גליון ניהול_מיילים.
+ *          מופעל מהתפריט — אינו חלק מזרימת עיבוד אוטומטי.
+ * שינוי: [v97.9.3] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *         [v97.9.2] סינון קבצי .gif — נדחים ב-Gmail_isValidAttachment וב-runMedicalProcess
  */
 
 const GMAIL_INBOX_FOLDER_ID = "1HSzOwL7YIzC8FvgGtuxCKYzfKk0RsHO5";
