@@ -1,11 +1,15 @@
 /**
  * MedicalPilot — S05_MetaExtract.gs
- * @version 2.3.0 | @updated 26/04/2026 09:00 | @service S05
+ * @version 2.3.1 | @updated 31/05/2026 20:45 | @service S05
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S05_MetaExtract.gs
- * תיקון: דילוג על שורות שכבר הומרו ויש להן לינק TXT
- * עמודות: O=15 סוג | P=16 גודל | R=18 כפולים | S=19 שגיאה | T=20 פירוט | X=24 לינק TXT
+ * @impacts חילוץ מטא-דאטה מקבצים — סוג, גודל, זיהוי כפולים וסטטוס pipeline.
+ *          כותב לעמודות M, O, P, R, S, T.
+ *          דולג על שורות שכבר הומרו ויש להן TXT_URL (עמודה X).
+ *          תלויות: Drive API, גליון ניהול_מיילים.
+ *          מופעל מהתפריט — אינו חלק מזרימת עיבוד אוטומטי.
+ * שינוי: [v2.3.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *         [v2.3.0] דילוג על שורות שכבר הומרו ויש להן לינק TXT
  */
-
 function extractMetaData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("ניהול_מיילים");
