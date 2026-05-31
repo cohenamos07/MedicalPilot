@@ -1,11 +1,15 @@
 /**
  * MedicalPilot — GitToEditor.gs
- * שירות סנכרון — משיכת קוד מגיטהאב לעורך
- * @version 97.7 | @updated 05/05/2026 18:15 | @service S10
+ * @version 97.8 | @updated 31/05/2026 20:35 | @service S10
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/GitToEditor.gs
- * שינוי: [FIX-1] updateEditorFile יוצר קובץ חדש בעורך אם לא קיים
+ * @impacts סנכרון קוד מגיטהאב לעורך GAS — משיכת קבצים מהריפוזיטורי לפרויקט.
+ *          כולל: fetchFileFromGitHub, updateEditorFile, syncFileFromGitToEditor.
+ *          יוצר קובץ חדש בעורך אם לא קיים — FIX-1.
+ *          תלויות: GITHUB_PAT ב-Script Properties, Apps Script API.
+ *          נקרא מ-DevSyncInspector — אינו חלק מזרימת עיבוד אוטומטי.
+ * שינוי: [v97.8] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *         [v97.7] [FIX-1] updateEditorFile יוצר קובץ חדש בעורך אם לא קיים
  */
-
 // ══════════════════════════════════════════════════════════════════
 // משיכת תוכן קובץ מגיטהאב
 // ══════════════════════════════════════════════════════════════════
