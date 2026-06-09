@@ -1,24 +1,21 @@
 /**
  * MedicalPilot — S08_Validate.gs
- * אימות ידני ולמידה — S08
- * @version    1.0.9
- * @updated    28/05/2026
- * @service    S08
- * @git        https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
- * @impacts    אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
- *             קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,P,Q,R,W,X.
- *             כתיבה: ניהול_מיילים עמודות I,J,K,L,M,U + גיליון דוגמאות_למידה (8 עמודות).
- *             4 כפתורים: אישור / עדכון+למידה / למידה יזומה / מחיקה.
- *             בדיקת כפולים אוטומטית מול ניהול_מיילים ומול דוגמאות_למידה.
- *             תלויות: S08_Sidebar.html, COLUMN_MAP.gs, Drive API.
- *             מופעל מהתפריט ומאייקון עמודה N בגליון ניהול_מיילים.
- * @changes    [v1.0.9] s08_findLearningDuplicate — חיפוש כפול בדוגמאות_למידה
- *             [v1.0.8] תיקון באג s08_updateAndLearn + s08_learnOnly
- *             [v1.0.7] הודעת כפול כוללת מספר שורה
- *             [v1.0.6] s08_fetchTxtContent + Dialog 1100×750
- *             [v1.0.5] pipelineStatus עמודה M
- *             [v1.0.4] s08_loadRowByNumber + s08_highlightActiveRow
- *             [v1.0.3] בדיקת סף X + sourceUrl
+ * @version 1.0.9 | @updated 28/05/2026 | @service S08
+ * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
+ * @impacts אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
+ *          קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,P,Q,R,W,X.
+ *          כתיבה: ניהול_מיילים עמודות I,J,K,L,M,U + גיליון דוגמאות_למידה (8 עמודות).
+ *          4 כפתורים: אישור / עדכון+למידה / למידה יזומה / מחיקה.
+ *          בדיקת כפולים אוטומטית מול ניהול_מיילים ומול דוגמאות_למידה.
+ *          תלויות: S08_Sidebar.html, COLUMN_MAP.gs, Drive API.
+ *          מופעל מהתפריט ומאייקון עמודה N בגליון ניהול_מיילים.
+ * @changes [v1.0.9] s08_findLearningDuplicate — חיפוש כפול בדוגמאות_למידה
+ *          [v1.0.8] תיקון באג s08_updateAndLearn + s08_learnOnly
+ *          [v1.0.7] הודעת כפול כוללת מספר שורה
+ *          [v1.0.6] s08_fetchTxtContent + Dialog 1100×750
+ *          [v1.0.5] pipelineStatus עמודה M
+ *          [v1.0.4] s08_loadRowByNumber + s08_highlightActiveRow
+ *          [v1.0.3] בדיקת סף X + sourceUrl
  */
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה — פתיחת חלון אימות
