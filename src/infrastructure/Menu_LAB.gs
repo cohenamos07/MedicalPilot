@@ -1,10 +1,8 @@
 /**
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
- * @version    10.8
- * @updated    07/06/2026 20:15
- * @service    MENU_LAB
- * @git        https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/Menu_LAB.gs
+* @version 10.8 | @updated 09/06/2026 20:15 | @service MENU_LAB
+  * @git        https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/Menu_LAB.gs
  * @impacts    תפריט מעבדה ראשי של המערכת — מציג כלי פיתוח ותיעוד בלבד.
  *             מבנה: ⚙️ ניהול מערכת | 🔬 כלי פיתוח | 📝 תיעוד מערכת.
  *             קורא ל: logSystemEvent (System_Logger), printSheetMap / printColumnDetail (COLUMN_MAP),
