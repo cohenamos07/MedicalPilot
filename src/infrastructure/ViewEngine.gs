@@ -1,25 +1,23 @@
 /**
  * MedicalPilot — ViewEngine.gs
- * @version    2.2.0
- * @updated    07/06/2026 20:10
- * @service    VIEW_ENGINE
- * @git        https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/ViewEngine.gs
- * @impacts    מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
- *             14 מבטים: expand, systemCheck, accessCheck, gmail, whatsapp, drive,
- *             metadata, convert, classify, s08, s09, s10, qa, archive.
- *             כל איקון קבוע בעמודה קבועה לפי ICON_MAP — לעולם לא נמחק או מוזז.
- *             עמודות תמיד גלויות — אין הסתרת עמודות (חוץ מ-A בברירת מחדל).
- *             כל מבט = פילטר שורות + גלילה לעמודה רלוונטית.
- *             הרחב/צמצם = ביטול פילטר שורות + גלילה לתחילת גיליון.
- *             נקרא מאייקוני הגליון בלבד — אינו חלק מזרימת עיבוד אוטומטי.
- * @changes    [v2.2.0] תיקון _doExpand — flush() אחרי remove() לביטול פילטר מהימן
- *                      extractMetaData → runS05Icon — שם חדש + דיאלוג + קריאה ל-S05
- *                      run_MedicalPilot_V2_6_2 → runS06Icon — שם חדש + דיאלוג OL/אצווה
- *                      classifyDocument → runS07Icon — שם חדש + דיאלוג OL/אצווה
- *                      runQAView — דיאלוג "S11 לא פעיל — בפיתוח"
- *             [v2.1.0] שינוי מיפוי איקונים — WhatsApp עמודה E, Drive עמודה F
- *             [v2.0.0] שדרוג מלא — 14 איקונים
- *             [v1.9.0] ארכיטקטורה חדשה — ביטול הסתרת עמודות לחלוטין
+ * @version 2.2.0 | @updated 07/06/2026 20:10 | @service VIEW_ENGINE
+ * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
+ * @impacts מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
+ *          14 מבטים: expand, systemCheck, accessCheck, gmail, whatsapp, drive,
+ *          metadata, convert, classify, s08, s09, s10, qa, archive.
+ *          כל איקון קבוע בעמודה קבועה לפי ICON_MAP — לעולם לא נמחק או מוזז.
+ *          עמודות תמיד גלויות — אין הסתרת עמודות (חוץ מ-A בברירת מחדל).
+ *          כל מבט = פילטר שורות + גלילה לעמודה רלוונטית.
+ *          הרחב/צמצם = ביטול פילטר שורות + גלילה לתחילת גיליון.
+ *          נקרא מאייקוני הגליון בלבד — אינו חלק מזרימת עיבוד אוטומטי.
+ * @changes [v2.2.0] תיקון _doExpand — flush() אחרי remove() לביטול פילטר מהימן
+ *                   extractMetaData → runS05Icon — שם חדש + דיאלוג + קריאה ל-S05
+ *                   run_MedicalPilot_V2_6_2 → runS06Icon — שם חדש + דיאלוג OL/אצווה
+ *                   classifyDocument → runS07Icon — שם חדש + דיאלוג OL/אצווה
+ *                   runQAView — דיאלוג "S11 לא פעיל — בפיתוח"
+ *          [v2.1.0] שינוי מיפוי איקונים — WhatsApp עמודה E, Drive עמודה F
+ *          [v2.0.0] שדרוג מלא — 14 איקונים
+ *          [v1.9.0] ארכיטקטורה חדשה — ביטול הסתרת עמודות לחלוטין
  */
 
 const VIEW_SHEET_NAME = "ניהול_מיילים";
