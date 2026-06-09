@@ -1,24 +1,25 @@
 /**
  * MedicalPilot — S08_Validate.gs
- * @version 1.0.9 | @updated 28/05/2026 | @service S08
- * שינוי: [v1.0.9] נוספה s08_findLearningDuplicate — חיפוש אוטומטי בגיליון דוגמאות_למידה
- *                 בטעינת הסיידבר לפי מנפיק+קטגוריה של השורה הנוכחית.
- *                 _s08_saveToLearning מחזיר matchedIssuer ו-matchedCategory לתצוגת learnDupCard.
- * שינוי: [v1.0.8] תוקן באג: s08_updateAndLearn ו-s08_learnOnly דרסו את msg מ-_s08_saveToLearning.
- *                 מספר השורה מגיליון דוגמאות_למידה עובר כעת לסיידבר ומוצג בסרגל הסטטוס.
- * שינוי: [v1.0.7] _s08_saveToLearning — הודעת כפול כוללת מספר שורה מגיליון דוגמאות_למידה.
- * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S08_Validate.gs
- * שינוי: [v1.0.6-א] s08_fetchTxtContent — שליפת תוכן TXT דרך GAS (עוקף הרשאת iframe)
- *         [v1.0.6-ד] Dialog מוגדל ל-1100×750
- *         [v1.0.5]   pipelineStatus (עמודה M)
- *         [v1.0.4]   s08_loadRowByNumber, s08_highlightActiveRow, lastRow, noTxt
- *         [v1.0.3]   בדיקת סף X, sourceUrl מ-W/A
- * עמודות קריאה:  A=1 File_ID | I=9 Doc_Title | J=10 Doc_Issuer | K=11 Doc_Date |
- *                L=12 Doc_Category | M=13 Pipeline_Status | P=16 File_Size |
- *                Q=17 Complexity | R=18 Duplicate_Flag | W=23 Source_URL | X=24 TXT_URL
- * עמודות כתיבה: I=9 | J=10 | K=11 | L=12 | M=13 Pipeline_Status | U=21 QA_Status
+ * אימות ידני ולמידה — S08
+ * @version    1.0.9
+ * @updated    28/05/2026
+ * @service    S08
+ * @git        https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
+ * @impacts    אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
+ *             קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,P,Q,R,W,X.
+ *             כתיבה: ניהול_מיילים עמודות I,J,K,L,M,U + גיליון דוגמאות_למידה (8 עמודות).
+ *             4 כפתורים: אישור / עדכון+למידה / למידה יזומה / מחיקה.
+ *             בדיקת כפולים אוטומטית מול ניהול_מיילים ומול דוגמאות_למידה.
+ *             תלויות: S08_Sidebar.html, COLUMN_MAP.gs, Drive API.
+ *             מופעל מהתפריט ומאייקון עמודה N בגליון ניהול_מיילים.
+ * @changes    [v1.0.9] s08_findLearningDuplicate — חיפוש כפול בדוגמאות_למידה
+ *             [v1.0.8] תיקון באג s08_updateAndLearn + s08_learnOnly
+ *             [v1.0.7] הודעת כפול כוללת מספר שורה
+ *             [v1.0.6] s08_fetchTxtContent + Dialog 1100×750
+ *             [v1.0.5] pipelineStatus עמודה M
+ *             [v1.0.4] s08_loadRowByNumber + s08_highlightActiveRow
+ *             [v1.0.3] בדיקת סף X + sourceUrl
  */
-
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה — פתיחת חלון אימות
 // ══════════════════════════════════════════════════════════════════
