@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S08_Validate.gs
- * @version 1.0.9 | @updated 28/05/2026 | @service S08
+ * @version 1.0.9 | @updated 28/05/2026 00:00 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @impacts אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
  *          קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,P,Q,R,W,X.
