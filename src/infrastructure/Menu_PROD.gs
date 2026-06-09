@@ -1,30 +1,26 @@
 /**
  * MedicalPilot — Menu_PROD.gs
  * תפריט ייצור ראשי (PR)
- * @version    10.8
- * @updated    09/06/2026 21:12
- * @service    MENU_PROD
- * @git        https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/Menu_PROD.gs
- * @impacts    תפריט ייצור ראשי של המערכת — מציג שירותים פעילים בלבד.
- *             מבנה: ⚙️ הכנת מערכת | 🔄 קליטת נתונים | 🧠 עיבוד AI | 🗂️ ניהול מערכת.
- *             כל פריט תפריט זהה לפונקציית האייקון המקבילה בגליון ניהול_מיילים.
- *             קורא ל: runSystemCheckIcon, runAccessCheckIcon (S01/S02),
- *             runGmailIcon, runDriveIcon (S03/S04),
- *             runS05Icon, runS06Icon, runS07Icon (S05/S06/S07),
- *             runS08ViewIcon, runS09ViewIcon, runS10ViewIcon (S08/S09/S10),
- *             runQAView (S11), runArchiveView (S12), runExpandView (S00).
- *             תלויים: כל שירותי הייצור — שינוי שם פונקציה כאן שובר את הקריאה.
- * @changes    [v10.8] זהות מלאה בין תפריט לאייקונים — כל פריט קורא לפונקציית האייקון
- *                     הוספת S03 WhatsApp (msgBlocked), S11 QA, S12 ארכוב מסמכים
- *                     הוספת קוד שירות (SXX) לכל הפריטים
- *                     מחיקת סנכרון סטטוסים (syncStatusBeforeOCR — ארכיבית)
- *                     עדכון כותרת לסטנדרט החדש
- *             [v10.7] פתיחת S07 — classifyDocument במקום msgBlocked
- *             [v10.6] תיקון S06 — שם+פונקציה מ-OCR ל-TXT
- *             [v10.5] הטמעת שירות S10
- *             [v10.4] גרסה קודמת
+ * @version 10.8 | @updated 09/06/2026 21:12 | @service MENU_PROD
+ * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/Menu_PROD.gs
+ * @impacts תפריט ייצור ראשי של המערכת — מציג שירותים פעילים בלבד.
+ *          מבנה: ⚙️ הכנת מערכת | 🔄 קליטת נתונים | 🧠 עיבוד AI | 🗂️ ניהול מערכת.
+ *          כל פריט תפריט זהה לפונקציית האייקון המקבילה בגליון ניהול_מיילים.
+ *          קורא ל: runSystemCheckIcon, runAccessCheckIcon (S01/S02),
+ *          runGmailIcon, runDriveIcon (S03/S04),
+ *          runS05Icon, runS06Icon, runS07Icon (S05/S06/S07),
+ *          runS08ViewIcon, runS09ViewIcon, runS10ViewIcon (S08/S09/S10),
+ *          runQAView (S11), runArchiveView (S12), runExpandView (S00).
+ *          תלויים: כל שירותי הייצור — שינוי שם פונקציה כאן שובר את הקריאה.
+ * @changes [v10.8] זהות מלאה בין תפריט לאייקונים — כל פריט קורא לפונקציית האייקון
+ *                  הוספת S03 WhatsApp (msgBlocked), S11 QA, S12 ארכוב מסמכים
+ *                  הוספת קוד שירות (SXX) לכל הפריטים
+ *                  מחיקת סנכרון סטטוסים (syncStatusBeforeOCR — ארכיבית)
+ *          [v10.7] פתיחת S07 — classifyDocument במקום msgBlocked
+ *          [v10.6] תיקון S06 — שם+פונקציה מ-OCR ל-TXT
+ *          [v10.5] הטמעת שירות S10
+ *          [v10.4] גרסה קודמת
  */
-
 function buildProdMenu() {
   buildProdMenu_v10_8();
 }
