@@ -1,18 +1,29 @@
 /**
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
- * @version 10.7 | @updated 10/05/2026 13:30 | @service MENU_LAB
- * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Menu_LAB.gs
- * שינוי: ארגון מחדש — הסרת קליטת נתונים ועיבוד AI, ניקוי פונקציות מתות, 3 סעיפי פיתוח
+ * @version    10.8
+ * @updated    07/06/2026 20:15
+ * @service    MENU_LAB
+ * @git        https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/Menu_LAB.gs
+ * @impacts    תפריט מעבדה ראשי של המערכת — מציג כלי פיתוח ותיעוד בלבד.
+ *             מבנה: ⚙️ ניהול מערכת | 🔬 כלי פיתוח | 📝 תיעוד מערכת.
+ *             קורא ל: logSystemEvent (System_Logger), printSheetMap / printColumnDetail (COLUMN_MAP),
+ *             pushContextToGitHub / syncSessionDocs (GitHubSync).
+ *             סנכרון עורך↔גיט מנוהל בלעדית דרך אייקוני גליון מסנכרן_קבצים.
+ *             ניהול משימות מנוהל בלעדית דרך אייקוני גליון ניהול_משימות.
+ * @changes    [v10.8] הסרת 'משימות פיתוח' (refreshDevDashboard — לא קיימת)
+ *                     הסרת סעיף 'סנכרון עורך וגיט' — מנוהל דרך אייקוני הגליון
+ *             [v10.7] ארגון מחדש — הסרת קליטת נתונים ועיבוד AI
+ *             [v10.6] גרסה קודמת
  */
 
 function buildLabMenu() {
-  buildLabMenu_v10_7();
+  buildLabMenu_v10_8();
 }
 
-function buildLabMenu_v10_7() {
+function buildLabMenu_v10_8() {
   var ui = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('LA v10.7');
+  var menu = ui.createMenu('LA v10.8');
 
   var subMenuAdmin = ui.createMenu('⚙️ ניהול מערכת')
     .addItem('תיעוד אירוע מערכת', 'logSystemEvent');
@@ -21,7 +32,6 @@ function buildLabMenu_v10_7() {
   menu.addSeparator();
 
   var subMenuDev = ui.createMenu('🔬 כלי פיתוח')
-    .addItem('משימות פיתוח', 'refreshDevDashboard')
     .addItem('הדפסת מבנה גיליון', 'printSheetMap')
     .addItem('פרטי עמודה בודדת', 'printColumnDetail');
   menu.addSubMenu(subMenuDev);
@@ -32,13 +42,6 @@ function buildLabMenu_v10_7() {
     .addItem('עדכון CONTEXT.md', 'pushContextToGitHub')
     .addItem('סיכום ומסמך חפיפה', 'syncSessionDocs');
   menu.addSubMenu(subMenuDocs);
-
-  menu.addSeparator();
-
-  var subMenuSync = ui.createMenu('🔄 סנכרון עורך וגיט')
-    .addItem('פתח גליון מסנכרן', 'devSync_OpenSheet')
-    .addItem('סרוק ועדכן גליון', 'devSync_RunScanButton');
-  menu.addSubMenu(subMenuSync);
 
   menu.addToUi();
 }
