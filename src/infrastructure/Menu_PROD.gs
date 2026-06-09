@@ -1,52 +1,63 @@
 /**
  * MedicalPilot — Menu_PROD.gs
- * @version 10.7 | @updated 29/05/2026 13:30 | @service MENU_PROD
- * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Menu_PROD.gs
- * @impacts תפריט ייצור ראשי של המערכת — מציג שירותים פעילים בלבד.
- *          מבנה: ⚙️ הכנת מערכת | 🔄 קליטת נתונים | 🧠 עיבוד AI | 🗂️ ניהול מערכת.
- *          קורא ל: checkSystemMorning, checkUserAccess (S01/S02),
- *          runEmailIngestion, syncDriveFiles, extractMetaData (S03/S04/S05),
- *          run_MedicalPilot_V2_6_2 (S06), classifyDocument (S07),
- *          showMainSidebar (S08), runS09 (S09), showS10Sidebar (S10),
- *          uploadToGitHub, getConfig.
- *          תלויים: כל שירותי הייצור — שינוי שם פונקציה כאן שובר את הקריאה.
- * שינוי: [v10.7] פתיחת S07 — classifyDocument במקום msgBlocked
- *         [v10.6] תיקון S06 — שם+פונקציה מ-OCR ל-TXT (run_MedicalPilot_V2_6_2)
- *         [v10.5] הטמעת שירות S10 — בקרה וחילוץ מרובה אירועים ממסמך
- *         [v10.4] גרסה קודמת
+ * תפריט ייצור ראשי (PR)
+ * @version    10.8
+ * @updated    09/06/2026 21:12
+ * @service    MENU_PROD
+ * @git        https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/Menu_PROD.gs
+ * @impacts    תפריט ייצור ראשי של המערכת — מציג שירותים פעילים בלבד.
+ *             מבנה: ⚙️ הכנת מערכת | 🔄 קליטת נתונים | 🧠 עיבוד AI | 🗂️ ניהול מערכת.
+ *             כל פריט תפריט זהה לפונקציית האייקון המקבילה בגליון ניהול_מיילים.
+ *             קורא ל: runSystemCheckIcon, runAccessCheckIcon (S01/S02),
+ *             runGmailIcon, runDriveIcon (S03/S04),
+ *             runS05Icon, runS06Icon, runS07Icon (S05/S06/S07),
+ *             runS08ViewIcon, runS09ViewIcon, runS10ViewIcon (S08/S09/S10),
+ *             runQAView (S11), runArchiveView (S12), runExpandView (S00).
+ *             תלויים: כל שירותי הייצור — שינוי שם פונקציה כאן שובר את הקריאה.
+ * @changes    [v10.8] זהות מלאה בין תפריט לאייקונים — כל פריט קורא לפונקציית האייקון
+ *                     הוספת S03 WhatsApp (msgBlocked), S11 QA, S12 ארכוב מסמכים
+ *                     הוספת קוד שירות (SXX) לכל הפריטים
+ *                     מחיקת סנכרון סטטוסים (syncStatusBeforeOCR — ארכיבית)
+ *                     עדכון כותרת לסטנדרט החדש
+ *             [v10.7] פתיחת S07 — classifyDocument במקום msgBlocked
+ *             [v10.6] תיקון S06 — שם+פונקציה מ-OCR ל-TXT
+ *             [v10.5] הטמעת שירות S10
+ *             [v10.4] גרסה קודמת
  */
 
 function buildProdMenu() {
-  buildProdMenu_v10_7();
+  buildProdMenu_v10_8();
 }
 
-function buildProdMenu_v10_7() {
+function buildProdMenu_v10_8() {
   var ui   = SpreadsheetApp.getUi();
-  var menu = ui.createMenu('PR v10.7');
+  var menu = ui.createMenu('PR v10.8');
 
   var subMenuSetup = ui.createMenu('⚙️ הכנת מערכת')
-    .addItem('בדיקת תקינות מערכת', 'checkSystemMorning')
-    .addItem('בדיקת הרשאות',        'checkUserAccess');
+    .addItem('בדיקת תקינות מערכת (S01)', 'runSystemCheckIcon')
+    .addItem('בדיקת הרשאות (S02)',        'runAccessCheckIcon')
+    .addItem('אפס תצוגה (S00)',           'runExpandView');
   menu.addSubMenu(subMenuSetup);
 
   menu.addSeparator();
 
   var subMenuIngestion = ui.createMenu('🔄 קליטת נתונים')
-    .addItem('סריקת Gmail',              'runEmailIngestion')
-    .addItem('סריקת Drive',              'syncDriveFiles')
-    .addItem('חילוץ מטא-דאטה ומיון',    'extractMetaData')
-    .addItem('סנכרון סטטוסים',           'syncStatusBeforeOCR')
-    .addItem('המרת קבצים ל-TXT',         'run_MedicalPilot_V2_6_2');
+    .addItem('סריקת Gmail (S03)',         'runGmailIcon')
+    .addItem('סריקת WhatsApp (S03)',      'msgBlocked')
+    .addItem('סריקת Drive (S04)',         'runDriveIcon')
+    .addItem('חילוץ מטא-דאטה (S05)',     'runS05Icon')
+    .addItem('המרת קבצים ל-TXT (S06)',   'runS06Icon');
   menu.addSubMenu(subMenuIngestion);
 
   menu.addSeparator();
 
   var subMenuAI = ui.createMenu('🧠 עיבוד AI')
-    .addItem('סיווג מסמכים',              'classifyDocument')
-    .addItem('אימות ידני ולמידה (S08)',   'showMainSidebar')
-    .addItem('חילוץ אירועים רפואיים (S09)', 'runS09')
-    .addItem('אימות אירועים (S10)',        'showS10Sidebar')
-    .addItem('איפוס תצוגה',               'runExpandView');
+    .addItem('סיווג מסמכים (S07)',              'runS07Icon')
+    .addItem('אימות ידני ולמידה (S08)',          'runS08ViewIcon')
+    .addItem('חילוץ אירועים רפואיים (S09)',      'runS09ViewIcon')
+    .addItem('אימות אירועים (S10)',              'runS10ViewIcon')
+    .addItem('QA / בדיקה (S11)',                'runQAView')
+    .addItem('ארכוב מסמכים (S12)',              'runArchiveView');
   menu.addSubMenu(subMenuAI);
 
   menu.addSeparator();
@@ -64,14 +75,15 @@ function buildProdMenu_v10_7() {
 // גרסאות קודמות — מפנות לעדכנית
 // ══════════════════════════════════════════════════════════════════
 
-function buildProdMenu_v10_6()  { buildProdMenu_v10_7(); }
-function buildProdMenu_v10_5()  { buildProdMenu_v10_7(); }
-function buildProdMenu_v10_4()  { buildProdMenu_v10_7(); }
-function buildProdMenu_v97_9()  { buildProdMenu_v10_7(); }
-function buildProdMenu_v97_8()  { buildProdMenu_v10_7(); }
-function buildProdMenu_v97_7()  { buildProdMenu_v10_7(); }
-function buildProdMenu_v97_6()  { buildProdMenu_v10_7(); }
-function buildProdMenu_v97_5()  { buildProdMenu_v10_7(); }
+function buildProdMenu_v10_7()  { buildProdMenu_v10_8(); }
+function buildProdMenu_v10_6()  { buildProdMenu_v10_8(); }
+function buildProdMenu_v10_5()  { buildProdMenu_v10_8(); }
+function buildProdMenu_v10_4()  { buildProdMenu_v10_8(); }
+function buildProdMenu_v97_9()  { buildProdMenu_v10_8(); }
+function buildProdMenu_v97_8()  { buildProdMenu_v10_8(); }
+function buildProdMenu_v97_7()  { buildProdMenu_v10_8(); }
+function buildProdMenu_v97_6()  { buildProdMenu_v10_8(); }
+function buildProdMenu_v97_5()  { buildProdMenu_v10_8(); }
 
 // ══════════════════════════════════════════════════════════════════
 // הודעת חסימה — שירותים בפיתוח
