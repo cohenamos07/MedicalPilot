@@ -1,33 +1,25 @@
 /**
  * MedicalPilot — ViewEngine.gs
- * @version    2.0.1
- * @updated    04/06/2026 21:10
+ * @version    2.2.0
+ * @updated    07/06/2026 20:10
  * @service    VIEW_ENGINE
  * @git        https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/ViewEngine.gs
  * @impacts    מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
- *             14 מבטים: expand (x2), systemCheck, accessCheck, gmail, drive,
+ *             14 מבטים: expand, systemCheck, accessCheck, gmail, whatsapp, drive,
  *             metadata, convert, classify, s08, s09, s10, qa, archive.
  *             כל איקון קבוע בעמודה קבועה לפי ICON_MAP — לעולם לא נמחק או מוזז.
  *             עמודות תמיד גלויות — אין הסתרת עמודות (חוץ מ-A בברירת מחדל).
  *             כל מבט = פילטר שורות + גלילה לעמודה רלוונטית.
  *             הרחב/צמצם = ביטול פילטר שורות + גלילה לתחילת גיליון.
  *             נקרא מאייקוני הגליון בלבד — אינו חלק מזרימת עיבוד אוטומטי.
- *             איקוני בדיקת מערכת והרשאות — דיאלוג אישור לפני הפעלה.
- *             איקוני pipeline — סינון + דיאלוג + קריאה לשירות הייעודי.
- * @changes    [v2.0.0] שדרוג מלא — 14 איקונים במקום 9
- *                      ICON_MAP — עמודות A,B,C,D,E,J,K,L,M,N,O,P,U,V
- *                      VIEW_CONFIG — הוספת systemCheck, accessCheck, s08, s09, s10
- *                      שורה 3 — צבע #37474F אחיד + כותרות צבעוניות לפי אזור
- *                      _doExpand() — פונקציה משותפת ל-runExpandView + runExpandView2
- *                      runExpandView2() — איקון הרחב שני בעמודה L
- *                      פונקציות עטיפה — checkSystemMorning, checkUserAccess,
- *                      runS08ViewIcon, runS09ViewIcon, runS10ViewIcon
- *             [v1.9.3] תיקון cleanAndResetIcons + setupIcons
- *             [v1.9.2] תיקון setupIcons — flush() לפני hideColumns(1)
- *             [v1.9.1] תיקון setupIcons — כל 9 איקונים כולל A
+ * @changes    [v2.2.0] תיקון _doExpand — flush() אחרי remove() לביטול פילטר מהימן
+ *                      extractMetaData → runS05Icon — שם חדש + דיאלוג + קריאה ל-S05
+ *                      run_MedicalPilot_V2_6_2 → runS06Icon — שם חדש + דיאלוג OL/אצווה
+ *                      classifyDocument → runS07Icon — שם חדש + דיאלוג OL/אצווה
+ *                      runQAView — דיאלוג "S11 לא פעיל — בפיתוח"
+ *             [v2.1.0] שינוי מיפוי איקונים — WhatsApp עמודה E, Drive עמודה F
+ *             [v2.0.0] שדרוג מלא — 14 איקונים
  *             [v1.9.0] ארכיטקטורה חדשה — ביטול הסתרת עמודות לחלוטין
- *             [v1.8.0] החלפת syncIconsToVisibleColumns ב-refreshIcons
- *             [v1.4.0] setupIcons מבוסס File ID ישיר + תוויות שורה 3
  */
 
 const VIEW_SHEET_NAME = "ניהול_מיילים";
@@ -35,57 +27,49 @@ const VIEW_TOTAL_COLS = 26;
 
 // ══════════════════════════════════════════════════════════════════
 // מיפוי איקונים — 14 איקונים
-// עמודות: A=1 B=2 C=3 D=4 E=5 J=10 K=11 L=12 M=13 N=14 O=15 P=16 U=21 V=22
-// עמודה A (1) — הרחב/כווץ — נסתרת כברירת מחדל
-// עמודה V (22) — ארכיון — סוף התהליך
+// [v2.2.0] עמודות 10,11,13 — script עודכן לשמות החדשים
 // ══════════════════════════════════════════════════════════════════
 
 const ICON_MAP = [
-  { col: 1,  script: "runExpandView",      fileId: "1UAfAw8B3zGxTM8YoiSNpMTK8qP9FXHS2", label: "[ ↔ הרחב ]"           },
-  { col: 2,  script: "runSystemCheckIcon",  fileId: "1MXtKBh20PUFc3oJiWPSl-3fKHDsctpnU", label: "[ S01 בדיקת מערכת ]"  },
-  { col: 3,  script: "runAccessCheckIcon",  fileId: "15eArM62_0wmbMFoZth9w-U37XFlsVZY6",  label: "[ S02 הרשאות ]"        },
-  { col: 4,  script: "runGmailIcon",  fileId: "18nmNMbOSqJRr3eDHOvrhFJ_owXYcwKlV",  label: "[ S03 Gmail ]"         },
-  { col: 5,  script: "runDriveIcon",    fileId: "1Dka9DOf2ssie28L0oJzkB2YIa95gZRR-",  label: "[ S04 Drive ]"         },
-  { col: 10, script: "extractMetaData",    fileId: "1mBLGCOhUDCFyswBKu26OGNuf3KPnMUOm",  label: "[ S05 מטא-דאטה ]"     },
-  { col: 11, script: "run_MedicalPilot_V2_6_2", fileId: "17COhz4MPHfgLtND3Yrug-Ke987JdhB4-", label: "[ S06 המרת TXT ]"  },
-  { col: 12, script: "runExpandView2",     fileId: "1UAfAw8B3zGxTM8YoiSNpMTK8qP9FXHS2", label: "[ ↔ הרחב ]"           },
-  { col: 13, script: "classifyDocument",   fileId: "1eyjIU2H13ZnTL5H9UJntV0egdbh3WyUY",  label: "[ S07 סיווג AI ]"      },
-  { col: 14, script: "runS08ViewIcon",     fileId: "1Xckh4J0FVgr2gIY6os92qlLLyMk-EyQp",  label: "[ S08 אימות ידני ]"   },
-  { col: 15, script: "runS09ViewIcon",     fileId: "1mX_Wi6MLfLvcmRqCe8WPvWD9hP4gpAgN",  label: "[ S09 חילוץ ]"        },
-  { col: 16, script: "runS10ViewIcon",     fileId: "1YZcEifvHAsBtstAFdtVtqNTODpxuXCkM",  label: "[ S10 אימות ]"        },
-  { col: 21, script: "runQAView",          fileId: "1hw2sA4t4H5-OR0k8crG7wuI5Pkh0-_3G",  label: "[ QA / בדיקה ]"       },
-  { col: 22, script: "runArchiveView",     fileId: "1sHIxX5ZUy-u1MRUxqOnvM9ngVd7ew5EU",  label: "[ ארכיון ]"           }
+  { col: 1,  script: "runExpandView",      fileId: "1UAfAw8B3zGxTM8YoiSNpMTK8qP9FXHS2", label: "[ ↔ הרחב ]"          },
+  { col: 2,  script: "runSystemCheckIcon", fileId: "1MXtKBh20PUFc3oJiWPSl-3fKHDsctpnU", label: "[ S01 בדיקת מערכת ]" },
+  { col: 3,  script: "runAccessCheckIcon", fileId: "15eArM62_0wmbMFoZth9w-U37XFlsVZY6", label: "[ S02 הרשאות ]"       },
+  { col: 4,  script: "runGmailIcon",       fileId: "18nmNMbOSqJRr3eDHOvrhFJ_owXYcwKlV", label: "[ S03 Gmail ]"        },
+  { col: 5,  script: "runWhatsAppIcon",    fileId: "1F9_oDyMLHNbgB92NlSx_WTObxuUfYpsD", label: "[ S03 WhatsApp ]"    },
+  { col: 6,  script: "runDriveIcon",       fileId: "1Dka9DOf2ssie28L0oJzkB2YIa95gZRR-", label: "[ S04 Drive ]"        },
+  { col: 10, script: "runS05Icon",         fileId: "1mBLGCOhUDCFyswBKu26OGNuf3KPnMUOm", label: "[ S05 מטא-דאטה ]"    },
+  { col: 11, script: "runS06Icon",         fileId: "17COhz4MPHfgLtND3Yrug-Ke987JdhB4-", label: "[ S06 המרת TXT ]"    },
+  { col: 13, script: "runS07Icon",         fileId: "1eyjIU2H13ZnTL5H9UJntV0egdbh3WyUY", label: "[ S07 סיווג AI ]"     },
+  { col: 14, script: "runS08ViewIcon",     fileId: "1Xckh4J0FVgr2gIY6os92qlLLyMk-EyQp", label: "[ S08 אימות ידני ]"  },
+  { col: 15, script: "runS09ViewIcon",     fileId: "1mX_Wi6MLfLvcmRqCe8WPvWD9hP4gpAgN", label: "[ S09 חילוץ ]"       },
+  { col: 16, script: "runS10ViewIcon",     fileId: "1YZcEifvHAsBtstAFdtVtqNTODpxuXCkM", label: "[ S10 אימות ]"       },
+  { col: 21, script: "runQAView",          fileId: "1hw2sA4t4H5-OR0k8crG7wuI5Pkh0-_3G", label: "[ S11 QA ]"          },
+  { col: 22, script: "runArchiveView",     fileId: "1sHIxX5ZUy-u1MRUxqOnvM9ngVd7ew5EU", label: "[ S12 ארכיון ]"      }
 ];
 
 // ══════════════════════════════════════════════════════════════════
-// צבעי שורה 3 לפי עמודה — אזורי עבודה
-// רקע אחיד #37474F לכל השורה — כותרות בצבע ייעודי לפי אזור
+// צבעי שורה 3 לפי עמודה
 // ══════════════════════════════════════════════════════════════════
 
 const ROW3_COLORS = {
-  1:  { bg: "#78909C", fg: "#ffffff" }, // הרחב
-  2:  { bg: "#90A4AE", fg: "#ffffff" }, // בדיקת מערכת
-  3:  { bg: "#90A4AE", fg: "#ffffff" }, // הרשאות
-  4:  { bg: "#4CAF50", fg: "#ffffff" }, // Gmail
-  5:  { bg: "#4CAF50", fg: "#ffffff" }, // Drive
-  10: { bg: "#FF9800", fg: "#ffffff" }, // מטא-דאטה
-  11: { bg: "#FF9800", fg: "#ffffff" }, // המרת TXT
-  12: { bg: "#78909C", fg: "#ffffff" }, // הרחב 2
-  13: { bg: "#7E57C2", fg: "#ffffff" }, // סיווג AI
-  14: { bg: "#7E57C2", fg: "#ffffff" }, // S08
-  15: { bg: "#7E57C2", fg: "#ffffff" }, // S09
-  16: { bg: "#7E57C2", fg: "#ffffff" }, // S10
-  21: { bg: "#29B6F6", fg: "#ffffff" }, // QA
-  22: { bg: "#F44336", fg: "#ffffff" }  // ארכיון
+  1:  { bg: "#78909C", fg: "#ffffff" },
+  2:  { bg: "#90A4AE", fg: "#ffffff" },
+  3:  { bg: "#90A4AE", fg: "#ffffff" },
+  4:  { bg: "#4CAF50", fg: "#ffffff" },
+  5:  { bg: "#25D366", fg: "#ffffff" },
+  6:  { bg: "#4CAF50", fg: "#ffffff" },
+  10: { bg: "#FF9800", fg: "#ffffff" },
+  11: { bg: "#FF9800", fg: "#ffffff" },
+  13: { bg: "#7E57C2", fg: "#ffffff" },
+  14: { bg: "#7E57C2", fg: "#ffffff" },
+  15: { bg: "#7E57C2", fg: "#ffffff" },
+  16: { bg: "#7E57C2", fg: "#ffffff" },
+  21: { bg: "#29B6F6", fg: "#ffffff" },
+  22: { bg: "#F44336", fg: "#ffffff" }
 };
 
 // ══════════════════════════════════════════════════════════════════
-// הגדרת מבטים — VIEW_CONFIG
-// עמודות: A=1  B=2  C=3  D=4  E=5  F=6  G=7  H=8  I=9  J=10
-//          K=11 L=12 M=13 N=14 O=15 P=16 Q=17 R=18 S=19 T=20
-//          U=21 V=22 W=23 X=24 Y=25 Z=26
-// scrollToCol — העמודה שאליה גוללים אחרי הפעלת המבט
-// filter      — פילטר שורות בלבד (אין הסתרת עמודות)
+// VIEW_CONFIG — הגדרת מבטים
 // ══════════════════════════════════════════════════════════════════
 
 const VIEW_CONFIG = {
@@ -114,9 +98,15 @@ const VIEW_CONFIG = {
     filter:      { col: 3, type: "eq", value: "Gmail" }
   },
 
+  whatsapp: {
+    label:       "WhatsApp",
+    scrollToCol: 5,
+    filter:      null
+  },
+
   drive: {
     label:       "Drive",
-    scrollToCol: 5,
+    scrollToCol: 6,
     filter:      { col: 3, type: "eq", value: "Drive_Manual" }
   },
 
@@ -165,7 +155,7 @@ const VIEW_CONFIG = {
   },
 
   qa: {
-    label:       "הפצה / QA",
+    label:       "S11 QA",
     scrollToCol: 21,
     filter:      {
       col:     13,
@@ -175,7 +165,7 @@ const VIEW_CONFIG = {
   },
 
   archive: {
-    label:       "ארכיון",
+    label:       "S12 ארכיון",
     scrollToCol: 1,
     filter:      {
       col:     13,
@@ -186,9 +176,7 @@ const VIEW_CONFIG = {
 };
 
 // ══════════════════════════════════════════════════════════════════
-// מנוע המבטים המרכזי — switchView
-// פילטר שורות בלבד + גלילה לעמודה
-// אין הסתרת עמודות — אין נגיעה באיקונים
+// switchView — מנוע המבטים המרכזי
 // ══════════════════════════════════════════════════════════════════
 
 function switchView(viewKey) {
@@ -207,14 +195,14 @@ function switchView(viewKey) {
       return;
     }
 
-    // שלב א — הקפאת 4 שורות ראשונות תמיד
     sheet.setFrozenRows(4);
 
-    // שלב ב — הסרת פילטר קיים
     const existingFilter = sheet.getFilter();
-    if (existingFilter) existingFilter.remove();
+    if (existingFilter) {
+      existingFilter.remove();
+      SpreadsheetApp.flush();
+    }
 
-    // שלב ג — החלת פילטר שורות אם מוגדר
     if (config.filter) {
       const lastRow     = Math.max(sheet.getLastRow(), 5);
       const filterRange = sheet.getRange(4, 1, lastRow - 3, VIEW_TOTAL_COLS);
@@ -225,12 +213,11 @@ function switchView(viewKey) {
       }
     }
 
-    // שלב ד — גלילה לעמודה הרלוונטית
     if (config.scrollToCol) {
       sheet.getRange(4, config.scrollToCol).activate();
     }
 
-    Logger.log("[ViewEngine] מבט פעיל: " + config.label + " | גלילה לעמודה: " + config.scrollToCol);
+    Logger.log("[ViewEngine] מבט פעיל: " + config.label + " | עמודה: " + config.scrollToCol);
 
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-switchView: " + e.toString());
@@ -239,30 +226,22 @@ function switchView(viewKey) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// בניית קריטריון פילטר — viewEngine_buildCriteria
+// viewEngine_buildCriteria — בניית קריטריון פילטר
 // ══════════════════════════════════════════════════════════════════
 
 function viewEngine_buildCriteria(filterDef) {
   try {
     if (filterDef.type === "eq") {
-      return SpreadsheetApp.newFilterCriteria()
-        .whenTextEqualTo(filterDef.value)
-        .build();
+      return SpreadsheetApp.newFilterCriteria().whenTextEqualTo(filterDef.value).build();
     }
     if (filterDef.type === "contains") {
-      return SpreadsheetApp.newFilterCriteria()
-        .whenTextContains(filterDef.value)
-        .build();
+      return SpreadsheetApp.newFilterCriteria().whenTextContains(filterDef.value).build();
     }
     if (filterDef.type === "notContains") {
-      return SpreadsheetApp.newFilterCriteria()
-        .whenTextDoesNotContain(filterDef.value)
-        .build();
+      return SpreadsheetApp.newFilterCriteria().whenTextDoesNotContain(filterDef.value).build();
     }
     if (filterDef.type === "formula") {
-      return SpreadsheetApp.newFilterCriteria()
-        .whenFormulaSatisfied(filterDef.formula)
-        .build();
+      return SpreadsheetApp.newFilterCriteria().whenFormulaSatisfied(filterDef.formula).build();
     }
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה בבניית קריטריון: " + e.toString());
@@ -271,8 +250,8 @@ function viewEngine_buildCriteria(filterDef) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// _doExpand — לוגיקה משותפת לשני איקוני הרחב (A ו-L)
-// ביטול פילטר שורות + גלילה לתחילת גיליון
+// _doExpand — ביטול מוחלט של כל הפילטרים + גלילה ל-A1
+// [v2.2.0] flush() אחרי remove() — reset מוחלט בכל מצב
 // ══════════════════════════════════════════════════════════════════
 
 function _doExpand() {
@@ -280,14 +259,14 @@ function _doExpand() {
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(VIEW_SHEET_NAME);
 
-    // ביטול כל פילטרי השורות הקיימים בלבד — אין נגיעה בעמודות
     const existingFilter = sheet.getFilter();
-    if (existingFilter) existingFilter.remove();
+    if (existingFilter) {
+      existingFilter.remove();
+      SpreadsheetApp.flush();
+    }
 
-    // גלילה לתחילת גיליון
     sheet.getRange(1, 1).activate();
-
-    Logger.log("[ViewEngine] _doExpand — פילטר שורות בוטל");
+    Logger.log("[ViewEngine] _doExpand — reset מוחלט + גלילה A1");
 
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-_doExpand: " + e.toString());
@@ -295,7 +274,7 @@ function _doExpand() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runExpandView — עמודה A — איקון הרחב ראשון
+// runExpandView — עמודה A — הרחב/כווץ
 // ══════════════════════════════════════════════════════════════════
 
 function runExpandView() {
@@ -303,57 +282,182 @@ function runExpandView() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runExpandView2 — עמודה L — איקון הרחב שני (זהה ללוגיקה)
+// runSystemCheckIcon — עמודה B — S01
 // ══════════════════════════════════════════════════════════════════
 
-function runExpandView2() {
-  _doExpand();
+function runSystemCheckIcon() {
+  switchView("systemCheck");
+  checkSystemMorning();
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runArchiveView — מבט ארכיון עם אישור + חשיפת עמודה A
+// runAccessCheckIcon — עמודה C — S02
 // ══════════════════════════════════════════════════════════════════
 
-function runArchiveView() {
-  try {
-    const ss      = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet   = ss.getSheetByName(VIEW_SHEET_NAME);
-    const ui      = SpreadsheetApp.getUi();
-    const confirm = ui.alert(
-      "אישור מבט ארכיון",
-      "האם לעבור למבט ארכיון?",
-      ui.ButtonSet.YES_NO
-    );
-    if (confirm === ui.Button.YES) {
-      switchView("archive");
-    }
-  } catch (e) {
-    Logger.log("[ViewEngine] שגיאה ב-runArchiveView: " + e.toString());
+function runAccessCheckIcon() {
+  switchView("accessCheck");
+  checkUserAccess();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// runGmailIcon — עמודה D — S03 Gmail
+// ══════════════════════════════════════════════════════════════════
+
+function runGmailIcon() {
+  const ui      = SpreadsheetApp.getUi();
+  switchView("gmail");
+  const confirm = ui.alert(
+    "S03 — סריקת Gmail",
+    "האם להריץ סריקת Gmail ומשיכת מיילים חדשים?",
+    ui.ButtonSet.YES_NO
+  );
+  if (confirm === ui.Button.YES) {
+    runEmailIngestion();
   }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// checkSystemMorning — עמודה B — בדיקת תקינות מערכת
-// דיאלוג אישור לפני הפעלה
+// runWhatsAppIcon — עמודה E — S03 WhatsApp (לא פעיל — בפיתוח)
 // ══════════════════════════════════════════════════════════════════
 
-      function runSystemCheckIcon() {
-      switchView("systemCheck");
-      checkSystemMorning();
+function runWhatsAppIcon() {
+  const ui = SpreadsheetApp.getUi();
+  switchView("whatsapp");
+  ui.alert(
+    "WhatsApp — בפיתוח",
+    "חיבור WhatsApp טרם הוגדר.\nהפונקציה תחובר בהמשך.",
+    ui.ButtonSet.OK
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// runDriveIcon — עמודה F — S04 Drive
+// ══════════════════════════════════════════════════════════════════
+
+function runDriveIcon() {
+  const ui      = SpreadsheetApp.getUi();
+  switchView("drive");
+  const confirm = ui.alert(
+    "S04 — סריקת Drive",
+    "האם להריץ סריקת Drive וסנכרון קבצים חדשים?",
+    ui.ButtonSet.YES_NO
+  );
+  if (confirm === ui.Button.YES) {
+    syncDriveFiles();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// runS05Icon — עמודה J — S05 חילוץ מטא-דאטה
+// [v2.2.0] שם חדש (היה: extractMetaData) — מונע התנגשות עם S05_MetaExtract.gs
+//          סינון → דיאלוג אישור → קריאה ל-extractMetaData() מ-S05_MetaExtract.gs
+//          S05 פועל על כל הגיליון — אין מצב OL נפרד
+// ══════════════════════════════════════════════════════════════════
+
+function runS05Icon() {
+  try {
+    const ui      = SpreadsheetApp.getUi();
+    switchView("metadata");
+    const confirm = ui.alert(
+      "S05 — חילוץ מטא-דאטה",
+      "הפעולה תסרוק את כל הגיליון\nותחלץ מטא-דאטה לשורות הממתינות.\n\nהאם להמשיך?",
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm === ui.Button.YES) {
+      if (typeof extractMetaData === "function") {
+        SpreadsheetApp.getActiveSpreadsheet().toast("מריץ S05 — חילוץ מטא-דאטה...", "MedicalPilot", 3);
+        extractMetaData();
+      } else {
+        ui.alert("שגיאה", "הפונקציה extractMetaData לא נמצאה ב-S05_MetaExtract.", ui.ButtonSet.OK);
       }
+    }
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runS05Icon: " + e.toString());
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════
-// checkUserAccess — עמודה C — בדיקת הרשאות
-// דיאלוג אישור לפני הפעלה
+// runS06Icon — עמודה K — S06 המרת TXT
+// [v2.2.0] שם חדש (היה: run_MedicalPilot_V2_6_2) — מונע התנגשות עם S06_ConvertTXT.gs
+//          סינון → בחירה YES/NO/CANCEL → OL או אצווה
+//          YES    = run_MedicalPilot_V2_6_2() — שורה בודדת
+//          NO     = nightlyConvertBatch()      — כל הגיליון
+//          CANCEL = ביטול
 // ══════════════════════════════════════════════════════════════════
-      function runAccessCheckIcon() {
-        switchView("accessCheck");
-        checkUserAccess();
+
+function runS06Icon() {
+  try {
+    const ui     = SpreadsheetApp.getUi();
+    switchView("convert");
+    const choice = ui.alert(
+      "S06 — המרת TXT",
+      "בחר מצב הרצה:\n\n" +
+      "כן  — הרץ על השורה הנוכחית בלבד\n" +
+      "לא  — הרץ אצווה על כל הגיליון\n" +
+      "ביטול — חזור",
+      ui.ButtonSet.YES_NO_CANCEL
+    );
+    if (choice === ui.Button.YES) {
+      if (typeof run_MedicalPilot_V2_6_2 === "function") {
+        run_MedicalPilot_V2_6_2();
+      } else {
+        ui.alert("שגיאה", "הפונקציה run_MedicalPilot_V2_6_2 לא נמצאה ב-S06_ConvertTXT.", ui.ButtonSet.OK);
       }
-
+    } else if (choice === ui.Button.NO) {
+      if (typeof nightlyConvertBatch === "function") {
+        SpreadsheetApp.getActiveSpreadsheet().toast("מריץ S06 — אצווה מלאה...", "MedicalPilot", 3);
+        nightlyConvertBatch();
+      } else {
+        ui.alert("שגיאה", "הפונקציה nightlyConvertBatch לא נמצאה ב-S06_ConvertTXT.", ui.ButtonSet.OK);
+      }
+    }
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runS06Icon: " + e.toString());
+  }
+}
 
 // ══════════════════════════════════════════════════════════════════
-// runS08ViewIcon — עמודה N — אימות ידני S08
-// סינון + דיאלוג + פתיחת sidebar
+// runS07Icon — עמודה M — S07 סיווג AI
+// [v2.2.0] שם חדש (היה: classifyDocument) — מונע התנגשות עם S07_Classify.gs
+//          סינון → בחירה YES/NO/CANCEL → OL או אצווה
+//          YES    = run_S07_ActiveRow()        — שורה בודדת
+//          NO     = executeS07Classification() — כל הגיליון
+//          CANCEL = ביטול
+// ══════════════════════════════════════════════════════════════════
+
+function runS07Icon() {
+  try {
+    const ui     = SpreadsheetApp.getUi();
+    switchView("classify");
+    const choice = ui.alert(
+      "S07 — סיווג AI",
+      "בחר מצב הרצה:\n\n" +
+      "כן  — הרץ על השורה הנוכחית בלבד\n" +
+      "לא  — הרץ אצווה על כל הגיליון\n" +
+      "ביטול — חזור",
+      ui.ButtonSet.YES_NO_CANCEL
+    );
+    if (choice === ui.Button.YES) {
+      if (typeof run_S07_ActiveRow === "function") {
+        run_S07_ActiveRow();
+      } else {
+        ui.alert("שגיאה", "הפונקציה run_S07_ActiveRow לא נמצאה ב-S07_Classify.", ui.ButtonSet.OK);
+      }
+    } else if (choice === ui.Button.NO) {
+      if (typeof executeS07Classification === "function") {
+        SpreadsheetApp.getActiveSpreadsheet().toast("מריץ S07 — אצווה מלאה...", "MedicalPilot", 3);
+        executeS07Classification();
+      } else {
+        ui.alert("שגיאה", "הפונקציה executeS07Classification לא נמצאה ב-S07_Classify.", ui.ButtonSet.OK);
+      }
+    }
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runS07Icon: " + e.toString());
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// runS08ViewIcon — עמודה N — S08 אימות ידני
 // ══════════════════════════════════════════════════════════════════
 
 function runS08ViewIcon() {
@@ -361,8 +465,8 @@ function runS08ViewIcon() {
     const ui      = SpreadsheetApp.getUi();
     switchView("s08");
     const confirm = ui.alert(
-      "מנוע מבטים — MedicalPilot",
-      "עברת למבט אימות ידני (S08).\nהאם ברצונך לפתוח את מסך הבקרה והאימות הידני?",
+      "S08 — אימות ידני",
+      "עברת למבט אימות ידני.\nהאם לפתוח את מסך הבקרה?",
       ui.ButtonSet.YES_NO
     );
     if (confirm === ui.Button.YES) {
@@ -378,8 +482,7 @@ function runS08ViewIcon() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runS09ViewIcon — עמודה O — חילוץ אירועים רפואיים S09
-// סינון + דיאלוג + הפעלת S09
+// runS09ViewIcon — עמודה O — S09 חילוץ אירועים
 // ══════════════════════════════════════════════════════════════════
 
 function runS09ViewIcon() {
@@ -387,8 +490,8 @@ function runS09ViewIcon() {
     const ui      = SpreadsheetApp.getUi();
     switchView("s09");
     const confirm = ui.alert(
-      "מנוע מבטים — MedicalPilot",
-      "עברת למבט חילוץ אירועים רפואיים (S09).\nהאם ברצונך להריץ חילוץ אירועים?",
+      "S09 — חילוץ אירועים רפואיים",
+      "עברת למבט חילוץ אירועים.\nהאם להריץ חילוץ?",
       ui.ButtonSet.YES_NO
     );
     if (confirm === ui.Button.YES) {
@@ -404,8 +507,7 @@ function runS09ViewIcon() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runS10ViewIcon — עמודה P — אימות אירועים S10
-// סינון + דיאלוג + פתיחת sidebar S10
+// runS10ViewIcon — עמודה P — S10 אימות אירועים
 // ══════════════════════════════════════════════════════════════════
 
 function runS10ViewIcon() {
@@ -413,8 +515,8 @@ function runS10ViewIcon() {
     const ui      = SpreadsheetApp.getUi();
     switchView("s10");
     const confirm = ui.alert(
-      "מנוע מבטים — MedicalPilot",
-      "עברת למבט אימות אירועים רפואיים (S10).\nהאם ברצונך לפתוח את מסך האימות?",
+      "S10 — אימות אירועים",
+      "עברת למבט אימות אירועים.\nהאם לפתוח את מסך האימות?",
       ui.ButtonSet.YES_NO
     );
     if (confirm === ui.Button.YES) {
@@ -430,49 +532,44 @@ function runS10ViewIcon() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פונקציות עטיפה — pipeline מבטים
+// runQAView — עמודה U — S11 QA (לא פעיל — בפיתוח)
+// [v2.2.0] דיאלוג "לא פעיל" במקום switchView בלבד
 // ══════════════════════════════════════════════════════════════════
 
-function extractMetaData()         { switchView("metadata"); }
-function run_MedicalPilot_V2_6_2() { switchView("convert");  }
-function classifyDocument()        { switchView("classify"); }
-function runQAView()               { switchView("qa");       }
-
-// ══════════════════════════════════════════════════════════════════
-// setupIcons — הכנה חד פעמית
-// מוחק כל האיקונים + flush() + מכניס את כל 14 האיקונים
-// צובע שורה 3: רקע #37474F אחיד + כותרות צבעוניות לפי אזור
-// בסוף — מסתיר עמודה A (ארכיון נסתר כברירת מחדל)
-// להרצה ידנית בלבד — פעם אחת בלבד בהגדרת הגיליון
-// ══════════════════════════════════════════════════════════════════
-
-function runGmailIcon() {
-  const ui      = SpreadsheetApp.getUi();
-  switchView("gmail");
-  const confirm = ui.alert(
-    "סריקת Gmail",
-    "האם להריץ סריקת Gmail ומשיכת מיילים חדשים?",
-    ui.ButtonSet.YES_NO
+function runQAView() {
+  const ui = SpreadsheetApp.getUi();
+  switchView("qa");
+  ui.alert(
+    "S11 QA — בפיתוח",
+    "שירות בדיקת תקינות Pipeline טרם הוגדר.\nהפונקציה תחובר בהמשך.",
+    ui.ButtonSet.OK
   );
-  if (confirm === ui.Button.YES) {
-    runEmailIngestion();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// runArchiveView — עמודה V — S12 ארכיון — עם אישור
+// ══════════════════════════════════════════════════════════════════
+
+function runArchiveView() {
+  try {
+    const ui      = SpreadsheetApp.getUi();
+    const confirm = ui.alert(
+      "S12 — ארכיון",
+      "האם לעבור למבט ארכיון?",
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm === ui.Button.YES) {
+      switchView("archive");
+    }
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runArchiveView: " + e.toString());
   }
 }
 
-
-function runDriveIcon() {
-  const ui      = SpreadsheetApp.getUi();
-  switchView("drive");
-  const confirm = ui.alert(
-    "סריקת Drive",
-    "האם להריץ סריקת Drive וסנכרון קבצים חדשים?",
-    ui.ButtonSet.YES_NO
-  );
-  if (confirm === ui.Button.YES) {
-    syncDriveFiles();
-  }
-}
-
+// ══════════════════════════════════════════════════════════════════
+// setupIcons — הכנה חד פעמית של כל 14 האיקונים
+// להרצה ידנית בלבד
+// ══════════════════════════════════════════════════════════════════
 
 function setupIcons() {
   try {
@@ -484,21 +581,19 @@ function setupIcons() {
       return;
     }
 
-    // שלב א — איפוס מלא: חשיפת כל העמודות + ביטול פילטרים
     sheet.showColumns(1, VIEW_TOTAL_COLS);
     const existingFilter0 = sheet.getFilter();
-    if (existingFilter0) existingFilter0.remove();
-    Logger.log("[ViewEngine] setupIcons — כל העמודות נחשפו + פילטרים בוטלו");
+    if (existingFilter0) {
+      existingFilter0.remove();
+      SpreadsheetApp.flush();
+    }
 
-    // שלב ב — מחיקת כל האיקונים הקיימים
     const existingImages = sheet.getImages();
     existingImages.forEach(function(img) { img.remove(); });
     Logger.log("[ViewEngine] setupIcons — נמחקו: " + existingImages.length + " איקונים");
 
-    // שלב ג — flush() חובה לפני הכנסה — מונע כפילויות
     SpreadsheetApp.flush();
 
-    // שלב ד — צביעת שורה 3 — רקע אחיד #37474F לכל רוחב
     const row3Full = sheet.getRange(3, 1, 1, VIEW_TOTAL_COLS);
     row3Full.clearContent();
     row3Full.setBackground("#37474F");
@@ -508,22 +603,17 @@ function setupIcons() {
     row3Full.setHorizontalAlignment("center");
     row3Full.setVerticalAlignment("middle");
 
-    // שלב ה — שחזור כותרת File_ID בעמודה A שורה 4 אם ריקה
     const headerCell = sheet.getRange(4, 1);
     if (!headerCell.getValue()) {
       headerCell.setValue("File_ID");
       headerCell.setFontWeight("bold");
-      Logger.log("[ViewEngine] כותרת File_ID שוחזרה בעמודה A שורה 4");
     }
 
-    // שלב ו — הקפאת 4 שורות ראשונות
     sheet.setFrozenRows(4);
 
-    // שלב ז — קריאת גובה שורה 2 לחישוב גודל איקון
     const rowHeight = sheet.getRowHeight(2);
     const iconSize  = rowHeight - 4;
 
-    // שלב ח — הכנסת כל 14 האיקונים + כותרות צבעוניות בשורה 3
     ICON_MAP.forEach(function(mapping) {
       try {
         const file     = DriveApp.getFileById(mapping.fileId);
@@ -540,7 +630,6 @@ function setupIcons() {
         img.setAnchorCellXOffset(offsetX);
         img.setAnchorCellYOffset(2);
 
-        // כותרת בשורה 3 עם צבע ייעודי לעמודה
         const labelCell = sheet.getRange(3, mapping.col);
         labelCell.setValue(mapping.label);
         const colors = ROW3_COLORS[mapping.col];
@@ -556,9 +645,8 @@ function setupIcons() {
       }
     });
 
-    // שלב ט — flush() סיום
     SpreadsheetApp.flush();
-    Logger.log("[ViewEngine] setupIcons הושלם. 14 איקונים. גודל: " + iconSize + "px");
+    Logger.log("[ViewEngine] setupIcons הושלם — 14 איקונים — גודל: " + iconSize + "px");
 
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-setupIcons: " + e.toString());
@@ -567,7 +655,6 @@ function setupIcons() {
 
 // ══════════════════════════════════════════════════════════════════
 // cleanAndResetIcons — מחיקה מוחלטת + setupIcons מחדש
-// להרצה ידנית בלבד כשיש בעיה בתצוגת האיקונים
 // ══════════════════════════════════════════════════════════════════
 
 function cleanAndResetIcons() {
@@ -575,15 +662,11 @@ function cleanAndResetIcons() {
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(VIEW_SHEET_NAME);
 
-    // מחיקת כל התמונות — כולל אלה ללא altText (תמונות ידניות)
     const images = sheet.getImages();
     images.forEach(function(img) { img.remove(); });
     Logger.log("[ViewEngine] cleanAndResetIcons — נמחקו: " + images.length + " תמונות");
 
-    // flush() חובה לפני setupIcons
     SpreadsheetApp.flush();
-
-    // הכנסה מחדש
     setupIcons();
 
   } catch (e) {
@@ -592,8 +675,7 @@ function cleanAndResetIcons() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// debugIcons — לאבחון בלבד
-// מדפיס בלוג את מיקום כל איקון: שורה, עמודה, offsetX
+// debugIcons — אבחון מצב האיקונים
 // ══════════════════════════════════════════════════════════════════
 
 function debugIcons() {
