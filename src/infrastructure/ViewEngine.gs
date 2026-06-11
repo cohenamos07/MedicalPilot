@@ -1,23 +1,39 @@
 /**
- * MedicalPilot — ViewEngine.gs
- * @version 2.2.0 | @updated 07/06/2026 20:10 | @service VIEW_ENGINE
- * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
- * @impacts מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
- *          14 מבטים: expand, systemCheck, accessCheck, gmail, whatsapp, drive,
- *          metadata, convert, classify, s08, s09, s10, qa, archive.
- *          כל איקון קבוע בעמודה קבועה לפי ICON_MAP — לעולם לא נמחק או מוזז.
- *          עמודות תמיד גלויות — אין הסתרת עמודות (חוץ מ-A בברירת מחדל).
- *          כל מבט = פילטר שורות + גלילה לעמודה רלוונטית.
- *          הרחב/צמצם = ביטול פילטר שורות + גלילה לתחילת גיליון.
- *          נקרא מאייקוני הגליון בלבד — אינו חלק מזרימת עיבוד אוטומטי.
- * @changes [v2.2.0] תיקון _doExpand — flush() אחרי remove() לביטול פילטר מהימן
- *                   extractMetaData → runS05Icon — שם חדש + דיאלוג + קריאה ל-S05
- *                   run_MedicalPilot_V2_6_2 → runS06Icon — שם חדש + דיאלוג OL/אצווה
- *                   classifyDocument → runS07Icon — שם חדש + דיאלוג OL/אצווה
- *                   runQAView — דיאלוג "S11 לא פעיל — בפיתוח"
- *          [v2.1.0] שינוי מיפוי איקונים — WhatsApp עמודה E, Drive עמודה F
- *          [v2.0.0] שדרוג מלא — 14 איקונים
- *          [v1.9.0] ארכיטקטורה חדשה — ביטול הסתרת עמודות לחלוטין
+ * @file        ViewEngine.gs
+ * @version     2.3.0 | @updated 11/06/2026 19:38 | @service VIEW_ENGINE
+ * @git         src/infrastructure/ViewEngine.gs
+ * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
+ *              14 מבטים: expand, systemCheck, accessCheck, gmail, whatsapp, drive,
+ *              metadata, convert, classify, s08, s09, s10, qa, archive.
+ *              כל איקון קבוע בעמודה קבועה לפי ICON_MAP — לעולם לא נמחק או מוזז.
+ *              עמודות תמיד גלויות — אין הסתרת עמודות (חוץ מ-A בברירת מחדל).
+ *              כל מבט = פילטר שורות + גלילה לעמודה רלוונטית.
+ *              הרחב/צמצם = ביטול פילטר שורות + flush() + גלילה לתחילת גיליון.
+ *              נקרא מאייקוני הגליון בלבד — אינו חלק מזרימת עיבוד אוטומטי.
+ * @impacts     ניהול_מיילים: קורא פילטרים — לא כותב ערכים לתאים.
+ *              runStatusCheck כותב צבע רקע לשורות שגויות בלבד.
+ *              תלויות: S01 (checkSystemMorning) | S02 (checkUserAccess)
+ *                      S03 (runEmailIngestion) | S04 (syncDriveFiles)
+ *                      S05 (extractMetaData) | S06 (run_MedicalPilot_V2_6_2, nightlyConvertBatch)
+ *                      S07 (run_S07_ActiveRow, executeS07Classification)
+ *                      S08 (showMainSidebar) | S09 (runS09) | S10 (showS10Sidebar)
+ *                      S11 (runQAViewMain)
+ * @callers     אייקוני גליון ניהול_מיילים בלבד — שורה 2
+ * @functions   switchView | viewEngine_buildCriteria | _doExpand
+ *              runExpandView | runSystemCheckIcon | runAccessCheckIcon
+ *              runGmailIcon | runWhatsAppIcon | runDriveIcon
+ *              runS05Icon | runS06Icon | runS07Icon
+ *              runS08ViewIcon | runS09ViewIcon | runS10ViewIcon
+ *              runQAView | runArchiveView | runStatusCheck
+ *              setupIcons | cleanAndResetIcons | debugIcons
+ * @changes     [v2.3.0] הזזת איקון S11 QA מעמודה U(21) לעמודה Q(17)
+ *                       עדכון ICON_MAP + VIEW_CONFIG.qa.scrollToCol + ROW3_COLORS
+ *                       הוספת runStatusCheck — צביעת שורות שגויות באדום
+ *              [v2.2.0] תיקון _doExpand — flush() אחרי remove()
+ *                       extractMetaData → runS05Icon | run_MedicalPilot_V2_6_2 → runS06Icon
+ *                       classifyDocument → runS07Icon | runQAView → קורא runQAViewMain()
+ *              [v2.1.0] שינוי מיפוי — WhatsApp עמודה E(5) | Drive עמודה F(6)
+ *              [v1.9.0] ארכיטקטורה חדשה — ביטול הסתרת עמודות לחלוטין
  */
 
 const VIEW_SHEET_NAME = "ניהול_מיילים";
@@ -25,7 +41,7 @@ const VIEW_TOTAL_COLS = 26;
 
 // ══════════════════════════════════════════════════════════════════
 // מיפוי איקונים — 14 איקונים
-// [v2.2.0] עמודות 10,11,13 — script עודכן לשמות החדשים
+// [v2.3.0] S11 QA הוזז מעמודה 21 לעמודה 17
 // ══════════════════════════════════════════════════════════════════
 
 const ICON_MAP = [
@@ -41,12 +57,13 @@ const ICON_MAP = [
   { col: 14, script: "runS08ViewIcon",     fileId: "1Xckh4J0FVgr2gIY6os92qlLLyMk-EyQp", label: "[ S08 אימות ידני ]"  },
   { col: 15, script: "runS09ViewIcon",     fileId: "1mX_Wi6MLfLvcmRqCe8WPvWD9hP4gpAgN", label: "[ S09 חילוץ ]"       },
   { col: 16, script: "runS10ViewIcon",     fileId: "1YZcEifvHAsBtstAFdtVtqNTODpxuXCkM", label: "[ S10 אימות ]"       },
-  { col: 21, script: "runQAView",          fileId: "1hw2sA4t4H5-OR0k8crG7wuI5Pkh0-_3G", label: "[ S11 QA ]"          },
+  { col: 17, script: "runQAView",          fileId: "1hw2sA4t4H5-OR0k8crG7wuI5Pkh0-_3G", label: "[ S11 QA ]"          },
   { col: 22, script: "runArchiveView",     fileId: "1sHIxX5ZUy-u1MRUxqOnvM9ngVd7ew5EU", label: "[ S12 ארכיון ]"      }
 ];
 
 // ══════════════════════════════════════════════════════════════════
 // צבעי שורה 3 לפי עמודה
+// [v2.3.0] S11 QA הוזז מ-21 ל-17
 // ══════════════════════════════════════════════════════════════════
 
 const ROW3_COLORS = {
@@ -62,12 +79,13 @@ const ROW3_COLORS = {
   14: { bg: "#7E57C2", fg: "#ffffff" },
   15: { bg: "#7E57C2", fg: "#ffffff" },
   16: { bg: "#7E57C2", fg: "#ffffff" },
-  21: { bg: "#29B6F6", fg: "#ffffff" },
+  17: { bg: "#29B6F6", fg: "#ffffff" },
   22: { bg: "#F44336", fg: "#ffffff" }
 };
 
 // ══════════════════════════════════════════════════════════════════
 // VIEW_CONFIG — הגדרת מבטים
+// [v2.3.0] qa.scrollToCol עודכן מ-21 ל-17
 // ══════════════════════════════════════════════════════════════════
 
 const VIEW_CONFIG = {
@@ -154,7 +172,7 @@ const VIEW_CONFIG = {
 
   qa: {
     label:       "S11 QA",
-    scrollToCol: 21,
+    scrollToCol: 17,
     filter:      {
       col:     13,
       type:    "formula",
@@ -347,9 +365,6 @@ function runDriveIcon() {
 
 // ══════════════════════════════════════════════════════════════════
 // runS05Icon — עמודה J — S05 חילוץ מטא-דאטה
-// [v2.2.0] שם חדש (היה: extractMetaData) — מונע התנגשות עם S05_MetaExtract.gs
-//          סינון → דיאלוג אישור → קריאה ל-extractMetaData() מ-S05_MetaExtract.gs
-//          S05 פועל על כל הגיליון — אין מצב OL נפרד
 // ══════════════════════════════════════════════════════════════════
 
 function runS05Icon() {
@@ -376,11 +391,6 @@ function runS05Icon() {
 
 // ══════════════════════════════════════════════════════════════════
 // runS06Icon — עמודה K — S06 המרת TXT
-// [v2.2.0] שם חדש (היה: run_MedicalPilot_V2_6_2) — מונע התנגשות עם S06_ConvertTXT.gs
-//          סינון → בחירה YES/NO/CANCEL → OL או אצווה
-//          YES    = run_MedicalPilot_V2_6_2() — שורה בודדת
-//          NO     = nightlyConvertBatch()      — כל הגיליון
-//          CANCEL = ביטול
 // ══════════════════════════════════════════════════════════════════
 
 function runS06Icon() {
@@ -416,11 +426,6 @@ function runS06Icon() {
 
 // ══════════════════════════════════════════════════════════════════
 // runS07Icon — עמודה M — S07 סיווג AI
-// [v2.2.0] שם חדש (היה: classifyDocument) — מונע התנגשות עם S07_Classify.gs
-//          סינון → בחירה YES/NO/CANCEL → OL או אצווה
-//          YES    = run_S07_ActiveRow()        — שורה בודדת
-//          NO     = executeS07Classification() — כל הגיליון
-//          CANCEL = ביטול
 // ══════════════════════════════════════════════════════════════════
 
 function runS07Icon() {
@@ -530,18 +535,17 @@ function runS10ViewIcon() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runQAView — עמודה U — S11 QA (לא פעיל — בפיתוח)
-// [v2.2.0] דיאלוג "לא פעיל" במקום switchView בלבד
+// runQAView — עמודה Q(17) — S11 QA
+// [v2.3.0] הוזז מעמודה U(21) לעמודה Q(17)
 // ══════════════════════════════════════════════════════════════════
 
 function runQAView() {
-  const ui = SpreadsheetApp.getUi();
   switchView("qa");
-  ui.alert(
-    "S11 QA — בפיתוח",
-    "שירות בדיקת תקינות Pipeline טרם הוגדר.\nהפונקציה תחובר בהמשך.",
-    ui.ButtonSet.OK
-  );
+  if (typeof runQAViewMain === "function") {
+    runQAViewMain();
+  } else {
+    SpreadsheetApp.getUi().alert("שגיאה", "הפונקציה runQAViewMain לא נמצאה ב-S11_QArun.", SpreadsheetApp.getUi().ButtonSet.OK);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -561,6 +565,63 @@ function runArchiveView() {
     }
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-runArchiveView: " + e.toString());
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// runStatusCheck — [v2.3.0] צביעת שורות שגויות באדום
+// שורה שגויה = Error_Code (S=19) מלא
+// שורה תקינה = Error_Code ריק
+// ══════════════════════════════════════════════════════════════════
+
+function runStatusCheck() {
+  try {
+    const ss      = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet   = ss.getSheetByName(VIEW_SHEET_NAME);
+    const lastRow = sheet.getLastRow();
+
+    if (lastRow < 5) {
+      SpreadsheetApp.getUi().alert("אין שורות נתונים לבדיקה.");
+      return;
+    }
+
+    const ERROR_COL    = 19; // S = Error_Code
+    const COLOR_ERROR  = "#FFCDD2"; // אדום בהיר
+    const COLOR_OK     = "#E3F2FD"; // תכלת בהיר (ברירת מחדל גליון)
+    const COLOR_EMPTY  = "#ffffff"; // לבן — שורה ריקה
+
+    let countError = 0;
+    let countOk    = 0;
+
+    for (var row = 5; row <= lastRow; row++) {
+      const fileId     = sheet.getRange(row, 1).getValue();
+      const errorCode  = sheet.getRange(row, ERROR_COL).getValue();
+      const rowRange   = sheet.getRange(row, 1, 1, VIEW_TOTAL_COLS);
+
+      if (!fileId) {
+        rowRange.setBackground(COLOR_EMPTY);
+        continue;
+      }
+
+      if (errorCode && String(errorCode).trim() !== "") {
+        rowRange.setBackground(COLOR_ERROR);
+        countError++;
+      } else {
+        rowRange.setBackground(COLOR_OK);
+        countOk++;
+      }
+    }
+
+    SpreadsheetApp.flush();
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      "✅ תקינות: " + countOk + " | ❌ שגויות: " + countError,
+      "MedicalPilot — Status Check", 5
+    );
+    Logger.log("[ViewEngine] runStatusCheck — תקינות: " + countOk + " | שגויות: " + countError);
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runStatusCheck: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה ב-runStatusCheck: " + e.message);
   }
 }
 
