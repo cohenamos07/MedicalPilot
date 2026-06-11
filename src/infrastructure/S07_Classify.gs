@@ -1,19 +1,36 @@
 /**
- * MedicalPilot — S07_Classify.gs
- * @version 2.3.6 | @updated 31/05/2026 19:50 | @service S07
- * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S07_Classify.gs
- * @impacts סיווג מסמכים רפואיים בעזרת Gemini — כותרת, מנפיק, תאריך, קטגוריה.
- *          קורא מ-TXT_URL (X) או Raw_Text (Z) — כותב ל-I,J,K,L,M,N,Q,R,S,T.
- *          תלויות: GEMINI_API_KEY, מנהל_משאבים, דוגמאות_למידה, COLUMN_MAP.SHEETS_MAP.
- *          מופעל מהתפריט (שורה בודדת / אצווה לפי עמודה M).
- * שינוי: [v2.3.6] שיפור _calculateDuplicates_S07 — השוואת 5 קריטריונים מכותרת TXT:
- *                 כותרת, מנפיק, תאריך, גודל, מספר מילים. סף: 3 מתוך 5.
- *         [v2.3.5] תיקון _calculateDuplicates_S07 — מחזיר מספר שורה במקום true/false.
- *         [v2.3.4] [FIX-6] טריגר אצווה עבר מעמודה A לעמודה M
- *                  [FIX-7] גודל אצווה הוקטן מ-5 ל-3
- * עמודות: I=9 Doc_Title | J=10 Doc_Issuer | K=11 Doc_Date | L=12 Doc_Category |
- *          M=13 Pipeline_Status | N=14 Extraction_Status | Q=17 Complexity |
- *          R=18 Duplicate_Flag | S=19 Error_Code | T=20 Error_Detail
+ * @file        S07_Classify.gs
+ * @version     2.4.0 | @updated 11/06/2026 19:25 | @service S07
+ * @git         src/infrastructure/S07_Classify.gs
+ * @description סיווג מסמכים רפואיים בעזרת Gemini API.
+ *              קורא טקסט מ-TXT_URL (X) או Raw_Text (Z).
+ *              מחלץ: כותרת, מנפיק, תאריך, קטגוריה, מורכבות.
+ *              בודק כפולים — 5 קריטריונים, סף 3/5.
+ *              מופעל משורה בודדת (כל תא) או אצווה (עמודה M) — אינו אוטומטי.
+ * @impacts     ניהול_מיילים:
+ *              I(9)=Doc_Title | J(10)=Doc_Issuer | K(11)=Doc_Date
+ *              L(12)=Doc_Category | M(13)=Pipeline_Status
+ *              N(14)=Extraction_Status | Q(17)=Complexity
+ *              R(18)=Duplicate_Flag | S(19)=Error_Code | T(20)=Error_Detail
+ *              קורא: X(24)=TXT_URL | Z(26)=Raw_Text
+ *              תלויות: GEMINI_API_KEY, COLUMN_MAP.SHEETS_MAP,
+ *                      מנהל_משאבים (getAvailableExtractor),
+ *                      דוגמאות_למידה (גליון)
+ * @callers     runS07Icon (ViewEngine) | classifyDocument (תפריט)
+ *              nightlyConvertBatch (S_Scheduler — אצווה לילית)
+ * @functions   classifyDocument | run_S07_ActiveRow | executeS07Classification
+ *              _processS07Batch | _getS07ColumnMap | _getColDefByName
+ *              _safeWrite | _safeClear | _callAiWithFullPrompt_S07
+ *              _validateAiResult_S07 | _isFilled_S07 | _countFilledFields_S07
+ *              _fetchTextFromUrl_S07 | _getLearningExamples_S07
+ *              _calculateDuplicates_S07 | _extractTxtHeader_S07
+ *              S07_ValidateWritePermissions
+ * @changes     [v2.4.0] תיקון Complexity — דינמי מ-Gemini בעברית במקום 'SIMPLE' קשיח
+ *                       הוספת complexity לפרומפט AI — ערכים: פשוט / בינוני / מורכב
+ *                       כותרת מורחבת לפי סטנדרט
+ *              [v2.3.6] שיפור _calculateDuplicates_S07 — 5 קריטריונים, סף 3/5
+ *              [v2.3.5] תיקון _calculateDuplicates_S07 — מחזיר מספר שורה
+ *              [v2.3.4] טריגר אצווה עבר לעמודה M | גודל אצווה 3
  */
 
 // ══════════════════════════════════════════════════════════════════
@@ -169,7 +186,6 @@ function executeS07Classification(row) {
     if (!fullText || fullText.trim() === "")
       throw new Error("NO_TEXT_FOUND: הטקסט שהתקבל ריק");
 
-    // [v2.3.6] בדיקת כפולים משופרת
     const dupRow = _calculateDuplicates_S07(row, sheet, fullText);
     if (dupRow) {
       _safeWrite(sheet, row, "Duplicate_Flag", "חשוד ככפול — שורה " + dupRow);
@@ -194,11 +210,11 @@ function executeS07Classification(row) {
     if (filled < 2)
       throw new Error("AI_RESULT_TOO_WEAK: רק " + filled + " שדות — לא מספיק");
 
-    _safeWrite(sheet, row, "Doc_Title",    aiResult.title    || "");
-    _safeWrite(sheet, row, "Doc_Issuer",   aiResult.issuer   || "");
-    _safeWrite(sheet, row, "Doc_Date",     aiResult.date     || "");
-    _safeWrite(sheet, row, "Doc_Category", aiResult.category || "");
-    _safeWrite(sheet, row, "Complexity",   "SIMPLE");
+    _safeWrite(sheet, row, "Doc_Title",         aiResult.title      || "");
+    _safeWrite(sheet, row, "Doc_Issuer",         aiResult.issuer     || "");
+    _safeWrite(sheet, row, "Doc_Date",           aiResult.date       || "");
+    _safeWrite(sheet, row, "Doc_Category",       aiResult.category   || "");
+    _safeWrite(sheet, row, "Complexity",         aiResult.complexity || "בינוני");
 
     const extractionStatus = filled === 4 ? "חולץ מלא" : "חולץ חלקי";
     _safeWrite(sheet, row, "Extraction_Status", extractionStatus);
@@ -258,17 +274,55 @@ function _calculateDuplicates_S07(currentRow, sheet, currentTxtContent) {
   const currentMeta = _extractTxtHeader_S07(currentTxtContent);
   if (!currentMeta.title && !currentMeta.issuer && !currentMeta.date) return null;
 
-  const txtUrlCol = 24;
+  // ── שלב 1: קריאה אחת של עמודות I, J, K, X לזיכרון ──────────────
+  const rangeData = sheet.getRange(2, 9, lastRow - 1, 16).getValues();
+  // col 9=I(0), 10=J(1), 11=K(2) ... 24=X(15)
 
-  for (var i = 2; i <= lastRow; i++) {
-    if (i === currentRow) continue;
+  const candidates = [];
 
-    const otherTxtUrl = (sheet.getRange(i, txtUrlCol).getValue() || "").toString().trim();
-    if (!otherTxtUrl) continue;
+  // ── שלב 2: סינון ראשוני לפי נתוני גליון בלבד ────────────────────
+  for (var i = 0; i < rangeData.length; i++) {
+    const sheetRow = i + 2;
+    if (sheetRow === currentRow) continue;
+
+    const rowTitle  = String(rangeData[i][0] || "").trim(); // I
+    const rowIssuer = String(rangeData[i][1] || "").trim(); // J
+    const rowDate   = String(rangeData[i][2] || "").trim(); // K
+    const rowTxtUrl = String(rangeData[i][15] || "").trim(); // X(24)
+
+    if (!rowTxtUrl) continue;
+
+    let quickScore = 0;
+
+    if (currentMeta.title && rowTitle) {
+      const a = currentMeta.title.toLowerCase();
+      const b = rowTitle.toLowerCase();
+      if (a.includes(b) || b.includes(a)) quickScore++;
+    }
+    if (currentMeta.issuer && rowIssuer &&
+        currentMeta.issuer.toLowerCase() === rowIssuer.toLowerCase()) {
+      quickScore++;
+    }
+    if (currentMeta.date && rowDate &&
+        currentMeta.date === rowDate) {
+      quickScore++;
+    }
+
+    // רק שורות עם לפחות 2/3 קריטריונים ראשוניים — מועברות לשלב 3
+    if (quickScore >= 2) {
+      candidates.push({ sheetRow: sheetRow, txtUrl: rowTxtUrl, quickScore: quickScore });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  // ── שלב 3: קריאת Drive רק לשורות מועמדות ────────────────────────
+  for (var c = 0; c < candidates.length; c++) {
+    const cand = candidates[c];
 
     let otherContent = "";
     try {
-      otherContent = _fetchTextFromUrl_S07(otherTxtUrl);
+      otherContent = _fetchTextFromUrl_S07(cand.txtUrl);
     } catch (e) {
       continue;
     }
@@ -278,32 +332,23 @@ function _calculateDuplicates_S07(currentRow, sheet, currentTxtContent) {
 
     let score = 0;
 
-    // קריטריון 1 — כותרת (contains)
     if (currentMeta.title && otherMeta.title) {
       const a = currentMeta.title.toLowerCase();
       const b = otherMeta.title.toLowerCase();
       if (a.includes(b) || b.includes(a)) score++;
     }
-
-    // קריטריון 2 — מנפיק (מדויק)
     if (currentMeta.issuer && otherMeta.issuer &&
         currentMeta.issuer.toLowerCase() === otherMeta.issuer.toLowerCase()) {
       score++;
     }
-
-    // קריטריון 3 — תאריך (מדויק)
     if (currentMeta.date && otherMeta.date &&
         currentMeta.date === otherMeta.date) {
       score++;
     }
-
-    // קריטריון 4 — גודל קובץ (מדויק)
     if (currentMeta.size && otherMeta.size &&
         currentMeta.size === otherMeta.size) {
       score++;
     }
-
-    // קריטריון 5 — מספר מילים (סטייה עד 10%)
     if (currentMeta.words && otherMeta.words) {
       const diff = Math.abs(currentMeta.words - otherMeta.words);
       const pct  = diff / Math.max(currentMeta.words, otherMeta.words);
@@ -311,8 +356,9 @@ function _calculateDuplicates_S07(currentRow, sheet, currentTxtContent) {
     }
 
     if (score >= 3) {
-      Logger.log("[S07] כפול זוהה: שורה " + currentRow + " ↔ שורה " + i + " | ניקוד: " + score + "/5");
-      return i;
+      Logger.log("[S07] כפול זוהה: שורה " + currentRow + " ↔ שורה " + cand.sheetRow +
+                 " | quickScore: " + cand.quickScore + "/3 | finalScore: " + score + "/5");
+      return cand.sheetRow;
     }
   }
 
@@ -349,8 +395,9 @@ function _callAiWithFullPrompt_S07(text, extractor, examples) {
   const fullPrompt =
     "אתה עוזר אדמיניסטרטיבי רפואי מומחה בישראל.\n" +
     "החזר JSON בלבד ללא טקסט נוסף:\n" +
-    "{ \"title\": \"\", \"issuer\": \"\", \"date\": \"\", \"category\": \"\" }\n" +
+    "{ \"title\": \"\", \"issuer\": \"\", \"date\": \"\", \"category\": \"\", \"complexity\": \"\" }\n" +
     "ערכי category חוקיים: רפואי / חשבונאי / משפטי / ביטוחי / אחר\n" +
+    "ערכי complexity חוקיים: פשוט / בינוני / מורכב\n" +
     "חובה למלא לפחות title ו-category.\n" +
     examples +
     "\nהטקסט:\n" + text;
