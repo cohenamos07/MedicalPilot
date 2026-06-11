@@ -1,13 +1,26 @@
 /**
- * MedicalPilot — Mod_Ingestion.gs
- * @version 97.9.3 | @updated 31/05/2026 20:40 | @service S03
- * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Mod_Ingestion.gs
- * @impacts סריקת Gmail וקליטת קבצים מצורפים לגליון ניהול_מיילים.
- *          כותב לעמודות A-H ו-W. מסנן קבצי .gif ופורמטים לא נתמכים.
- *          תלויות: Gmail API, Drive API, גליון ניהול_מיילים.
- *          מופעל מהתפריט — אינו חלק מזרימת עיבוד אוטומטי.
- * שינוי: [v97.9.3] הוספת @impacts וכותרת מלאה לפי סטנדרט
- *         [v97.9.2] סינון קבצי .gif — נדחים ב-Gmail_isValidAttachment וב-runMedicalProcess
+ * @file        Mod_Ingestion.gs
+ * @version     97.10.0 | @updated 11/06/2026 19:12 | @service S03
+ * @git         src/infrastructure/Mod_Ingestion.gs
+ * @description סריקת Gmail וקליטת קבצים מצורפים לגליון ניהול_מיילים.
+ *              מסנן קבצי .gif ופורמטים לא נתמכים (גודל < 2500 בייט).
+ *              שומר קובץ ל-Drive, כותב שורה לגליון, מסמן שרשור כנקרא.
+ *              מופעל מאייקון Gmail בעמודה D או מתפריט — אינו אוטומטי.
+ * @impacts     ניהול_מיילים:
+ *              A=File_ID | B=Capture_Date | C=Source | D=Msg_ID | E=Subject
+ *              F=From | G=Msg_Date | H=File_Name | W(23)=Source_URL
+ *              קורא: Gmail API (label:Medical_To_Process, is:unread)
+ *              כותב: Drive (GMAIL_INBOX_FOLDER_ID) + גליון ניהול_מיילים
+ * @callers     runGmailIcon (ViewEngine) | Menu_LAB | Menu_PROD
+ * @functions   runMedicalProcess | runEmailIngestion
+ *              Gmail_getExistingIds | Gmail_fetchThreads
+ *              Gmail_isValidAttachment | Gmail_saveFileToDrive
+ *              Gmail_writeRowToSheet
+ * @changes     [v97.10.0] תיקון Source_URL — כתיבה לעמודה 23 (W) במקום 15 (O)
+ *                         תיקון בשתי פונקציות: Gmail_writeRowToSheet + runMedicalProcess
+ *                         כותרת מורחבת לפי סטנדרט
+ *              [v97.9.3]  הוספת @impacts וכותרת מלאה
+ *              [v97.9.2]  סינון קבצי .gif
  */
 
 const GMAIL_INBOX_FOLDER_ID = "1HSzOwL7YIzC8FvgGtuxCKYzfKk0RsHO5";
@@ -29,7 +42,13 @@ function runMedicalProcess() {
         const driveFile = DriveApp.getFolderById(GMAIL_INBOX_FOLDER_ID).createFile(att);
         const fileId = driveFile.getId();
         if (existingIds.indexOf(fileId) === -1) {
-          sheet.appendRow([fileId, new Date(), "Gmail", lastMsg.getId().substring(0,10), lastMsg.getSubject(), lastMsg.getFrom(), lastMsg.getDate(), att.getName(), "", "", "", "", "", "", driveFile.getUrl()]);
+          sheet.appendRow([
+            fileId, new Date(), "Gmail",
+            lastMsg.getId().substring(0,10), lastMsg.getSubject(),
+            lastMsg.getFrom(), lastMsg.getDate(), att.getName(),
+            "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+            driveFile.getUrl()
+          ]);
           count++;
         } else { driveFile.setTrashed(true); }
       }
@@ -85,7 +104,13 @@ function Gmail_saveFileToDrive(att) {
 
 function Gmail_writeRowToSheet(sheet, rowData) {
   try {
-    sheet.appendRow([rowData.fileId, rowData.date, rowData.source, rowData.msgId, rowData.subject, rowData.from, rowData.msgDate, rowData.fileName, "", "", "", "", "", "", rowData.fileUrl]);
+    sheet.appendRow([
+      rowData.fileId, rowData.date, rowData.source,
+      rowData.msgId, rowData.subject, rowData.from,
+      rowData.msgDate, rowData.fileName,
+      "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+      rowData.fileUrl
+    ]);
     return true;
   } catch (e) {
     Logger.log("Error in Gmail_writeRowToSheet: " + e.message);
