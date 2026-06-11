@@ -1,16 +1,31 @@
 /**
- * MedicalPilot — System_Doc_Builder.gs
- * @version 1.6.0 | @updated 29/05/2026 16:22 | @service INFRA
- * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/System_Doc_Builder.gs
- * @impacts בניית גיליונות תיעוד מערכת וניהול משימות פיתוח.
- *          כולל: גיליון תיעוד AI, גיליון קשרי שירות, גיליון ניהול_משימות.
- *          פונקציות משימות: הוספה, סגירה, דוח יומי וסיום סשן.
- *          נקרא מציורים בגיליון ומהתפריט — אינו חלק מזרימת עיבוד אוטומטי.
- * שינוי: [v1.6.0] שדרוג task_SessionStart — קריאת מסמך חפיפה + הצעת משימות לסשן.
- *                 שדרוג task_EndOfDay — חפיפה אוטומטית מלאה עם החלטות ומשימות פתוחות.
- *                 הוספת task_DocFunctions — תיעוד שירותים, פונקציות ותהליכים.
- *         [v1.5.3] task_SyncToday הפכה לטופס HTML אינטראקטיבי (showModalDialog).
- *                 נוספה task_AddFromDialog — שמירת משימה יחידה מהטופס עם כל השדות.
+ * @file        System_Doc_Builder.gs
+ * @version     1.8.0 | @updated 11/06/2026 20:30 | @service INFRA
+ * @git         src/infrastructure/System_Doc_Builder.gs
+ * @description בניית גיליונות תיעוד מערכת וניהול משימות פיתוח.
+ *              כולל: גיליון תיעוד AI, גיליון קשרי שירות, גיליון ניהול_משימות.
+ *              פונקציות משימות: הוספה, סגירה, מיון, דוח יומי וסיום סשן.
+ *              נקרא מציורים בגיליון ומהתפריט — אינו חלק מזרימת עיבוד אוטומטי.
+ * @impacts     גיליון ניהול_משימות:
+ *              A=Task_ID | B=Open_Date | C=Closed_Date | D=Status
+ *              E=Module  | F=Description | G=Priority   | H=Notes
+ *              גיליון תיעוד מערכת AI — כותרות + שורות שירות.
+ *              גיליון תיעוד_פונקציות — רשימת פונקציות מהעורך.
+ * @callers     ציורים בגליון ניהול_משימות (שורה 2) | תפריט Menu_LAB
+ * @functions   createOrUpdateSystemDoc_v5 | updateDailyStatus | updateStaticSections
+ *              scanSheets_v1 | scanCodeFiles_v2 | extractModuleMetadata
+ *              extractFunctions_v2 | updateMappingTable_v2
+ *              unlockSheet | lockSheet | getMatch | updateSystemContext
+ *              task_SetupSheet | task_SessionStart | task_RunReport
+ *              task_ChangePriority | task_ToggleStatus | task_LoadList
+ *              task_RefreshList | task_EndOfDay | task_DocFunctions
+ *              task_AddFromDialog | task_SyncToday
+ * @changes     [v1.8.0] שדרוג task_EndOfDay — דוח HTML עם כפתור העתקה
+ *                       מיון לפי ספרייה → עדיפות | 3 בלוקים: סטטוס / נסגרו / פתוחות
+ *                       כותרת מורחבת לפי סטנדרט
+ *              [v1.7.0] הוספת task_RefreshList — מיון + מספור + צביעה + ניקוי
+ *              [v1.6.0] שדרוג task_SessionStart + task_EndOfDay + task_DocFunctions
+ *              [v1.5.3] task_SyncToday — טופס HTML | task_AddFromDialog
  */
 
 // ══════════════════════════════════════════════════════════════════
@@ -203,7 +218,7 @@ function updateSystemContext() {
       "העדפות AI:\n1. תשובות ברורות ומפורטות.\n2. עברית כברירת מחדל.\n3. קוד מלא בלבד בתיבת העתקה.\n4. תכנון לפני קוד.\n5. הסברים צעד-אחר-צעד.\n6. שמות פונקציות ברורים.\n7. אין לחשוף מידע רגיש.\n8. עמוס מוגבל ביד ימין — תמיד תיבת העתקה.\n9. עמוס אינו מתכנת — קוד מלא בלבד.",
       "נהלי גיבוי:\n1. גיבוי ידני לפני כל שינוי.\n2. גיבוי לפני כל שינוי גרסה.\n3. שמירת Snapshot לכל שינוי משמעותי.\n4. אין למחוק גיבויים.\n5. כל גיבוי מתועד בהיסטוריה.",
       "כלל סנכרון גיטהאב:\n1. כל קובץ בגיטהאב חייב להיות קיים בשמו המדויק בעורך.\n2. אין להעלות לגיטהאב פונקציות שאינן בקובץ עצמאי בעורך.\n3. לפני העלאה — ודא שהקובץ קיים בעורך.\n\nכלל עדכון אוטומטי:\n1. אין לעדכן ידנית.\n2. יש להשתמש תמיד בכלי הסנכרון:\n   - updateSystemContext לגיליון\n   - pushContextToGitHub לגיטהאב\n   - endSessionSync לשניהם יחד.",
-      "גרסאות נוכחיות:\nPROD: v10.7\nLAB: v10.7\nתאריך עדכון: 29/05/2026",
+      "גרסאות נוכחיות:\nPROD: v10.8\nLAB: v10.8\nתאריך עדכון: 11/06/2026",
       "מודולים קריטיים:\nSystem_Logger.gs — תלוי שורה 6\nMenu_PROD.gs — תפריט ייצור\nMenu_LAB.gs — תפריט מעבדה\nMain.gs — נקודת כניסה\nGitHubSync.gs — סנכרון קוד"
     ]];
     sheet.getRange("A3:G3").setValues(rulesRow).setVerticalAlignment("top");
@@ -212,23 +227,23 @@ function updateSystemContext() {
     const servicesData = [
       ["S01", "בדיקת בוקר טוב",      "System_HealthCheck.gs", "פעיל",        ""],
       ["S02", "הרשאות גישה",          "Auth_Check.gs",         "פעיל",        ""],
-      ["S03", "סריקת Gmail",          "Mod_Ingestion.gs",      "פעיל חלקית", ""],
-      ["S04", "סריקת Drive",          "S04_DriveSync.gs",      "פעיל חלקית", ""],
-      ["S05", "חילוץ מטא-דאטה",      "S05_MetaExtract.gs",    "אזהרה",       "נכשל בקבצים כבדים"],
+      ["S03", "סריקת Gmail",          "Mod_Ingestion.gs",      "פעיל",        ""],
+      ["S04", "סריקת Drive",          "S04_DriveSync.gs",      "פעיל",        ""],
+      ["S05", "חילוץ מטא-דאטה",      "S05_MetaExtract.gs",    "פעיל",        ""],
       ["S06", "המרה ל-TXT",           "S06_ConvertTXT.gs",     "פעיל",        ""],
       ["S07", "סיווג מסמכים",         "S07_Classify.gs",       "פעיל",        ""],
-      ["S08", "אימות ידני ולמידה",    "S08_Validate.gs",       "בפיתוח",      ""],
-      ["S09", "חילוץ שדות",           "S09_ExtractMedical.gs", "פעיל",        ""],
-      ["S10", "סנכרון GitHub",        "EditorToGitHub.gs",     "פעיל",        ""],
-      ["S11", "ניהול לוגים",          "System_Logger.gs",      "תוקן",        "תלוי שורה 6"],
-      ["S12", "משימות פיתוח",         "System_Doc_Builder.gs", "פעיל",        ""],
-      ["S13", "אבחון AI",             "Check_Models.gs",       "פעיל",        ""],
-      ["S14", "הגדרות תשתית",        "appsscript.json",       "פעיל",        ""],
-      ["S15", "בדיקות QA",            "QA_Tests.gs",           "חלקי",        "מכסה 30% בלבד"]
+      ["S08", "אימות ידני ולמידה",    "S08_Validate.gs",       "פעיל",        ""],
+      ["S09", "חילוץ אירועים",        "S09_ExtractMedical.gs", "פעיל",        ""],
+      ["S10", "אימות אירועים",        "S10_Validate.gs",       "פעיל",        ""],
+      ["S11", "בדיקת תקינות QA",      "S11_QArun.gs",          "פעיל",        ""],
+      ["S12", "ארכיון",               "ViewEngine.gs",         "פעיל",        ""],
+      ["INFRA", "ניהול משימות",       "System_Doc_Builder.gs", "פעיל",        ""],
+      ["INFRA", "ניהול לוגים",        "System_Logger.gs",      "פעיל",        "תלוי שורה 6"],
+      ["INFRA", "סנכרון גיטהאב",     "EditorToGitHub.gs",     "פעיל",        ""]
     ];
     sheet.getRange("A5:E19").setValues(servicesData);
     sheet.getRange("A20").setValue("משימה הבאה:");
-    sheet.getRange("B20").setValue("פיתוח S08 אימות ידני + סנכרון מלא");
+    sheet.getRange("B20").setValue("המשך פיתוח Pipeline + תיקוני כותרות");
     sheet.getRange("A20:G20").setBackground("#d9ead3").setFontWeight("bold");
     sheet.getRange("A21:D21").setValues([[
       "קישורים קריטיים:",
@@ -250,7 +265,6 @@ function updateSystemContext() {
 
 // ══════════════════════════════════════════════════════════════════
 // ניהול משימות — Task Manager
-// @version 1.6.0 | @updated 29/05/2026 | @service INFRA
 // מבנה עמודות:
 //   A=Task_ID | B=Open_Date | C=Closed_Date | D=Status
 //   E=Module  | F=Description | G=Priority  | H=Notes
@@ -328,7 +342,7 @@ function task_SetupSheet() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פתיחת סשן — [v1.6.0] שדרוג: קריאת חפיפה + הצעת משימות
+// פתיחת סשן — קריאת חפיפה + הצעת משימות
 // ══════════════════════════════════════════════════════════════════
 
 function task_SessionStart() {
@@ -343,7 +357,6 @@ function task_SessionStart() {
   const rowCount = lastRow - TASK_DATA_START + 1;
   const data     = sheet.getRange(TASK_DATA_START, 1, rowCount, 8).getValues();
 
-  // ── שלב א׳: רענון צבעים + ספירה ──────────────────────────────
   let open = 0, inProgress = 0, closed = 0;
   data.forEach(function(row, i) {
     const status   = String(row[COL_STATUS - 1]).trim();
@@ -353,7 +366,6 @@ function task_SessionStart() {
     else if (status.includes("פתוח"))   { rowRange.setBackground(TASK_COLOR_RED);    open++;       }
   });
 
-  // ── שלב ב׳: שליפת משימות פתוחות ─────────────────────────────
   const openTasks = [];
   data.forEach(function(row) {
     const status = String(row[COL_STATUS - 1]).trim();
@@ -368,7 +380,6 @@ function task_SessionStart() {
     }
   });
 
-  // ── שלב ג׳: קריאת מסמך חפיפה אחרון ──────────────────────────
   let handoverText = "";
   try {
     const files = DriveApp.searchFiles(
@@ -398,7 +409,6 @@ function task_SessionStart() {
     return;
   }
 
-  // ── שלב ד׳: מיון וקיבוץ לפי ספרייה ודחיפות ──────────────────
   const priorityOrder = { "🔥 גבוה": 1, "🔵 רגיל": 2, "⚪ נמוך": 3 };
   openTasks.sort(function(a, b) {
     if (a.module < b.module) return -1;
@@ -412,7 +422,6 @@ function task_SessionStart() {
     grouped[t.module].push(t);
   });
 
-  // ── שלב ה׳: בניית טקסט מאוחד ─────────────────────────────────
   const now = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
   let agenda  = "📊 דוח משימות — " + now + "\n";
   agenda     += "🔴 פתוח: " + open + "  |  🟡 בביצוע: " + inProgress + "  |  ✅ סגור: " + closed + "\n";
@@ -442,10 +451,6 @@ function task_SessionStart() {
 
   ui.alert("סדר יום לסשן", agenda, ui.ButtonSet.OK);
 }
-
-// ══════════════════════════════════════════════════════════════════
-// עטיפה לאחורה-תאימות — מפנה ל-task_SessionStart
-// ══════════════════════════════════════════════════════════════════
 
 function task_RunReport() {
   task_SessionStart();
@@ -578,7 +583,112 @@ function task_LoadList(tasks) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// סיום יום — [v1.6.0] חפיפה אוטומטית מלאה
+// [v1.7.0] רענון גיליון — מיון + מספור + צביעה + ניקוי שורות ריקות
+// ══════════════════════════════════════════════════════════════════
+
+function task_RefreshList() {
+  const ui    = SpreadsheetApp.getUi();
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(TASK_SHEET_NAME);
+  if (!sheet) { ui.alert("גיליון לא נמצא — הרץ task_SetupSheet תחילה."); return; }
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < TASK_DATA_START) { ui.alert("אין משימות בגיליון."); return; }
+
+  try {
+    // ── שלב 1: קריאת כל הנתונים ─────────────────────────────────
+    const rowCount = lastRow - TASK_DATA_START + 1;
+    const data     = sheet.getRange(TASK_DATA_START, 1, rowCount, 8).getValues();
+
+    // ── שלב 2: סינון שורות ריקות ─────────────────────────────────
+    const validRows = data.filter(function(row) {
+      return row[COL_MODULE - 1] !== "" || row[COL_DESC - 1] !== "";
+    });
+
+    if (validRows.length === 0) { ui.alert("אין משימות תקינות בגיליון."); return; }
+
+    // ── שלב 3: מיון — פתוח לפי עדיפות+מודול, סגור בסוף ──────────
+    const priorityOrder = { "🔥 גבוה": 1, "🔵 רגיל": 2, "⚪ נמוך": 3 };
+
+    validRows.sort(function(a, b) {
+      const statusA  = String(a[COL_STATUS   - 1]).trim();
+      const statusB  = String(b[COL_STATUS   - 1]).trim();
+      const closedA  = statusA.includes("סגור") ? 1 : 0;
+      const closedB  = statusB.includes("סגור") ? 1 : 0;
+
+      // סגורות תמיד בסוף
+      if (closedA !== closedB) return closedA - closedB;
+
+      // מיון לפי מודול
+      const moduleA = String(a[COL_MODULE - 1]).trim();
+      const moduleB = String(b[COL_MODULE - 1]).trim();
+      if (moduleA < moduleB) return -1;
+      if (moduleA > moduleB) return  1;
+
+      // מיון לפי עדיפות בתוך אותו מודול
+      const prioA = priorityOrder[String(a[COL_PRIORITY - 1]).trim()] || 9;
+      const prioB = priorityOrder[String(b[COL_PRIORITY - 1]).trim()] || 9;
+      return prioA - prioB;
+    });
+
+    // ── שלב 4: מספור מחדש + כתיבה חזרה לגיליון ─────────────────
+    const now = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
+
+    // ניקוי אזור הנתונים הישן
+    sheet.getRange(TASK_DATA_START, 1, rowCount, 8).clearContent();
+    sheet.getRange(TASK_DATA_START, 1, rowCount, 8).setBackground(TASK_COLOR_WHITE);
+
+    validRows.forEach(function(row, i) {
+      const newRow    = TASK_DATA_START + i;
+      const newTaskId = i + 1;
+      const status    = String(row[COL_STATUS - 1]).trim();
+
+      // מספור מחדש
+      row[COL_TASK_ID - 1] = newTaskId;
+
+      // כתיבה לגיליון
+      sheet.getRange(newRow, 1, 1, 8).setValues([row]);
+
+      // צביעה לפי סטטוס
+      let bgColor = TASK_COLOR_WHITE;
+      if      (status.includes("סגור"))   bgColor = TASK_COLOR_GREEN;
+      else if (status.includes("בביצוע")) bgColor = TASK_COLOR_YELLOW;
+      else if (status.includes("פתוח"))   bgColor = TASK_COLOR_RED;
+      sheet.getRange(newRow, 1, 1, 8).setBackground(bgColor);
+    });
+
+    SpreadsheetApp.flush();
+
+    // ── שלב 5: דוח סיכום ─────────────────────────────────────────
+    let open = 0, inProg = 0, closed = 0;
+    validRows.forEach(function(row) {
+      const s = String(row[COL_STATUS - 1]).trim();
+      if      (s.includes("סגור"))   closed++;
+      else if (s.includes("בביצוע")) inProg++;
+      else                            open++;
+    });
+
+    ui.alert(
+      "✅ רענון הושלם — " + now + "\n\n" +
+      "🔴 פתוח:   " + open   + "\n" +
+      "🟡 בביצוע: " + inProg + "\n" +
+      "✅ סגור:   " + closed  + "\n" +
+      "─────────────────\n" +
+      "סה\"כ: " + validRows.length + " משימות\n" +
+      "שורות ריקות שהוסרו: " + (rowCount - validRows.length)
+    );
+
+    Logger.log("[task_RefreshList] הושלם — " + validRows.length + " משימות, " +
+               (rowCount - validRows.length) + " שורות ריקות הוסרו");
+
+  } catch (e) {
+    Logger.log("[task_RefreshList] שגיאה: " + e.message);
+    ui.alert("❌ שגיאה ב-task_RefreshList:\n" + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// סיום יום — חפיפה אוטומטית מלאה
 // ══════════════════════════════════════════════════════════════════
 
 function task_EndOfDay() {
@@ -588,82 +698,157 @@ function task_EndOfDay() {
   if (!sheet) { ui.alert("גיליון לא נמצא."); return; }
   const lastRow = sheet.getLastRow();
   if (lastRow < TASK_DATA_START) { ui.alert("אין משימות בגיליון."); return; }
+
   const rowCount = lastRow - TASK_DATA_START + 1;
   const data     = sheet.getRange(TASK_DATA_START, 1, rowCount, 8).getValues();
   const now      = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
+  const today    = now.substring(0, 10);
 
-  const closedToday = [];
-  const openList    = [];
-  const inProgList  = [];
+  const closedTodayByLib = {};
+  const openByLib        = {};
+  let   totalOpen        = 0;
+  let   totalInProg      = 0;
+  let   totalClosed      = 0;
+  let   totalClosedToday = 0;
 
   data.forEach(function(row) {
-    const taskId   = row[COL_TASK_ID - 1];
-    const module   = row[COL_MODULE  - 1];
-    const desc     = row[COL_DESC    - 1];
+    const taskId   = row[COL_TASK_ID   - 1];
+    const module   = String(row[COL_MODULE      - 1]).trim();
+    const desc     = String(row[COL_DESC        - 1]).trim();
     const status   = String(row[COL_STATUS      - 1]).trim();
-    const closed   = String(row[COL_CLOSED_DATE - 1]).trim();
+    const closedRaw = row[COL_CLOSED_DATE - 1];
+    const closed    = closedRaw instanceof Date
+      ? Utilities.formatDate(closedRaw, "Asia/Jerusalem", "dd/MM/yyyy HH:mm")
+      : String(closedRaw).trim();
     const priority = String(row[COL_PRIORITY    - 1]).trim();
-    if (!taskId) return;
+    if (!taskId || !module) return;
 
-    const line = priority + " #" + taskId + " [" + module + "] " + desc;
     if (status.includes("סגור")) {
-      if (closed && closed.startsWith(now.substring(0, 10))) closedToday.push(line);
+      totalClosed++;
+      if (closed.startsWith(today)) {
+        totalClosedToday++;
+        if (!closedTodayByLib[module]) closedTodayByLib[module] = [];
+        closedTodayByLib[module].push("#" + taskId);
+      }
     } else if (status.includes("בביצוע")) {
-      inProgList.push(line);
+      totalInProg++;
+      if (!openByLib[module]) openByLib[module] = [];
+      openByLib[module].push({ id: taskId, desc: desc, priority: priority, status: status });
     } else {
-      openList.push(line);
+      totalOpen++;
+      if (!openByLib[module]) openByLib[module] = [];
+      openByLib[module].push({ id: taskId, desc: desc, priority: priority, status: status });
     }
   });
 
-  let summary  = "═══════════════════════════════\n";
-  summary     += "📋 מסמך חפיפה — " + now + "\n";
-  summary     += "═══════════════════════════════\n\n";
+  const priorityOrder = { "🔥 גבוה": 1, "🔵 רגיל": 2, "⚪ נמוך": 3 };
+  const versionStr    = "LA v10.8 | PR v10.8";
 
-  summary     += "✅ נסגרו היום:\n";
-  if (closedToday.length === 0) {
-    summary += "  (אין)\n";
+  let report  = "📊 MedicalPilot | " + now + " | " + versionStr + "\n";
+  report     += "✅ נסגרו היום: " + totalClosedToday +
+                "  |  🔴 פתוחות: " + totalOpen +
+                "  |  🟡 בביצוע: " + totalInProg + "\n";
+  report     += "══════════════════════════════\n\n";
+
+  report += "✅ נסגרו היום:\n";
+  if (Object.keys(closedTodayByLib).length === 0) {
+    report += "  (אין)\n";
   } else {
-    closedToday.forEach(function(t) { summary += "  • " + t + "\n"; });
+    Object.keys(closedTodayByLib).sort().forEach(function(lib) {
+      const ids     = closedTodayByLib[lib].join(" ");
+      const padding = lib.length < 16 ? lib + Array(16 - lib.length).join(" ") : lib;
+      report += "  " + padding + "  " + ids + "\n";
+    });
+  }
+  report += "\n══════════════════════════════\n\n";
+
+  report += "📋 משימות פתוחות:\n";
+  if (Object.keys(openByLib).length === 0) {
+    report += "  🎉 כל המשימות סגורות!\n";
+  } else {
+    Object.keys(openByLib).sort().forEach(function(lib) {
+      report += "\n📁 " + lib + "\n";
+      const tasks = openByLib[lib];
+      tasks.sort(function(a, b) {
+        return (priorityOrder[a.priority] || 9) - (priorityOrder[b.priority] || 9);
+      });
+      tasks.forEach(function(t) {
+        const icon = t.status.includes("בביצוע") ? "🟡" : t.priority;
+        report += "    " + icon + " #" + t.id + " — " + t.desc + "\n";
+      });
+    });
   }
 
-  summary += "\n🟡 בביצוע:\n";
-  if (inProgList.length === 0) {
-    summary += "  (אין)\n";
-  } else {
-    inProgList.forEach(function(t) { summary += "  • " + t + "\n"; });
-  }
+  report += "\n══════════════════════════════\n";
+  report += "📌 החלטות שהתקבלו בסשן:\n  (עדכן ידנית)\n";
+  report += "══════════════════════════════\n";
+  report += "📌 נקודת המשך לסשן הבא:\n  (עדכן ידנית)";
 
-  summary += "\n🔴 נשארו פתוחות:\n";
-  if (openList.length === 0) {
-    summary += "  (אין — כל המשימות סגורות 🎉)\n";
-  } else {
-    openList.forEach(function(t) { summary += "  • " + t + "\n"; });
-  }
-
-  summary += "\n═══════════════════════════════\n";
-  summary += "📌 החלטות שהתקבלו בסשן:\n";
-  summary += "  (עדכן ידנית לפני שמירה)\n";
-  summary += "═══════════════════════════════\n\n";
-  summary += "📌 נקודת המשך לסשן הבא:\n";
-  summary += "  (עדכן ידנית לפני שמירה)\n";
-  summary += "═══════════════════════════════\n";
-  summary += "העתק לסוכן AI כמסמך חפיפה.";
-
-  ui.alert("סיום יום — מסמך חפיפה", summary, ui.ButtonSet.OK);
-
-  // שמירה אוטומטית ב-Drive
   try {
     const fileName = "חפיפה_" + now.replace(/[/:]/g, "-") + ".txt";
-    const folder   = DriveApp.getRootFolder();
-    folder.createFile(fileName, summary, MimeType.PLAIN_TEXT);
+    DriveApp.getRootFolder().createFile(fileName, report, MimeType.PLAIN_TEXT);
     Logger.log("[task_EndOfDay] נשמר: " + fileName);
   } catch (e) {
     Logger.log("[task_EndOfDay] שגיאה בשמירה: " + e.message);
   }
+
+  const reportEscaped = report
+    .replace(/&/g,  "&amp;")
+    .replace(/</g,  "&lt;")
+    .replace(/>/g,  "&gt;")
+    .replace(/"/g,  "&quot;");
+
+  const htmlContent =
+    '<!DOCTYPE html>' +
+    '<html dir="rtl">' +
+    '<head>' +
+    '<base target="_top">' +
+    '<style>' +
+    '* { box-sizing: border-box; margin: 0; padding: 0; }' +
+    'body { direction: rtl; font-family: Arial, sans-serif; padding: 16px; background: #f8f9fa; color: #222; font-size: 13px; }' +
+    'h3 { color: #1a3a5c; font-size: 15px; border-bottom: 2px solid #1a3a5c; padding-bottom: 8px; margin-bottom: 12px; }' +
+    '#reportBox { width: 100%; height: 380px; font-family: monospace; font-size: 12px; direction: rtl; padding: 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; resize: none; white-space: pre; overflow: auto; }' +
+    '.buttons { margin-top: 12px; display: flex; gap: 8px; justify-content: center; }' +
+    '.btn-copy { background: #1a3a5c; color: #fff; border: none; border-radius: 4px; padding: 9px 28px; font-size: 13px; cursor: pointer; font-weight: bold; }' +
+    '.btn-copy:hover { background: #254e7a; }' +
+    '.btn-close { background: #fff; border: 1px solid #bbb; border-radius: 4px; padding: 9px 20px; font-size: 13px; cursor: pointer; }' +
+    '#msg { margin-top: 8px; text-align: center; font-size: 12px; color: #2e7d32; min-height: 16px; }' +
+    '</style>' +
+    '</head>' +
+    '<body>' +
+    '<h3>\uD83D\uDCCB סיום יום \u2014 מסמך חפיפה</h3>' +
+    '<textarea id="reportBox" readonly>' + reportEscaped + '</textarea>' +
+    '<div id="msg"></div>' +
+    '<div class="buttons">' +
+    '<button class="btn-copy" onclick="copyReport()">\uD83D\uDCCB העתק דוח</button>' +
+    '<button class="btn-close" onclick="google.script.host.close()">סגור</button>' +
+    '</div>' +
+    '<script>' +
+    'function copyReport() {' +
+    '  var box = document.getElementById("reportBox");' +
+    '  box.select();' +
+    '  box.setSelectionRange(0, 99999);' +
+    '  try {' +
+    '    document.execCommand("copy");' +
+    '    document.getElementById("msg").textContent = "\u2705 הדוח הועתק ללוח!";' +
+    '    setTimeout(function() { document.getElementById("msg").textContent = ""; }, 2500);' +
+    '  } catch(e) {' +
+    '    document.getElementById("msg").textContent = "\u274C שגיאה \u2014 סמן ידנית והעתק";' +
+    '  }' +
+    '}' +
+    '<\/script>' +
+    '</body>' +
+    '</html>';
+
+  const html = HtmlService.createHtmlOutput(htmlContent)
+    .setWidth(620)
+    .setHeight(560)
+    .setTitle("סיום יום — מסמך חפיפה");
+  ui.showModalDialog(html, "📋 סיום יום — מסמך חפיפה");
 }
 
 // ══════════════════════════════════════════════════════════════════
-// תיעוד פונקציונלי — [v1.6.0] פונקציה חדשה
+// תיעוד פונקציונלי
 // ══════════════════════════════════════════════════════════════════
 
 function task_DocFunctions() {
@@ -706,11 +891,11 @@ function task_DocFunctions() {
 
     files.forEach(function(file) {
       if (file.type !== "SERVER_JS" || !file.source) return;
-      const source      = file.source;
-      const versionLine = source.match(/@version[^\n]*/);
-      const version     = versionLine ? versionLine[0].replace(/@version/i, "").replace(/[*/|]/g, "").trim().split(" ")[0] : "—";
+      const source       = file.source;
+      const versionLine  = source.match(/@version[^\n]*/);
+      const version      = versionLine ? versionLine[0].replace(/@version/i, "").replace(/[*/|]/g, "").trim().split(" ")[0] : "—";
       const serviceMatch = source.match(/@service\s+(\S+)/);
-      const service     = serviceMatch ? serviceMatch[1] : "—";
+      const service      = serviceMatch ? serviceMatch[1] : "—";
 
       let match;
       fnRegex.lastIndex = 0;
@@ -756,7 +941,7 @@ function task_AddFromDialog(data) {
       }
     }
     if (lastDataRow >= TASK_DATA_START) {
-      const existing    = sheet.getRange(TASK_DATA_START, COL_DESC, lastDataRow - TASK_DATA_START + 1, 1).getValues();
+      const existing     = sheet.getRange(TASK_DATA_START, COL_DESC, lastDataRow - TASK_DATA_START + 1, 1).getValues();
       const existingDesc = existing.map(r => r[0].toString().trim().toLowerCase());
       if (existingDesc.some(ex => ex === data.description.trim().toLowerCase())) {
         return "⚠️ משימה עם אותו תיאור כבר קיימת בגיליון";
