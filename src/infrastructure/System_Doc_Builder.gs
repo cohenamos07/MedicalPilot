@@ -1,6 +1,6 @@
 /**
  * @file        System_Doc_Builder.gs
- * @version     1.8.0 | @updated 11/06/2026 20:30 | @service INFRA
+ * @version     1.9.0 | @updated 12/06/2026 11:30 | @service INFRA
  * @git         src/infrastructure/System_Doc_Builder.gs
  * @description בניית גיליונות תיעוד מערכת וניהול משימות פיתוח.
  *              כולל: גיליון תיעוד AI, גיליון קשרי שירות, גיליון ניהול_משימות.
@@ -20,14 +20,15 @@
  *              task_ChangePriority | task_ToggleStatus | task_LoadList
  *              task_RefreshList | task_EndOfDay | task_DocFunctions
  *              task_AddFromDialog | task_SyncToday
- * @changes     [v1.8.0] שדרוג task_EndOfDay — דוח HTML עם כפתור העתקה
+ * @changes     [v1.9.0] שדרוג task_SessionStart — קריאה אוטומטית ל-task_RefreshList
+ *                       מיון + מספור + ניקוי שורות ריקות בכל פתיחת סשן
+ *              [v1.8.0] שדרוג task_EndOfDay — דוח HTML עם כפתור העתקה
  *                       מיון לפי ספרייה → עדיפות | 3 בלוקים: סטטוס / נסגרו / פתוחות
  *                       כותרת מורחבת לפי סטנדרט
  *              [v1.7.0] הוספת task_RefreshList — מיון + מספור + צביעה + ניקוי
  *              [v1.6.0] שדרוג task_SessionStart + task_EndOfDay + task_DocFunctions
  *              [v1.5.3] task_SyncToday — טופס HTML | task_AddFromDialog
  */
-
 // ══════════════════════════════════════════════════════════════════
 // בניית גיליון תיעוד מערכת
 // ══════════════════════════════════════════════════════════════════
@@ -350,7 +351,10 @@ function task_SessionStart() {
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(TASK_SHEET_NAME);
   if (!sheet) { ui.alert("גיליון לא נמצא — הרץ task_SetupSheet תחילה."); return; }
-
+// [v1.9.0] מיון + מספור + ניקוי אוטומטי לפני הדוח
+  SpreadsheetApp.getActiveSpreadsheet().toast("🔄 מסדר את הגליון...", "MedicalPilot", 3);
+  task_RefreshList();
+  SpreadsheetApp.flush();
   const lastRow = sheet.getLastRow();
   if (lastRow < TASK_DATA_START) { ui.alert("אין משימות פתוחות בגיליון."); return; }
 
