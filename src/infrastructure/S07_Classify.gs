@@ -1,6 +1,6 @@
 /**
  * @file        S07_Classify.gs
- * @version     2.4.0 | @updated 11/06/2026 19:25 | @service S07
+ * @version     2.5.0 | @updated 11/06/2026 10:50 | @service S07
  * @git         src/infrastructure/S07_Classify.gs
  * @description סיווג מסמכים רפואיים בעזרת Gemini API.
  *              קורא טקסט מ-TXT_URL (X) או Raw_Text (Z).
@@ -25,7 +25,10 @@
  *              _fetchTextFromUrl_S07 | _getLearningExamples_S07
  *              _calculateDuplicates_S07 | _extractTxtHeader_S07
  *              S07_ValidateWritePermissions
- * @changes     [v2.4.0] תיקון Complexity — דינמי מ-Gemini בעברית במקום 'SIMPLE' קשיח
+ * @changes     [v2.5.0] תיקון Duplicate_Flag — פורמט: "כפול מאושר — שורה X | ניקוד Y/5"
+ *                       סימטריה: כתיבת Duplicate_Flag גם בשורת הכפול
+ *                       _calculateDuplicates_S07 מחזירה { sheetRow, score } במקום מספר בלבד
+ *              [v2.4.0] תיקון Complexity — דינמי מ-Gemini בעברית במקום 'SIMPLE' קשיח
  *                       הוספת complexity לפרומפט AI — ערכים: פשוט / בינוני / מורכב
  *                       כותרת מורחבת לפי סטנדרט
  *              [v2.3.6] שיפור _calculateDuplicates_S07 — 5 קריטריונים, סף 3/5
@@ -186,9 +189,17 @@ function executeS07Classification(row) {
     if (!fullText || fullText.trim() === "")
       throw new Error("NO_TEXT_FOUND: הטקסט שהתקבל ריק");
 
-    const dupRow = _calculateDuplicates_S07(row, sheet, fullText);
-    if (dupRow) {
-      _safeWrite(sheet, row, "Duplicate_Flag", "חשוד ככפול — שורה " + dupRow);
+    // [v2.5.0] כפולים — { sheetRow, score } + סימטריה
+    const dupResult = _calculateDuplicates_S07(row, sheet, fullText);
+    if (dupResult) {
+      const dupFlag = "כפול מאושר — שורה " + dupResult.sheetRow + " | ניקוד " + dupResult.score + "/5";
+      _safeWrite(sheet, row, "Duplicate_Flag", dupFlag);
+      try {
+        const mirrorFlag = "כפול מאושר — שורה " + row + " | ניקוד " + dupResult.score + "/5";
+        _safeWrite(sheet, dupResult.sheetRow, "Duplicate_Flag", mirrorFlag);
+      } catch (mirrorErr) {
+        Logger.log("[S07] סימטריה — לא הצליח לכתוב לשורה " + dupResult.sheetRow + ": " + mirrorErr.message);
+      }
     }
 
     const extractor = getAvailableExtractor("SIMPLE");
@@ -240,7 +251,7 @@ function executeS07Classification(row) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// [v2.3.6] בדיקת כפולים — 5 קריטריונים מכותרת TXT, סף 3/5
+// [v2.5.0] בדיקת כפולים — מחזירה { sheetRow, score } או null
 // ══════════════════════════════════════════════════════════════════
 
 function _extractTxtHeader_S07(txtContent) {
@@ -285,9 +296,9 @@ function _calculateDuplicates_S07(currentRow, sheet, currentTxtContent) {
     const sheetRow = i + 2;
     if (sheetRow === currentRow) continue;
 
-    const rowTitle  = String(rangeData[i][0] || "").trim(); // I
-    const rowIssuer = String(rangeData[i][1] || "").trim(); // J
-    const rowDate   = String(rangeData[i][2] || "").trim(); // K
+    const rowTitle  = String(rangeData[i][0]  || "").trim(); // I
+    const rowIssuer = String(rangeData[i][1]  || "").trim(); // J
+    const rowDate   = String(rangeData[i][2]  || "").trim(); // K
     const rowTxtUrl = String(rangeData[i][15] || "").trim(); // X(24)
 
     if (!rowTxtUrl) continue;
@@ -308,7 +319,6 @@ function _calculateDuplicates_S07(currentRow, sheet, currentTxtContent) {
       quickScore++;
     }
 
-    // רק שורות עם לפחות 2/3 קריטריונים ראשוניים — מועברות לשלב 3
     if (quickScore >= 2) {
       candidates.push({ sheetRow: sheetRow, txtUrl: rowTxtUrl, quickScore: quickScore });
     }
@@ -358,7 +368,7 @@ function _calculateDuplicates_S07(currentRow, sheet, currentTxtContent) {
     if (score >= 3) {
       Logger.log("[S07] כפול זוהה: שורה " + currentRow + " ↔ שורה " + cand.sheetRow +
                  " | quickScore: " + cand.quickScore + "/3 | finalScore: " + score + "/5");
-      return cand.sheetRow;
+      return { sheetRow: cand.sheetRow, score: score };
     }
   }
 
