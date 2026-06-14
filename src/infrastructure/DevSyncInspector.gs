@@ -1,19 +1,28 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 3.1 | @updated 31/05/2026 16:40 | @service DEV_SYNC
- * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/DevSyncInspector.gs
- * @impacts מנוע סנכרון ודיווח בין עורך GAS לגיטהאב — 15 עמודות + אזור מרחבי.
- *          אחריות: נתוני דוח בלבד (שורות 5+) + כותרות N+ בשורה 4.
+ * @version 3.2 | @updated 14/06/2026 20:21 | @service DEV_SYNC
+ * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/DevSyncInspector.gs
+ * @description מנוע סנכרון ודיווח בין עורך GAS לגיטהאב — 15 עמודות + אזור מרחבי.
+ * @impacts אחריות: נתוני דוח בלבד (שורות 5+) + כותרות N+ בשורה 4.
  *          ViewEngine אחראי לשורות 1-3, עמודות A-O בשורה 4, רוחב עמודות והקפאות.
  *          תלויות: GITHUB_PAT ב-Script Properties, Apps Script API, GitHub Contents API.
- * שינוי: [v3.1] הוספת שורה 47 באזור המרחבי — רשימת פונקציות חשופות לכל ספרייה.
- *               נוספה devSync_extractFunctions לחילוץ פונקציות חשופות מקוד מקור.
- *         [v3.0] הוספת Editor_Lines (E) ו-Git_Lines (F) — ספירת שורות קוד להשוואה.
- *               הזזת Version_Editor→G, Version_Git→H, Service_Editor→I, Service_Git→J,
- *               Sync_Status→K, System_Notes→L, System_Path→M, Git_Raw_Link→N, Git_Web_Link→O.
- *         [v2.9] גרסה קודמת
+ * @callers Menu_LAB.gs (devSync_RunScanButton), ViewEngine.gs (איקון סנכרון)
+ * @functions devSync_RunScanButton, devSync_countLines, devSync_extractFunctions,
+ *            devSync_NavigateToImpacts, devSync_SyncToGit, devSync_SyncToEditor,
+ *            devSync_ApplyConditionalFormatting, devSync_buildSpatialArea,
+ *            devSync_calcStatus, devSync_calcNotes, devSync_generateAndPushIndex,
+ *            devSync_purgeJsDelivr, devSync_pushRawToGitHub, devSync_getEditorFilesMap,
+ *            devSync_getGitFilesMap, devSync_fetchGitFileContent, devSync_extractVersionLine,
+ *            devSync_extractImpactsText, devSync_parseVersionParts, devSync_extractDate,
+ *            devSync_OpenSheet, onSelectionChange
+ * @changes [v3.2] תיקון Tasks 1,2 — עדכון @git ל-GitHub API URL + הוספת @changes מלא
+ *          [v3.1] הוספת שורה 47 באזור המרחבי — רשימת פונקציות חשופות לכל ספרייה.
+ *                 נוספה devSync_extractFunctions לחילוץ פונקציות חשופות מקוד מקור.
+ *          [v3.0] הוספת Editor_Lines (E) ו-Git_Lines (F) — ספירת שורות קוד להשוואה.
+ *                 הזזת Version_Editor→G, Version_Git→H, Service_Editor→I, Service_Git→J,
+ *                 Sync_Status→K, System_Notes→L, System_Path→M, Git_Raw_Link→N, Git_Web_Link→O.
+ *          [v2.9] גרסה קודמת
  */
-
 // ════════════════════════════════════════════════════════════════════
 // קבועי מערכת
 // ════════════════════════════════════════════════════════════════════
