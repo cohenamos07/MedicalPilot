@@ -1,18 +1,25 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.7.0 | @updated 29/05/2026 15:30 | @service COLUMN_MAP
- * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/COLUMN_MAP.gs
- * @impacts מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
- *          גיליונות: ניהול_מיילים (26 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים.
+ * @version 2.8.0 | @updated 14/06/2026 20:10 | @service COLUMN_MAP
+ * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
+ * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
+ * @impacts גיליונות: ניהול_מיילים (26 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים.
  *          תלויים ישירים: S03 (A-H), S05 (M,O,P,R,S,T), S06 (M,O,P,Q,S,T,X,Y,Z),
  *          S07 (I,J,K,L,M,N,Q,R,S,T), S08 (I,J,K,L,M,U), S09 (גיליון S10).
  *          שינוי מספר עמודה = שבירת כל שירות שכותב אליה — לא לשנות ללא בדיקת כל התלויים.
  *          פונקציות printSheetMap, restoreHeaders, checkWritePermissions — כלי אבחון ידני בלבד.
- * שינוי: [v2.7.0] הוספת Editor_Lines (5) ו-Git_Lines (6) למסנכרן_קבצים —
- *                 הזזת Version_Editor→7, Version_Git→8, Status→9, Action→10, Notes→11.
- *                 נוספה פונקציה חד-פעמית insertEditorGitLinesColumns.
- *         [v2.6.1] גרסת עורך קודמת
- *         [v2.6.0] [FIX-5] buildS10LearningSheet
+ * @callers System_Doc_Builder (buildSheetFromMap), ViewEngine (restoreHeaders), כל שירותי ה-Pipeline
+ * @functions SHEET_CONFIG, SHEETS_MAP, SHEETS_DEFAULT_DATA,
+ *            insertEditorGitLinesColumns, printSheetMap, printColumnDetail,
+ *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
+ *            buildS10LearningSheet, buildDevSyncSheet,
+ *            _promptSheetName, _colToLetter, _letterToCol
+ * @changes [v2.8.0] הוספת SHEET_CONFIG — FROZEN_ROWS:4, HEADER_ROW:4, FIRST_DATA_ROW:5 לגליון ניהול_מיילים
+ *          [v2.7.0] הוספת Editor_Lines (5) ו-Git_Lines (6) למסנכרן_קבצים —
+ *                   הזזת Version_Editor→7, Version_Git→8, Status→9, Action→10, Notes→11.
+ *                   נוספה פונקציה חד-פעמית insertEditorGitLinesColumns.
+ *          [v2.6.1] גרסת עורך קודמת
+ *          [v2.6.0] [FIX-5] buildS10LearningSheet
  */
 
 // ══════════════════════════════════════════════════════════════════
@@ -33,9 +40,18 @@ QA       — כותב רק לעמודה U
 כל שירות — בהצלחה מנקה S ו-T. בכישלון כותב קוד ב-S ופירוט ב-T
 */
 
+
 // ══════════════════════════════════════════════════════════════════
-// מבנה נתונים — מפת עמודות לפי גליון
+// תצורת גליונות — שורות מוגנות ונתונים
 // ══════════════════════════════════════════════════════════════════
+
+const SHEET_CONFIG = {
+  "ניהול_מיילים": {
+    FROZEN_ROWS:    4,  // שורות 1-4 מוקפאות — לא לגעת בקוד
+    HEADER_ROW:     4,  // שורת כותרות
+    FIRST_DATA_ROW: 5   // שורת נתונים ראשונה — כל לולאה מתחילה כאן
+  }
+};
 
 const SHEETS_MAP = {
 
