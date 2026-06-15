@@ -1,7 +1,7 @@
 /**
  * @file        ViewEngine.gs
- * @version     2.3.0 | @updated 11/06/2026 19:38 | @service VIEW_ENGINE
- * @git         src/infrastructure/ViewEngine.gs
+ * @version     2.5.0 | @updated 15/06/2026 17:15 | @service VIEW_ENGINE
+ * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              14 מבטים: expand, systemCheck, accessCheck, gmail, whatsapp, drive,
  *              metadata, convert, classify, s08, s09, s10, qa, archive.
@@ -10,8 +10,11 @@
  *              כל מבט = פילטר שורות + גלילה לעמודה רלוונטית.
  *              הרחב/צמצם = ביטול פילטר שורות + flush() + גלילה לתחילת גיליון.
  *              נקרא מאייקוני הגליון בלבד — אינו חלק מזרימת עיבוד אוטומטי.
+ *              S11 QA — לא מפעיל פילטר שורות, עובד על כל הגליון.
+ *              [v2.5.0] תמיכה בגליון יומן_אירועים_רפואי — 2 איקונים.
  * @impacts     ניהול_מיילים: קורא פילטרים — לא כותב ערכים לתאים.
  *              runStatusCheck כותב צבע רקע לשורות שגויות בלבד.
+ *              יומן_אירועים_רפואי: setupMedicalEventsIcons — מכניס 2 איקונים אוטומטית.
  *              תלויות: S01 (checkSystemMorning) | S02 (checkUserAccess)
  *                      S03 (runEmailIngestion) | S04 (syncDriveFiles)
  *                      S05 (extractMetaData) | S06 (run_MedicalPilot_V2_6_2, nightlyConvertBatch)
@@ -19,6 +22,7 @@
  *                      S08 (showMainSidebar) | S09 (runS09) | S10 (showS10Sidebar)
  *                      S11 (runQAViewMain)
  * @callers     אייקוני גליון ניהול_מיילים בלבד — שורה 2
+ *              אייקוני גליון יומן_אירועים_רפואי — שורה 2
  * @functions   switchView | viewEngine_buildCriteria | _doExpand
  *              runExpandView | runSystemCheckIcon | runAccessCheckIcon
  *              runGmailIcon | runWhatsAppIcon | runDriveIcon
@@ -26,7 +30,15 @@
  *              runS08ViewIcon | runS09ViewIcon | runS10ViewIcon
  *              runQAView | runArchiveView | runStatusCheck
  *              setupIcons | cleanAndResetIcons | debugIcons
- * @changes     [v2.3.0] הזזת איקון S11 QA מעמודה U(21) לעמודה Q(17)
+ *              runExpandViewEvents | runS10ViewIconEvents | setupMedicalEventsIcons
+ * @changes     [v2.5.0] הוספת תמיכה בגליון יומן_אירועים_רפואי:
+ *                       MEDICAL_EVENTS_ICON_MAP — מיפוי 2 איקונים (A + C)
+ *                       runExpandViewEvents — רענון פילטר על הגליון הפעיל
+ *                       runS10ViewIconEvents — S10 ללא switchView (לגליונות יעד)
+ *                       setupMedicalEventsIcons — הכנסת איקונים אוטומטית
+ *              [v2.4.0] תיקון runQAView — הסרת switchView + filter:null ב-VIEW_CONFIG.qa
+ *                       S11 עובד על כל הגליון ללא פילטר שורות
+ *              [v2.3.0] הזזת איקון S11 QA מעמודה U(21) לעמודה Q(17)
  *                       עדכון ICON_MAP + VIEW_CONFIG.qa.scrollToCol + ROW3_COLORS
  *                       הוספת runStatusCheck — צביעת שורות שגויות באדום
  *              [v2.2.0] תיקון _doExpand — flush() אחרי remove()
@@ -59,6 +71,32 @@ const ICON_MAP = [
   { col: 16, script: "runS10ViewIcon",     fileId: "1YZcEifvHAsBtstAFdtVtqNTODpxuXCkM", label: "[ S10 אימות ]"       },
   { col: 17, script: "runQAView",          fileId: "1hw2sA4t4H5-OR0k8crG7wuI5Pkh0-_3G", label: "[ S11 QA ]"          },
   { col: 22, script: "runArchiveView",     fileId: "1sHIxX5ZUy-u1MRUxqOnvM9ngVd7ew5EU", label: "[ S12 ארכיון ]"      }
+];
+
+// ══════════════════════════════════════════════════════════════════
+// [v2.5.0] מיפוי איקונים לגליון יומן_אירועים_רפואי
+// אותם fileId כמו ניהול_מיילים — פונקציות גנריות לגליונות יעד
+// ══════════════════════════════════════════════════════════════════
+
+const MEDICAL_EVENTS_SHEET_NAME = "יומן_אירועים_רפואי";
+
+const MEDICAL_EVENTS_ICON_MAP = [
+  {
+    col:    1,
+    script: "runExpandViewEvents",
+    fileId: "1UAfAw8B3zGxTM8YoiSNpMTK8qP9FXHS2",  // זהה ל-runExpandView
+    label:  "[ ↔ הרחב ]",
+    bg:     "#78909C",
+    fg:     "#ffffff"
+  },
+  {
+    col:    3,
+    script: "runS10ViewIconEvents",
+    fileId: "1YZcEifvHAsBtstAFdtVtqNTODpxuXCkM",  // זהה ל-runS10ViewIcon
+    label:  "[ S10 אימות ]",
+    bg:     "#7E57C2",
+    fg:     "#ffffff"
+  }
 ];
 
 // ══════════════════════════════════════════════════════════════════
@@ -173,11 +211,7 @@ const VIEW_CONFIG = {
   qa: {
     label:       "S11 QA",
     scrollToCol: 17,
-    filter:      {
-      col:     13,
-      type:    "formula",
-      formula: '=OR($M1="QA",$M1="מוכן")'
-    }
+    filter:      null  // [v2.4.0] QA עובד על כל הגליון — אין פילטר שורות
   },
 
   archive: {
@@ -510,7 +544,7 @@ function runS09ViewIcon() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runS10ViewIcon — עמודה P — S10 אימות אירועים
+// runS10ViewIcon — עמודה P — S10 אימות אירועים (ניהול_מיילים)
 // ══════════════════════════════════════════════════════════════════
 
 function runS10ViewIcon() {
@@ -540,7 +574,10 @@ function runS10ViewIcon() {
 // ══════════════════════════════════════════════════════════════════
 
 function runQAView() {
-  switchView("qa");
+  // [v2.4.0] QA לא מפעיל פילטר שורות — עובד על כל הגליון
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(VIEW_SHEET_NAME);
+  if (sheet) sheet.getRange(4, 17).activate();
   if (typeof runQAViewMain === "function") {
     runQAViewMain();
   } else {
@@ -585,18 +622,18 @@ function runStatusCheck() {
       return;
     }
 
-    const ERROR_COL    = 19; // S = Error_Code
-    const COLOR_ERROR  = "#FFCDD2"; // אדום בהיר
-    const COLOR_OK     = "#E3F2FD"; // תכלת בהיר (ברירת מחדל גליון)
-    const COLOR_EMPTY  = "#ffffff"; // לבן — שורה ריקה
+    const ERROR_COL   = 19;        // S = Error_Code
+    const COLOR_ERROR = "#FFCDD2"; // אדום בהיר
+    const COLOR_OK    = "#E3F2FD"; // תכלת בהיר (ברירת מחדל גליון)
+    const COLOR_EMPTY = "#ffffff"; // לבן — שורה ריקה
 
     let countError = 0;
     let countOk    = 0;
 
     for (var row = 5; row <= lastRow; row++) {
-      const fileId     = sheet.getRange(row, 1).getValue();
-      const errorCode  = sheet.getRange(row, ERROR_COL).getValue();
-      const rowRange   = sheet.getRange(row, 1, 1, VIEW_TOTAL_COLS);
+      const fileId    = sheet.getRange(row, 1).getValue();
+      const errorCode = sheet.getRange(row, ERROR_COL).getValue();
+      const rowRange  = sheet.getRange(row, 1, 1, VIEW_TOTAL_COLS);
 
       if (!fileId) {
         rowRange.setBackground(COLOR_EMPTY);
@@ -757,5 +794,133 @@ function debugIcons() {
 
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-debugIcons: " + e.toString());
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v2.5.0] runExpandViewEvents — עמודה A בגליונות יעד
+// ביטול פילטר על הגליון הפעיל (לא ניהול_מיילים)
+// ══════════════════════════════════════════════════════════════════
+
+function runExpandViewEvents() {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getActiveSheet();
+
+    const existingFilter = sheet.getFilter();
+    if (existingFilter) {
+      existingFilter.remove();
+      SpreadsheetApp.flush();
+    }
+
+    sheet.getRange(1, 1).activate();
+    Logger.log("[ViewEngine] runExpandViewEvents — reset על: " + sheet.getName());
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runExpandViewEvents: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v2.5.0] runS10ViewIconEvents — עמודה C בגליונות יעד
+// S10 אימות אירועים — ללא switchView (לא קשור לניהול_מיילים)
+// ══════════════════════════════════════════════════════════════════
+
+function runS10ViewIconEvents() {
+  try {
+    const ui      = SpreadsheetApp.getUi();
+    const sheet   = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    const confirm = ui.alert(
+      "S10 — אימות אירועים",
+      "גליון: " + sheet.getName() + "\n" +
+      "האם לפתוח את מסך האימות?",
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm === ui.Button.YES) {
+      if (typeof showS10Sidebar === "function") {
+        showS10Sidebar();
+      } else {
+        ui.alert("שגיאה", "הפונקציה showS10Sidebar לא נמצאה.", ui.ButtonSet.OK);
+      }
+    }
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runS10ViewIconEvents: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v2.5.0] setupMedicalEventsIcons — הכנסת 2 איקונים אוטומטית
+// לגליון יומן_אירועים_רפואי — שורה 2
+// עמודה A = runExpandViewEvents | עמודה C = runS10ViewIconEvents
+// ══════════════════════════════════════════════════════════════════
+
+function setupMedicalEventsIcons() {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(MEDICAL_EVENTS_SHEET_NAME);
+    const ui    = SpreadsheetApp.getUi();
+
+    if (!sheet) {
+      ui.alert("❌ גליון '" + MEDICAL_EVENTS_SHEET_NAME + "' לא נמצא.");
+      return;
+    }
+
+    // מחק איקונים קיימים
+    const existingImages = sheet.getImages();
+    existingImages.forEach(function(img) { img.remove(); });
+    SpreadsheetApp.flush();
+    Logger.log("[ViewEngine] setupMedicalEventsIcons — נמחקו: " + existingImages.length + " איקונים");
+
+    const rowHeight = sheet.getRowHeight(2);
+    const iconSize  = Math.max(30, rowHeight - 4);
+
+    MEDICAL_EVENTS_ICON_MAP.forEach(function(mapping) {
+      try {
+        const file     = DriveApp.getFileById(mapping.fileId);
+        const blob     = file.getBlob();
+        const colWidth = sheet.getColumnWidth(mapping.col);
+        const offsetX  = Math.max(0, Math.floor((colWidth - iconSize) / 2));
+
+        const img = sheet.insertImage(blob, mapping.col, 2);
+        img.setAltTextTitle(mapping.script);
+        img.assignScript(mapping.script);
+        img.setWidth(iconSize);
+        img.setHeight(iconSize);
+        img.setAnchorCell(sheet.getRange(2, mapping.col));
+        img.setAnchorCellXOffset(offsetX);
+        img.setAnchorCellYOffset(2);
+
+        // תווית שורה 3
+        const labelCell = sheet.getRange(3, mapping.col);
+        labelCell.setValue(mapping.label);
+        labelCell.setBackground(mapping.bg);
+        labelCell.setFontColor(mapping.fg);
+        labelCell.setFontWeight("bold");
+        labelCell.setFontSize(9);
+        labelCell.setHorizontalAlignment("center");
+        labelCell.setVerticalAlignment("middle");
+
+        Logger.log("[ViewEngine] setupMedicalEventsIcons — נוסף: " + mapping.script + " עמודה " + mapping.col);
+
+      } catch (imgErr) {
+        Logger.log("[ViewEngine] setupMedicalEventsIcons — שגיאה: " + mapping.script + " | " + imgErr.toString());
+      }
+    });
+
+    SpreadsheetApp.flush();
+
+    ui.alert(
+      "✅ איקונים הוכנסו בהצלחה לגליון '" + MEDICAL_EVENTS_SHEET_NAME + "'\n\n" +
+      "עמודה A — רענון (runExpandViewEvents)\n" +
+      "עמודה C — S10 אימות (runS10ViewIconEvents)"
+    );
+
+    Logger.log("[ViewEngine] setupMedicalEventsIcons הושלם — 2 איקונים");
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-setupMedicalEventsIcons: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
   }
 }
