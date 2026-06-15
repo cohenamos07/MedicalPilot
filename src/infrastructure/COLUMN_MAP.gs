@@ -1,20 +1,26 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.8.0 | @updated 14/06/2026 20:10 | @service COLUMN_MAP
+ * @version 2.9.0 | @updated 15/06/2026 12:07 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
- * @impacts גיליונות: ניהול_מיילים (26 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים.
+ * @impacts גיליונות: ניהול_מיילים (26 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
+ *          יומן_אירועים_רפואי (7 עמודות).
  *          תלויים ישירים: S03 (A-H), S05 (M,O,P,R,S,T), S06 (M,O,P,Q,S,T,X,Y,Z),
- *          S07 (I,J,K,L,M,N,Q,R,S,T), S08 (I,J,K,L,M,U), S09 (גיליון S10).
+ *          S07 (I,J,K,L,M,N,Q,R,S,T), S08 (I,J,K,L,M,U), S09 (גיליון S10),
+ *          S09 (יומן_אירועים_רפואי A-G).
  *          שינוי מספר עמודה = שבירת כל שירות שכותב אליה — לא לשנות ללא בדיקת כל התלויים.
  *          פונקציות printSheetMap, restoreHeaders, checkWritePermissions — כלי אבחון ידני בלבד.
- * @callers System_Doc_Builder (buildSheetFromMap), ViewEngine (restoreHeaders), כל שירותי ה-Pipeline
+ * @callers System_Doc_Builder (buildSheetFromMap, buildMedicalEventsSheet), ViewEngine (restoreHeaders),
+ *          כל שירותי ה-Pipeline
  * @functions SHEET_CONFIG, SHEETS_MAP, SHEETS_DEFAULT_DATA,
  *            insertEditorGitLinesColumns, printSheetMap, printColumnDetail,
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol
- * @changes [v2.8.0] הוספת SHEET_CONFIG — FROZEN_ROWS:4, HEADER_ROW:4, FIRST_DATA_ROW:5 לגליון ניהול_מיילים
+ * @changes [v2.9.0] הוספת "יומן_אירועים_רפואי" ל-SHEET_CONFIG ו-SHEETS_MAP —
+ *                   7 עמודות: Event_Date, Event_Type, Medical_System, Issuer,
+ *                   Summary, Routing_Category, File_ID
+ *          [v2.8.0] הוספת SHEET_CONFIG — FROZEN_ROWS:4, HEADER_ROW:4, FIRST_DATA_ROW:5 לגליון ניהול_מיילים
  *          [v2.7.0] הוספת Editor_Lines (5) ו-Git_Lines (6) למסנכרן_קבצים —
  *                   הזזת Version_Editor→7, Version_Git→8, Status→9, Action→10, Notes→11.
  *                   נוספה פונקציה חד-פעמית insertEditorGitLinesColumns.
@@ -50,6 +56,11 @@ const SHEET_CONFIG = {
     FROZEN_ROWS:    4,  // שורות 1-4 מוקפאות — לא לגעת בקוד
     HEADER_ROW:     4,  // שורת כותרות
     FIRST_DATA_ROW: 5   // שורת נתונים ראשונה — כל לולאה מתחילה כאן
+  },
+  "יומן_אירועים_רפואי": {
+    FROZEN_ROWS:    4,  // שורות 1-4 מוקפאות — לא לגעת בקוד
+    HEADER_ROW:     4,  // שורת כותרות
+    FIRST_DATA_ROW: 5   // שורת נתונים ראשונה — כל לולאה מתחילה כאן
   }
 };
 
@@ -82,6 +93,17 @@ const SHEETS_MAP = {
     { col: 24, name: "TXT_URL",           zone: "לינקים",           writers: ["S06"],                                  readers: ["S05","S07","QA","S08","S09"], values: "https://drive.google.com/...",                                                       notes: "קישור לקובץ TXT שנוצר" },
     { col: 25, name: "Temp_URL",          zone: "לינקים",           writers: ["S06"],                                  readers: [],                          values: "https://drive.google.com/...",                                                          notes: "קישור זמני במהלך המרה" },
     { col: 26, name: "Raw_Text",          zone: "טקסט גולמי",       writers: ["S06","S07"],                            readers: [],                          values: "טקסט מלא",                                                                             notes: "הטקסט המלא — עמודה אחרונה, רחבה מאוד" }
+  ],
+
+  // [v2.9.0] גליון יעד של S09 — אירועים רפואיים מחולצים
+  "יומן_אירועים_רפואי": [
+    { col: 1, name: "Event_Date",        zone: "אירוע",  writers: ["S09"], readers: ["S10"], values: "תאריך DD/MM/YYYY",    notes: "תאריך האירוע הרפואי — מהמסמך או תאריך המסמך כברירת מחדל" },
+    { col: 2, name: "Event_Type",        zone: "אירוע",  writers: ["S09"], readers: ["S10"], values: "טקסט חופשי",          notes: "סוג האירוע — לדוגמה: ביקור רופא, בדיקת דם, ניתוח" },
+    { col: 3, name: "Medical_System",    zone: "אירוע",  writers: ["S09"], readers: ["S10"], values: "טקסט חופשי",          notes: "מערכת / איבר רפואי — לדוגמה: לב, אורתופדיה" },
+    { col: 4, name: "Issuer",            zone: "אירוע",  writers: ["S09"], readers: ["S10"], values: "טקסט חופשי",          notes: "מוסד / רופא מנפיק — זהה ל-Doc_Issuer בניהול_מיילים" },
+    { col: 5, name: "Summary",           zone: "תוכן",   writers: ["S09"], readers: ["S10"], values: "טקסט חופשי — ארוך",  notes: "סיכום ממצא — טקסט דינמי וארוך — עמודה E במכוון בסוף הגלויות" },
+    { col: 6, name: "Routing_Category",  zone: "טכני",   writers: ["S09"], readers: ["S10"], values: "טקסט חופשי",          notes: "קטגוריית ניתוב — לאיזה גליון יעד נוסף המידע" },
+    { col: 7, name: "File_ID",           zone: "טכני",   writers: ["S09"], readers: ["S10"], values: "Drive ID",             notes: "מזהה קובץ מקורי — מפתח מקשר חזרה לניהול_מיילים — זהה לעמודה A שם" }
   ],
 
   "דוגמאות_למידה": [
