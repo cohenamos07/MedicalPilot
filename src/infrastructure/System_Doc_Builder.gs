@@ -1,6 +1,6 @@
 /**
  * @file        System_Doc_Builder.gs
- * @version     1.9.0 | @updated 12/06/2026 11:30 | @service INFRA
+ * @version     2.0.0 | @updated 15/06/2026 12:07 | @service INFRA
  * @git         src/infrastructure/System_Doc_Builder.gs
  * @description בניית גיליונות תיעוד מערכת וניהול משימות פיתוח.
  *              כולל: גיליון תיעוד AI, גיליון קשרי שירות, גיליון ניהול_משימות.
@@ -11,6 +11,7 @@
  *              E=Module  | F=Description | G=Priority   | H=Notes
  *              גיליון תיעוד מערכת AI — כותרות + שורות שירות.
  *              גיליון תיעוד_פונקציות — רשימת פונקציות מהעורך.
+ *              גיליון יומן_אירועים_רפואי — עיצוב 4 שורות עליונות + כותרות אנגלית.
  * @callers     ציורים בגליון ניהול_משימות (שורה 2) | תפריט Menu_LAB
  * @functions   createOrUpdateSystemDoc_v5 | updateDailyStatus | updateStaticSections
  *              scanSheets_v1 | scanCodeFiles_v2 | extractModuleMetadata
@@ -20,7 +21,10 @@
  *              task_ChangePriority | task_ToggleStatus | task_LoadList
  *              task_RefreshList | task_EndOfDay | task_DocFunctions
  *              task_AddFromDialog | task_SyncToday
- * @changes     [v1.9.0] שדרוג task_SessionStart — קריאה אוטומטית ל-task_RefreshList
+ *              buildMedicalEventsSheet
+ * @changes     [v2.0.0] הוספת buildMedicalEventsSheet — עיצוב גליון יומן_אירועים_רפואי:
+ *                       הכנסת 3 שורות ריקות, כותרות אנגלית בשורה 4, עיצוב סטנדרט ניהול_מיילים
+ *              [v1.9.0] שדרוג task_SessionStart — קריאה אוטומטית ל-task_RefreshList
  *                       מיון + מספור + ניקוי שורות ריקות בכל פתיחת סשן
  *              [v1.8.0] שדרוג task_EndOfDay — דוח HTML עם כפתור העתקה
  *                       מיון לפי ספרייה → עדיפות | 3 בלוקים: סטטוס / נסגרו / פתוחות
@@ -219,7 +223,7 @@ function updateSystemContext() {
       "העדפות AI:\n1. תשובות ברורות ומפורטות.\n2. עברית כברירת מחדל.\n3. קוד מלא בלבד בתיבת העתקה.\n4. תכנון לפני קוד.\n5. הסברים צעד-אחר-צעד.\n6. שמות פונקציות ברורים.\n7. אין לחשוף מידע רגיש.\n8. עמוס מוגבל ביד ימין — תמיד תיבת העתקה.\n9. עמוס אינו מתכנת — קוד מלא בלבד.",
       "נהלי גיבוי:\n1. גיבוי ידני לפני כל שינוי.\n2. גיבוי לפני כל שינוי גרסה.\n3. שמירת Snapshot לכל שינוי משמעותי.\n4. אין למחוק גיבויים.\n5. כל גיבוי מתועד בהיסטוריה.",
       "כלל סנכרון גיטהאב:\n1. כל קובץ בגיטהאב חייב להיות קיים בשמו המדויק בעורך.\n2. אין להעלות לגיטהאב פונקציות שאינן בקובץ עצמאי בעורך.\n3. לפני העלאה — ודא שהקובץ קיים בעורך.\n\nכלל עדכון אוטומטי:\n1. אין לעדכן ידנית.\n2. יש להשתמש תמיד בכלי הסנכרון:\n   - updateSystemContext לגיליון\n   - pushContextToGitHub לגיטהאב\n   - endSessionSync לשניהם יחד.",
-      "גרסאות נוכחיות:\nPROD: v10.8\nLAB: v10.8\nתאריך עדכון: 11/06/2026",
+      "גרסאות נוכחיות:\nPROD: v10.8\nLAB: v10.8\nתאריך עדכון: 15/06/2026",
       "מודולים קריטיים:\nSystem_Logger.gs — תלוי שורה 6\nMenu_PROD.gs — תפריט ייצור\nMenu_LAB.gs — תפריט מעבדה\nMain.gs — נקודת כניסה\nGitHubSync.gs — סנכרון קוד"
     ]];
     sheet.getRange("A3:G3").setValues(rulesRow).setVerticalAlignment("top");
@@ -644,11 +648,7 @@ function task_RefreshList() {
 
     validRows.forEach(function(row, i) {
       const newRow    = TASK_DATA_START + i;
-      const newTaskId = i + 1;
       const status    = String(row[COL_STATUS - 1]).trim();
-
-      // מספור מחדש
-      row[COL_TASK_ID - 1] = newTaskId;
 
       // כתיבה לגיליון
       sheet.getRange(newRow, 1, 1, 8).setValues([row]);
@@ -1083,4 +1083,89 @@ function task_SyncToday() {
     .setHeight(490)
     .setTitle("הוספת משימה");
   SpreadsheetApp.getUi().showModalDialog(html, "➕ הוספת משימה חדשה");
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v2.0.0] עיצוב גליון יומן_אירועים_רפואי — סטנדרט ניהול_מיילים
+// מריצים פעם אחת על גליון קיים עם כותרות עברית בשורה 1
+// ══════════════════════════════════════════════════════════════════
+
+function buildMedicalEventsSheet() {
+  const SHEET_NAME   = "יומן_אירועים_רפואי";
+  const HEADER_COLOR = "#1a3a5c";
+  const HEADER_FONT  = "#FFFFFF";
+  const ROW3_COLOR   = "#cfe2f3";  // תכלת בהיר — כמו ניהול_מיילים
+  const TOTAL_COLS   = 7;
+
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const ui  = SpreadsheetApp.getUi();
+
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) {
+    ui.alert("❌ גליון '" + SHEET_NAME + "' לא נמצא.\nצור את הגליון תחילה.");
+    return;
+  }
+
+  // ── שלב 1: הכנסת 3 שורות ריקות מעל שורה 1 הקיימת ──────────────
+  // שורה 1 הנוכחית (כותרות עברית) תרד לשורה 4
+  sheet.insertRowsBefore(1, 3);
+
+  // ── שלב 2: עיצוב שורות 1-3 — ריקות, רקע לבן ─────────────────────
+  const topRange = sheet.getRange(1, 1, 3, TOTAL_COLS);
+  topRange.clearContent();
+  topRange.setBackground("#FFFFFF");
+  topRange.setBorder(false, false, false, false, false, false);
+
+  // גובה שורות
+  sheet.setRowHeight(1, 20);
+  sheet.setRowHeight(2, 60);  // שורה 2 — מקום לאיקון עתידי
+  sheet.setRowHeight(3, 20);
+
+  // ── שלב 3: החלפת כותרות שורה 4 לאנגלית ─────────────────────────
+  const headers = [
+    "Event_Date",
+    "Event_Type",
+    "Medical_System",
+    "Issuer",
+    "Summary",
+    "Routing_Category",
+    "File_ID"
+  ];
+
+  const headerRange = sheet.getRange(4, 1, 1, TOTAL_COLS);
+  headerRange.setValues([headers]);
+  headerRange.setBackground(HEADER_COLOR);
+  headerRange.setFontColor(HEADER_FONT);
+  headerRange.setFontWeight("bold");
+  headerRange.setHorizontalAlignment("center");
+  headerRange.setFontSize(11);
+  headerRange.setVerticalAlignment("middle");
+  sheet.setRowHeight(4, 35);
+
+  // ── שלב 4: עיצוב שורת תווית שורה 3 (label bar) ─────────────────
+  // שורה 3 — רקע תכלת בהיר עם תוויות שירות (כמו ניהול_מיילים)
+  sheet.getRange(3, 1, 1, TOTAL_COLS).setBackground(ROW3_COLOR);
+
+  // ── שלב 5: הקפאת 4 שורות ראשונות ──────────────────────────────
+  sheet.setFrozenRows(4);
+
+  // ── שלב 6: רוחב עמודות ─────────────────────────────────────────
+  sheet.setColumnWidth(1, 110);  // A — Event_Date
+  sheet.setColumnWidth(2, 130);  // B — Event_Type
+  sheet.setColumnWidth(3, 140);  // C — Medical_System
+  sheet.setColumnWidth(4, 140);  // D — Issuer
+  sheet.setColumnWidth(5, 350);  // E — Summary — רחב
+  sheet.setColumnWidth(6, 130);  // F — Routing_Category
+  sheet.setColumnWidth(7, 200);  // G — File_ID
+
+  SpreadsheetApp.flush();
+
+  Logger.log("[buildMedicalEventsSheet] הושלם — גליון " + SHEET_NAME + " עוצב בסטנדרט ניהול_מיילים.");
+  ui.alert(
+    "✅ גליון '" + SHEET_NAME + "' עוצב בהצלחה.\n\n" +
+    "שורות 1-3: ריקות (שורה 2 מוכנה לאיקון עתידי)\n" +
+    "שורה 4: כותרות אנגלית — רקע כחול כהה\n" +
+    "הקפאה: 4 שורות\n\n" +
+    "נתונים קיימים עברו לשורה 5+."
+  );
 }
