@@ -1,7 +1,7 @@
 /**
  * @file        Mod_Ingestion.gs
- * @version     97.10.0 | @updated 11/06/2026 19:12 | @service S03
- * @git         src/infrastructure/Mod_Ingestion.gs
+ * @version     97.10.1 | @updated 14/06/2026 22:07 | @service S03
+ * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/Mod_Ingestion.gs
  * @description סריקת Gmail וקליטת קבצים מצורפים לגליון ניהול_מיילים.
  *              מסנן קבצי .gif ופורמטים לא נתמכים (גודל < 2500 בייט).
  *              שומר קובץ ל-Drive, כותב שורה לגליון, מסמן שרשור כנקרא.
@@ -11,12 +11,13 @@
  *              F=From | G=Msg_Date | H=File_Name | W(23)=Source_URL
  *              קורא: Gmail API (label:Medical_To_Process, is:unread)
  *              כותב: Drive (GMAIL_INBOX_FOLDER_ID) + גליון ניהול_מיילים
- * @callers     runGmailIcon (ViewEngine) | Menu_LAB | Menu_PROD
+ * @callers     runGmailIcon (ViewEngine עמודה D) | Menu_LAB | Menu_PROD
  * @functions   runMedicalProcess | runEmailIngestion
  *              Gmail_getExistingIds | Gmail_fetchThreads
  *              Gmail_isValidAttachment | Gmail_saveFileToDrive
  *              Gmail_writeRowToSheet
- * @changes     [v97.10.0] תיקון Source_URL — כתיבה לעמודה 23 (W) במקום 15 (O)
+ * @changes     [v97.10.1] תיקון Tasks 6,7,8 — עדכון @git ל-GitHub API URL + הוספת @changes מלא
+ *              [v97.10.0] תיקון Source_URL — כתיבה לעמודה 23 (W) במקום 15 (O)
  *                         תיקון בשתי פונקציות: Gmail_writeRowToSheet + runMedicalProcess
  *                         כותרת מורחבת לפי סטנדרט
  *              [v97.9.3]  הוספת @impacts וכותרת מלאה
