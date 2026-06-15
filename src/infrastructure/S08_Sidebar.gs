@@ -1,16 +1,20 @@
 <!--
   MedicalPilot — S08_Sidebar.html
-  @version 1.0.7 | @updated 31/05/2026 20:50 | @service S08
-  @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S08_Sidebar.html
-  @impacts ממשק Dialog לאימות ידני ולמידה — S08.
-           מציג מסמך מקורי + טקסט TXT + שדות עריכה לכותרת/מנפיק/תאריך/קטגוריה.
-           כפתורים: אישור, עדכון ולמידה, למידה יזומה, מחיקה.
-           תלוי ב: S08_Validate.gs — כל הלוגיקה מתבצעת שם.
-  שינוי: [v1.0.7] הוספת @impacts וכותרת מלאה לפי סטנדרט
-          [v1.0.6-ד] Dialog מוגדל ל-1100×750
-          [v1.0.6-ג] ?rm=minimal בpreview URL
-          [v1.0.6-ב] עמודה R מוצגת מתחת לזיהוי + כפתור קפיצה
-          [v1.0.6-א] TXT מוצג כטקסט בתוך pre — עוקף הרשאת iframe
+  @version 1.0.8 | @updated 14/06/2026 22:07 | @service S08
+  @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Sidebar.html
+  @description ממשק Dialog לאימות ידני ולמידה — S08.
+               מציג מסמך מקורי + טקסט TXT + שדות עריכה לכותרת/מנפיק/תאריך/קטגוריה.
+               כפתורים: אישור, עדכון ולמידה, למידה יזומה, מחיקה.
+               תלוי ב: S08_Validate.gs — כל הלוגיקה מתבצעת שם.
+  @impacts     נקרא מ-S08_Validate.gs דרך HtmlService.
+               כל פעולות הכתיבה לגליון מתבצעות ב-S08_Validate.gs בלבד.
+  @callers     S08_Validate.gs (showMainSidebar)
+  @changes     [v1.0.8] תיקון Tasks 12,13 — עדכון @git ל-GitHub API URL + @changes מלא
+               [v1.0.7] הוספת @impacts וכותרת מלאה לפי סטנדרט
+               [v1.0.6-ד] Dialog מוגדל ל-1100×750
+               [v1.0.6-ג] ?rm=minimal בpreview URL
+               [v1.0.6-ב] עמודה R מוצגת מתחת לזיהוי + כפתור קפיצה
+               [v1.0.6-א] TXT מוצג כטקסט בתוך pre — עוקף הרשאת iframe
 -->
 -->
 <!DOCTYPE html>
