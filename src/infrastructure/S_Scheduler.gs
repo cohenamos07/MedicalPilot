@@ -1,13 +1,18 @@
 /**
  * MedicalPilot — S_Scheduler.gs
- * @version 1.0.1 | @updated 31/05/2026 21:02 | @service SCHEDULER
- * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S_Scheduler.gs
- * @impacts ניהול גובים מתוזמנים — הפעלה ועצירה מהתפריט.
- *          מנהל טריגר לילי להמרת קבצים ל-TXT (nightlyConvertBatch).
- *          תלויות: S06_ConvertTXT.gs.
- *          נקרא מהתפריט בלבד — אינו חלק מזרימת עיבוד אוטומטי.
- * שינוי: [v1.0.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
- *         [v1.0.0] גרסה ראשונה — גוב המרת TXT
+ * @version 1.0.2 | @updated 14/06/2026 22:07 | @service SCHEDULER
+ * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S_Scheduler.gs
+ * @description ניהול גובים מתוזמנים — הפעלה ועצירה מהתפריט.
+ *              מנהל טריגר לילי להמרת קבצים ל-TXT (nightlyConvertBatch).
+ *              נקרא מהתפריט בלבד — אינו חלק מזרימת עיבוד אוטומטי.
+ * @impacts     תלויות: S06_ConvertTXT.gs (nightlyConvertBatch).
+ *              מנהל טריגרים דרך ScriptApp — לא כותב לגליונות.
+ * @callers     Menu_LAB.gs | Menu_PROD.gs
+ * @functions   startJob, stopJob, showActiveJobs,
+ *              _getActiveJobIds, _deleteTriggerByFunc, _fmtTime
+ * @changes     [v1.0.2] תיקון Tasks 20,21 — עדכון @git ל-GitHub API URL + @callers + @functions + @changes מלא
+ *              [v1.0.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *              [v1.0.0] גרסה ראשונה — גוב המרת TXT
  */
 // ══════════════════════════════════════════════════════════════════
 // רישום גובים — הגדרות קבועות
