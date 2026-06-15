@@ -1,13 +1,18 @@
 /**
  * MedicalPilot — Mod_Brain_OCR.gs
- * @version 1.4.1 | @updated 31/05/2026 20:40 | @service S06
- * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/Mod_Brain_OCR.gs
- * @impacts מודול OCR — מועבר לארכוב מלא. הוחלף על ידי S06_ConvertTXT.gs מ-v1.5.0.
- *          Gemini Vision מטפל ב-PDF ותמונות ישירות — OCR של Drive אינו נדרש.
+ * @version 1.4.2 | @updated 14/06/2026 22:07 | @service ARCHIVED
+ * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/Mod_Brain_OCR.gs
+ * @description מודול OCR — מועבר לארכוב מלא. הוחלף על ידי S06_ConvertTXT.gs מ-v1.5.0.
+ * @impacts Gemini Vision מטפל ב-PDF ותמונות ישירות — OCR של Drive אינו נדרש.
  *          runBatchOCR_Test מוחלף ב-stub שמונע הרצה בטעות.
  *          syncStatusBeforeOCR — ארכוב, לא בשימוש בזרימה הנוכחית.
- * שינוי: [v1.4.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
- *         [v1.4.0] [ARCHIVE] runBatchOCR_Test הושבת — קוד מקורי שמור ב-runBatchOCR_ARCHIVED
+ * @callers אין — קובץ ארכוב בלבד
+ * @functions runBatchOCR_Test, runBatchOCR_ARCHIVED,
+ *            fillMissingFileSizes_LAB, clearOCRErrors_LAB,
+ *            syncStatusBeforeOCR_ARCHIVED
+ * @changes [v1.4.2] תיקון Tasks 3,4,5 — עדכון @git ל-GitHub API URL + @service → ARCHIVED + @changes מלא
+ *          [v1.4.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *          [v1.4.0] [ARCHIVE] runBatchOCR_Test הושבת — קוד מקורי שמור ב-runBatchOCR_ARCHIVED
  */
 
 // ══════════════════════════════════════════════════════════════════
