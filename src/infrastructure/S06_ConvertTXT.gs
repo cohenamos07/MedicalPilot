@@ -1,17 +1,27 @@
 /**
  * MedicalPilot — S06_ConvertTXT.gs
- * @version 1.6.1 | @updated 31/05/2026 20:46 | @service S06
- * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S06_ConvertTXT.gs
- * @impacts המרת קבצים לפורמט TXT מובנה — 6 מסלולים לפי סוג קובץ.
- *          PDF→Visual, DOCX→Direct, GDoc→Doc, IMG→Image, TXT→Text, Sheet→Sheet.
- *          כותב לעמודות M, O, P, Q, S, T, X. שומר קובץ TXT בתיקיית Converted_TXT.
- *          תלויות: GEMINI_API_KEY, מנהל_משאבים, Drive API, גליון ניהול_מיילים.
- *          מופעל מהתפריט (שורה / עמודה M לאצווה) ומטריגר לילי.
- * שינוי: [v1.6.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
- *         [FIX-4] דילוג חכם — שגיאות זמניות ינסו שוב, קבועות ידולגו
- *         [FIX-3] Sleep(8000) בין שורות באצווה ידנית
- *         [FIX-2] גודל אצווה מ-5 ל-3
- *         [FIX-1] לוגיקת כניסה — שורה שלמה / עמודה M / תא אחר
+ * @version 1.6.2 | @updated 14/06/2026 22:07 | @service S06
+ * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S06_ConvertTXT.gs
+ * @description המרת קבצים לפורמט TXT מובנה — 6 מסלולים לפי סוג קובץ.
+ *              PDF→Visual, DOCX→Direct, GDoc→Doc, IMG→Image, TXT→Text, Sheet→Sheet.
+ *              כותב לעמודות M, O, P, Q, S, T, X. שומר קובץ TXT בתיקיית Converted_TXT.
+ *              מופעל מהתפריט (שורה / עמודה M לאצווה) ומטריגר לילי.
+ * @impacts     ניהול_מיילים: כותב לעמודות M(13), O(15), P(16), Q(17), S(19), T(20), X(24).
+ *              תלויות: GEMINI_API_KEY, מנהל_משאבים, Drive API, גליון ניהול_מיילים.
+ * @callers     runS06Icon (ViewEngine עמודה K) | Menu_LAB | Menu_PROD
+ *              nightlyConvertBatch (S_Scheduler — טריגר לילי)
+ * @functions   run_MedicalPilot_V2_6_2, _processBatch, _processRow,
+ *              execute_Visual_Path, execute_Direct_Path, execute_Doc_Path,
+ *              execute_Image_Path, execute_Text_Path, execute_Sheet_Path,
+ *              finalize_And_Save_To_Drive, nightlyConvertBatch,
+ *              createNightlyTrigger, deleteNightlyTrigger,
+ *              _callGemini, _safeParseJson, _writeError, _clearErrors
+ * @changes     [v1.6.2] תיקון Tasks 9,10,11 — עדכון @git ל-GitHub API URL + @callers + @changes מלא
+ *              [v1.6.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ *              [FIX-4] דילוג חכם — שגיאות זמניות ינסו שוב, קבועות ידולגו
+ *              [FIX-3] Sleep(8000) בין שורות באצווה ידנית
+ *              [FIX-2] גודל אצווה מ-5 ל-3
+ *              [FIX-1] לוגיקת כניסה — שורה שלמה / עמודה M / תא אחר
  */
 // ══════════════════════════════════════════════════════════════════
 // פונקציית ליבה — קריאת Gemini דרך מנהל מחלצים
