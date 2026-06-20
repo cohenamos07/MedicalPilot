@@ -1,13 +1,14 @@
 /**
  * MedicalPilot — S05_MetaExtract.gs
- * @version 2.3.1 | @updated 31/05/2026 20:45 | @service S05
+* @version 2.3.2 | @updated 20/06/2026 22:03 | @service S05
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S05_MetaExtract.gs
  * @impacts חילוץ מטא-דאטה מקבצים — סוג, גודל, זיהוי כפולים וסטטוס pipeline.
  *          כותב לעמודות M, O, P, R, S, T.
  *          דולג על שורות שכבר הומרו ויש להן TXT_URL (עמודה X).
  *          תלויות: Drive API, גליון ניהול_מיילים.
  *          מופעל מהתפריט — אינו חלק מזרימת עיבוד אוטומטי.
- * שינוי: [v2.3.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ * @change [v2.3.2] תיקון קריטי — לולאה התחילה משורה 2 (כותרת ישנה), עכשיו משתמשת ב-SHEET_CONFIG.FIRST_DATA_ROW (5) — מנע כתיבה לשורות מוגנות 1-4
+ *         [v2.3.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
  *         [v2.3.0] דילוג על שורות שכבר הומרו ויש להן לינק TXT
  */
 function extractMetaData() {
@@ -15,17 +16,18 @@ function extractMetaData() {
   const sheet = ss.getSheetByName("ניהול_מיילים");
   if (!sheet) return;
 
+  const firstRow = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW;
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return;
+  if (lastRow < firstRow) return;
 
-  const allData = sheet.getRange(2, 1, lastRow - 1, 26).getValues();
+  const allData = sheet.getRange(firstRow, 1, lastRow - firstRow + 1, 26).getValues();
   const sizeTypeMap = {};
   let processed = 0;
   let skipped = 0;
   let errors = 0;
 
   for (let i = 0; i < allData.length; i++) {
-    const rowNum = i + 2;
+    const rowNum = i + firstRow;
     const fileId = allData[i][0];
     if (!fileId) continue;
 
@@ -121,13 +123,14 @@ function clearMetaData_LAB() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("ניהול_מיילים");
   if (!sheet) return;
+  const firstRow = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW;
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return;
-  sheet.getRange(2, 13, lastRow - 1).clearContent();
-  sheet.getRange(2, 15, lastRow - 1).clearContent();
-  sheet.getRange(2, 16, lastRow - 1).clearContent();
-  sheet.getRange(2, 18, lastRow - 1).clearContent();
-  sheet.getRange(2, 19, lastRow - 1).clearContent();
-  sheet.getRange(2, 20, lastRow - 1).clearContent();
+  if (lastRow < firstRow) return;
+  sheet.getRange(firstRow, 13, lastRow - firstRow + 1).clearContent();
+  sheet.getRange(firstRow, 15, lastRow - firstRow + 1).clearContent();
+  sheet.getRange(firstRow, 16, lastRow - firstRow + 1).clearContent();
+  sheet.getRange(firstRow, 18, lastRow - firstRow + 1).clearContent();
+  sheet.getRange(firstRow, 19, lastRow - firstRow + 1).clearContent();
+  sheet.getRange(firstRow, 20, lastRow - firstRow + 1).clearContent();
   ss.toast("עמודות המטא-דאטה נוקו", "איפוס LAB", 5);
 }
