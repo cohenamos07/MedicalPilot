@@ -1,32 +1,19 @@
 /**
  * MedicalPilot — S09_ExtractMedical.gs
- * @version 1.2.0 | @updated 15/06/2026 16:42 | @service S09
+ @version 1.2.1 | @updated 18/06/2026 13:00 | @service S09
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S09_ExtractMedical.gs
- * @description חילוץ אירועים רפואיים ממסמכים מאומתים לגליונות יעד — מנגנון דואלי (שורה בודדת / אצווה).
- * @impacts תנאי סף: עמודה M = "אומת ידנית" + עמודה L = רפואי + עמודה X לא ריקה.
+ * @impacts חילוץ אירועים רפואיים ממסמכים מאומתים לגליונות יעד — מנגנון דואלי (שורה בודדת / אצווה).
+ *          תנאי סף: עמודה M = "אומת ידנית" + עמודה L = רפואי + עמודה X לא ריקה.
  *          קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,W,X + גליון S10_למידה_רפואי (few-shot).
  *          כתיבה: ניהול_מיילים עמודות M,S,T + 6 גליונות יעד:
- *          יומן_אירועים_רפואי (7 עמודות: Event_Date,Event_Type,Medical_System,
- *          Issuer,Summary,Routing_Category,File_ID),
- *          תרופות_קבועות, יומן_מצב_רפואי, בדיקות_דם, בדיקות_גנטיות,
- *          הנחיות_רפואיות_ומשימות.
+ *          יומן_אירועים_רפואי, תרופות_קבועות, יומן_מצב_רפואי,
+ *          בדיקות_דם, בדיקות_גנטיות, הנחיות_רפואיות_ומשימות.
  *          תלויות: GEMINI_API_KEY (gemini-2.0-flash), Drive API, COLUMN_MAP.gs.
  *          מופעל מהתפריט ומאייקון עמודה O בגליון ניהול_מיילים.
- * @callers ViewEngine.gs (עמודה O), Menu_PROD.gs
- * @functions runS09, _s09_processSingleRow, _s09_processBatch,
- *            _s09_checkRow, _s09_processRow, _s09_fetchFewShotExamples,
- *            _s09_buildFewShotBlock, _s09_fetchTxtContent,
- *            _s09_callGemini, _s09_writeToSheets, _s09_writeError
- * @changes [v1.2.0] תיקון _s09_writeToSheets — גליון יומן_אירועים_רפואי:
- *                   הסרת sourceUrl (עמודה F הישנה) — File_ID מספיק כמפתח.
- *                   סדר עמודות חדש: Event_Date,Event_Type,Medical_System,
- *                   Issuer,Summary,Routing_Category,File_ID (7 עמודות במקום 8).
- *                   תואם COLUMN_MAP.gs v2.9.0 + buildMedicalEventsSheet.
- *          [v1.1.0] _s09_fetchFewShotExamples — שליפת עד 5 דוגמאות מ-S10_למידה_רפואי
+ @changes [v1.2.1] תיקון Task 71 — שינוי S09_STATUS_TRIGGER מ-"אומת ידנית" ל-"מאושר" (13:00)
  *                   והזרקתן לפרומפט Gemini לשיפור חילוץ
  *          [v1.0.0] גרסה ראשונה
  */
-
 // ══════════════════════════════════════════════════════════════════
 // קבועים
 // ══════════════════════════════════════════════════════════════════
@@ -34,7 +21,7 @@
 const S09_SOURCE_SHEET    = "ניהול_מיילים";
 const S09_LEARNING_SHEET  = "S10_למידה_רפואי";
 const S09_CATEGORIES      = ["רפואי", "מסמך רפואי"];
-const S09_STATUS_TRIGGER  = "אומת ידנית";
+const S09_STATUS_TRIGGER = "מאושר";
 const S09_GEMINI_MODEL    = "gemini-2.0-flash";
 const S09_MAX_EXAMPLES    = 5;
 
@@ -202,19 +189,19 @@ function _s09_fetchFewShotExamples(ss) {
     }
 
     // שליפת עד S09_MAX_EXAMPLES שורות אחרונות
-    const startRow = Math.max(2, lastRow - S09_MAX_EXAMPLES + 1);
-    const numRows  = lastRow - startRow + 1;
-    const data     = learnSheet.getRange(startRow, 1, numRows, 7).getValues();
+    const startRow  = Math.max(2, lastRow - S09_MAX_EXAMPLES + 1);
+    const numRows   = lastRow - startRow + 1;
+    const data      = learnSheet.getRange(startRow, 1, numRows, 7).getValues();
 
     const examples = [];
 
     data.forEach(function(row) {
-      const fileId      = (row[0] || "").toString().trim();
-      const splitIndex  = (row[1] || "").toString().trim();
-      const targetSheet = (row[2] || "").toString().trim();
-      const jsonRaw     = (row[3] || "").toString().trim();
-      const complexity  = (row[4] || "").toString().trim();
-      const correction  = (row[5] || "").toString().trim();
+      const fileId       = (row[0] || "").toString().trim();
+      const splitIndex   = (row[1] || "").toString().trim();
+      const targetSheet  = (row[2] || "").toString().trim();
+      const jsonRaw      = (row[3] || "").toString().trim();
+      const complexity   = (row[4] || "").toString().trim();
+      const correction   = (row[5] || "").toString().trim();
 
       if (!jsonRaw || !targetSheet) return;
 
@@ -405,47 +392,43 @@ ${txtContent}
 }
 
 // ══════════════════════════════════════════════════════════════════
-// [v1.2.0] כתיבה לגליונות היעד
-// יומן_אירועים_רפואי — 7 עמודות (הוסר sourceUrl)
+// כתיבה לגליונות היעד
 // ══════════════════════════════════════════════════════════════════
 
 function _s09_writeToSheets(ss, extracted, docData) {
   const sheetsWritten = [];
+  const sourceUrl     = docData.sourceUrl ||
+                        "https://drive.google.com/file/d/" + docData.fileId + "/view";
 
-  // ── יומן_אירועים_רפואי — 7 עמודות לפי COLUMN_MAP v2.9.0 ─────
-  // A=Event_Date | B=Event_Type | C=Medical_System | D=Issuer
-  // E=Summary    | F=Routing_Category              | G=File_ID
   if (extracted.events && extracted.events.length > 0) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.events);
-    extracted.events.forEach(function(e) {
+    extracted.events.forEach(e => {
       sheet.appendRow([
-        e["תאריך_אירוע"]    || docData.docDate,    // A — Event_Date
-        e["סוג_אירוע"]      || "",                  // B — Event_Type
-        e["מערכת_רפואית"]   || "",                  // C — Medical_System
-        e["מוסד_רופא"]      || docData.docIssuer,   // D — Issuer
-        e["סיכום_ממצא"]     || "",                  // E — Summary
-        e["קטגוריית_ניתוב"] || "",                  // F — Routing_Category
-        docData.fileId                               // G — File_ID (מפתח)
+        e["תאריך_אירוע"]    || docData.docDate,
+        e["סוג_אירוע"]      || "",
+        e["מערכת_רפואית"]   || "",
+        e["מוסד_רופא"]      || docData.docIssuer,
+        e["סיכום_ממצא"]     || "",
+        sourceUrl,
+        e["קטגוריית_ניתוב"] || "",
+        docData.fileId
       ]);
     });
     sheetsWritten.push("יומן אירועים");
   }
 
-  // ── תרופות_קבועות ──────────────────────────────────────────────
   if (extracted.medications && extracted.medications.length > 0) {
-    const sheet     = ss.getSheetByName(S09_TARGET_SHEETS.medications);
-    const sourceUrl = docData.sourceUrl ||
-                      "https://drive.google.com/file/d/" + docData.fileId + "/view";
-    extracted.medications.forEach(function(m) {
+    const sheet = ss.getSheetByName(S09_TARGET_SHEETS.medications);
+    extracted.medications.forEach(m => {
       sheet.appendRow([
-        m["שם_תרופה"]    || "",
-        m["חומר_פעיל"]   || "",
-        m["מינון"]        || "",
-        m["תדירות"]       || "",
-        m["סיבת_טיפול"]  || "",
-        m["תאריך_התחלה"] || "",
-        m["תאריך_סיום"]  || "",
-        m["סטטוס"]        || "פעיל",
+        m["שם_תרופה"]       || "",
+        m["חומר_פעיל"]      || "",
+        m["מינון"]           || "",
+        m["תדירות"]          || "",
+        m["סיבת_טיפול"]     || "",
+        m["תאריך_התחלה"]    || "",
+        m["תאריך_סיום"]     || "",
+        m["סטטוס"]           || "פעיל",
         docData.docIssuer,
         sourceUrl,
         docData.fileId
@@ -454,43 +437,37 @@ function _s09_writeToSheets(ss, extracted, docData) {
     sheetsWritten.push("תרופות");
   }
 
-  // ── יומן_מצב_רפואי ─────────────────────────────────────────────
   if (extracted.medical_status && extracted.medical_status.length > 0) {
-    const sheet     = ss.getSheetByName(S09_TARGET_SHEETS.medStatus);
-    const sourceUrl = docData.sourceUrl ||
-                      "https://drive.google.com/file/d/" + docData.fileId + "/view";
-    extracted.medical_status.forEach(function(s) {
+    const sheet = ss.getSheetByName(S09_TARGET_SHEETS.medStatus);
+    extracted.medical_status.forEach(s => {
       sheet.appendRow([
-        s["תאריך_אירוע"]  || docData.docDate,
-        s["סוג_אירוע"]    || "",
-        s["מערכת_איבר"]   || "",
-        s["מוסד_רופא"]    || docData.docIssuer,
-        s["אבחנה_עיקרית"] || "",
-        s["חומרה_מצב"]    || "",
-        s["המלצות_קצרות"] || "",
+        s["תאריך_אירוע"]     || docData.docDate,
+        s["סוג_אירוע"]       || "",
+        s["מערכת_איבר"]      || "",
+        s["מוסד_רופא"]       || docData.docIssuer,
+        s["אבחנה_עיקרית"]    || "",
+        s["חומרה_מצב"]       || "",
+        s["המלצות_קצרות"]    || "",
         sourceUrl,
         docData.fileId,
         docData.docIssuer,
-        s["סטטוס_רשומה"]  || "חדש"
+        s["סטטוס_רשומה"]     || "חדש"
       ]);
     });
     sheetsWritten.push("מצב רפואי");
   }
 
-  // ── בדיקות_דם ──────────────────────────────────────────────────
   if (extracted.blood_tests && extracted.blood_tests.length > 0) {
-    const sheet     = ss.getSheetByName(S09_TARGET_SHEETS.bloodTests);
-    const sourceUrl = docData.sourceUrl ||
-                      "https://drive.google.com/file/d/" + docData.fileId + "/view";
-    extracted.blood_tests.forEach(function(b) {
+    const sheet = ss.getSheetByName(S09_TARGET_SHEETS.bloodTests);
+    extracted.blood_tests.forEach(b => {
       sheet.appendRow([
-        b["תאריך_בדיקה"] || docData.docDate,
-        b["שם_בדיקה"]    || "",
-        b["קטגוריה"]      || "",
-        b["ערך"]          || "",
-        b["טווח_נורמה"]  || "",
-        b["סטטוס"]        || "",
-        b["הערת_רופא"]   || "",
+        b["תאריך_בדיקה"]  || docData.docDate,
+        b["שם_בדיקה"]     || "",
+        b["קטגוריה"]       || "",
+        b["ערך"]           || "",
+        b["טווח_נורמה"]   || "",
+        b["סטטוס"]         || "",
+        b["הערת_רופא"]    || "",
         sourceUrl,
         docData.fileId,
         docData.docIssuer
@@ -499,19 +476,16 @@ function _s09_writeToSheets(ss, extracted, docData) {
     sheetsWritten.push("בדיקות דם");
   }
 
-  // ── בדיקות_גנטיות ──────────────────────────────────────────────
   if (extracted.genetic_tests && extracted.genetic_tests.length > 0) {
-    const sheet     = ss.getSheetByName(S09_TARGET_SHEETS.geneticTests);
-    const sourceUrl = docData.sourceUrl ||
-                      "https://drive.google.com/file/d/" + docData.fileId + "/view";
-    extracted.genetic_tests.forEach(function(g) {
+    const sheet = ss.getSheetByName(S09_TARGET_SHEETS.geneticTests);
+    extracted.genetic_tests.forEach(g => {
       sheet.appendRow([
-        g["תאריך_בדיקה"]    || docData.docDate,
-        g["שם_פאנל"]        || "",
-        g["גן_וריאנט"]      || "",
-        g["ממצא"]            || "",
-        g["משמעות_קלינית"]  || "",
-        g["המלצה"]           || "",
+        g["תאריך_בדיקה"]      || docData.docDate,
+        g["שם_פאנל"]          || "",
+        g["גן_וריאנט"]        || "",
+        g["ממצא"]              || "",
+        g["משמעות_קלינית"]    || "",
+        g["המלצה"]             || "",
         sourceUrl,
         docData.fileId
       ]);
@@ -519,19 +493,16 @@ function _s09_writeToSheets(ss, extracted, docData) {
     sheetsWritten.push("בדיקות גנטיות");
   }
 
-  // ── הנחיות_רפואיות_ומשימות ─────────────────────────────────────
   if (extracted.instructions && extracted.instructions.length > 0) {
-    const sheet     = ss.getSheetByName(S09_TARGET_SHEETS.instructions);
-    const sourceUrl = docData.sourceUrl ||
-                      "https://drive.google.com/file/d/" + docData.fileId + "/view";
-    extracted.instructions.forEach(function(i) {
+    const sheet = ss.getSheetByName(S09_TARGET_SHEETS.instructions);
+    extracted.instructions.forEach(i => {
       sheet.appendRow([
-        i["תאריך_הנחיה"] || docData.docDate,
-        i["מקור"]         || docData.docIssuer,
-        i["תיאור_משימה"] || "",
-        i["סוג_משימה"]   || "",
-        i["תאריך_יעד"]   || "",
-        i["סטטוס"]        || "פתוח",
+        i["תאריך_הנחיה"]  || docData.docDate,
+        i["מקור"]          || docData.docIssuer,
+        i["תיאור_משימה"]  || "",
+        i["סוג_משימה"]    || "",
+        i["תאריך_יעד"]    || "",
+        i["סטטוס"]         || "פתוח",
         sourceUrl,
         docData.fileId
       ]);
