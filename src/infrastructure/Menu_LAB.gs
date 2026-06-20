@@ -1,7 +1,7 @@
 /**
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
-* @version 10.8 | @updated 09/06/2026 20:15 | @service MENU_LAB
+* @version 10.9 | @updated 20/06/2026 21:16 | @service MENU_LAB
   * @git        https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/Menu_LAB.gs
  * @impacts    תפריט מעבדה ראשי של המערכת — מציג כלי פיתוח ותיעוד בלבד.
  *             מבנה: ⚙️ ניהול מערכת | 🔬 כלי פיתוח | 📝 תיעוד מערכת.
@@ -9,7 +9,8 @@
  *             pushContextToGitHub / syncSessionDocs (GitHubSync).
  *             סנכרון עורך↔גיט מנוהל בלעדית דרך אייקוני גליון מסנכרן_קבצים.
  *             ניהול משימות מנוהל בלעדית דרך אייקוני גליון ניהול_משימות.
- * @changes    [v10.8] הסרת 'משימות פיתוח' (refreshDevDashboard — לא קיימת)
+ * @changes    [v10.9] [Task 72] הוספת פריט תפריט checkTxtUrlIntegrity ב-🔬 כלי פיתוח
+ *             [v10.8] הסרת 'משימות פיתוח' (refreshDevDashboard — לא קיימת)
  *                     הסרת סעיף 'סנכרון עורך וגיט' — מנוהל דרך אייקוני הגליון
  *             [v10.7] ארגון מחדש — הסרת קליטת נתונים ועיבוד AI
  *             [v10.6] גרסה קודמת
@@ -31,7 +32,8 @@ function buildLabMenu_v10_8() {
 
   var subMenuDev = ui.createMenu('🔬 כלי פיתוח')
     .addItem('הדפסת מבנה גיליון', 'printSheetMap')
-    .addItem('פרטי עמודה בודדת', 'printColumnDetail');
+    .addItem('פרטי עמודה בודדת', 'printColumnDetail')
+    .addItem('בדיקת תקינות TXT_URL', 'checkTxtUrlIntegrity');
   menu.addSubMenu(subMenuDev);
 
   menu.addSeparator();
