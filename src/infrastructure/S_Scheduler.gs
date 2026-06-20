@@ -1,18 +1,16 @@
 /**
  * MedicalPilot — S_Scheduler.gs
- * @version 1.0.2 | @updated 14/06/2026 22:07 | @service SCHEDULER
+ * @version 1.0.3 | @updated 20/06/2026 | @service SCHEDULER
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S_Scheduler.gs
  * @description ניהול גובים מתוזמנים — הפעלה ועצירה מהתפריט.
- *              מנהל טריגר לילי להמרת קבצים ל-TXT (nightlyConvertBatch).
- *              נקרא מהתפריט בלבד — אינו חלק מזרימת עיבוד אוטומטי.
+ * מנהל טריגר לילי להמרת קבצים ל-TXT (nightlyConvertBatch).
+ * תומך במנגנון השבתה/השהיה זמני (isActive) ישירות מהרישום.
  * @impacts     תלויות: S06_ConvertTXT.gs (nightlyConvertBatch).
- *              מנהל טריגרים דרך ScriptApp — לא כותב לגליונות.
+ * מנהל טריגרים דרך ScriptApp — לא כותב לגליונות.
  * @callers     Menu_LAB.gs | Menu_PROD.gs
  * @functions   startJob, stopJob, showActiveJobs,
- *              _getActiveJobIds, _deleteTriggerByFunc, _fmtTime
- * @changes     [v1.0.2] תיקון Tasks 20,21 — עדכון @git ל-GitHub API URL + @callers + @functions + @changes מלא
- *              [v1.0.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
- *              [v1.0.0] גרסה ראשונה — גוב המרת TXT
+ * _getActiveJobIds, _deleteTriggerByFunc, _fmtTime
+ * @changes     [v1.0.3] הוספת דגל isActive ל-JOB_REGISTRY למניעת הפעלה והשהיית ריצות
  */
 // ══════════════════════════════════════════════════════════════════
 // רישום גובים — הגדרות קבועות
@@ -20,13 +18,14 @@
 
 const JOB_REGISTRY = [
   {
-    id:        "CONVERT_TXT",
-    name:      "המרת קבצים ל-TXT",
-    func:      "nightlyConvertBatch",
-    startHour: 0,  startMin: 30,   // 00:30
-    endHour:   7,  endMin:   30,   // 07:30
-    interval:  30,                  // כל 30 דקות
-    batchSize: 2                    // 2 שורות לריצה
+    id:          "CONVERT_TXT",
+    name:        "המרת קבצים ל-TXT",
+    func:        "nightlyConvertBatch",
+    startHour:   0,  startMin:  30,   // 00:30
+    endHour:     7,  endMin:    30,   // 07:30
+    interval:    30,                  // כל 30 דקות
+    batchSize:   2,                   // 2 שורות לריצה
+    isActive:    false                // 🛑 שנה ל-true כדי לאפשר הפעלה, השאר false כדי לעצור/להשהות
   }
 ];
 
@@ -37,14 +36,21 @@ const JOB_REGISTRY = [
 function startJob() {
   const ui = SpreadsheetApp.getUi();
 
-  // בנה רשימת גובים זמינים (שאינם פעילים כבר)
+  // בנה רשימת גובים זמינים (שאינם פעילים כבר ושהם מוגדרים כפעילים ברישום)
   const active   = _getActiveJobIds();
   const available = JOB_REGISTRY.filter(function(j) {
-    return active.indexOf(j.id) === -1;
+    return active.indexOf(j.id) === -1 && j.isActive === true;
   });
 
+  // בדיקה מיוחדת אם הג'וב קיים אך מושבת ברישום
+  const disabledJobs = JOB_REGISTRY.filter(function(j) { return !j.isActive; });
+
   if (available.length === 0) {
-    ui.alert("כל הגובים כבר פעילים.", "הרץ 'עצור גוב' לעצירה.", ui.ButtonSet.OK);
+    if (disabledJobs.length > 0) {
+      ui.alert("עצירה זמנית פעילה", "הג'וב מושבת כרגע בקוד (isActive: false).\nכדי להפעילו מחדש, יש לשנות את הדגל ל-true בקוד.", ui.ButtonSet.OK);
+    } else {
+      ui.alert("כל הגובים כבר פעילים.", "הרץ 'עצור גוב' לעצירה.", ui.ButtonSet.OK);
+    }
     return;
   }
 
@@ -84,7 +90,7 @@ function startJob() {
     "שם: "    + job.name + "\n" +
     "מרווח: כל " + job.interval + " דקות\n" +
     "שורות: " + job.batchSize + " לריצה\n" +
-    "חלון: "  + _fmtTime(job.startHour, job.startMin) + " עד " + _fmtTime(job.endHour, job.endMin),
+    "חלון: "  + _fmtTime(job.startHour, job.startMin) + " עד " + _fmtTime(job.endHour, j.endMin),
     ui.ButtonSet.OK
   );
 }
@@ -175,7 +181,8 @@ function showActiveJobs() {
   activeTriggers.forEach(function(t) {
     const job = JOB_REGISTRY.find(function(j) { return j.func === t.getHandlerFunction(); });
     if (job) {
-      report += "✅ " + job.name + "\n";
+      const statusText = job.isActive ? "✅" : "⏸️ [מושבת זמנית בקוד]";
+      report += statusText + " " + job.name + "\n";
       report += "   כל " + job.interval + " דקות\n";
       report += "   חלון: " + _fmtTime(job.startHour, job.startMin) + " עד " + _fmtTime(job.endHour, job.endMin) + "\n\n";
     } else {
