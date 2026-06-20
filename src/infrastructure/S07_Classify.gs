@@ -1,6 +1,6 @@
 /**
  * @file        S07_Classify.gs
- * @version     2.5.0 | @updated 11/06/2026 10:50 | @service S07
+ * @version     2.5.1 | @updated 20/06/2026 22:08 | @service S07
  * @git         src/infrastructure/S07_Classify.gs
  * @description סיווג מסמכים רפואיים בעזרת Gemini API.
  *              קורא טקסט מ-TXT_URL (X) או Raw_Text (Z).
@@ -25,7 +25,10 @@
  *              _fetchTextFromUrl_S07 | _getLearningExamples_S07
  *              _calculateDuplicates_S07 | _extractTxtHeader_S07
  *              S07_ValidateWritePermissions
- * @changes     [v2.5.0] תיקון Duplicate_Flag — פורמט: "כפול מאושר — שורה X | ניקוד Y/5"
+ * @changes     [v2.5.1] תיקון קריטי — classifyDocument, _processS07Batch,
+ *                       executeS07Classification התחילו משורה 2 — עכשיו
+ *                       SHEET_CONFIG.FIRST_DATA_ROW (5), כמו S06 ו-S05
+ *              [v2.5.0] תיקון Duplicate_Flag — פורמט: "כפול מאושר — שורה X | ניקוד Y/5"
  *                       סימטריה: כתיבת Duplicate_Flag גם בשורת הכפול
  *                       _calculateDuplicates_S07 מחזירה { sheetRow, score } במקום מספר בלבד
  *              [v2.4.0] תיקון Complexity — דינמי מ-Gemini בעברית במקום 'SIMPLE' קשיח
@@ -42,13 +45,14 @@
 
 function classifyDocument() {
   const sheet       = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
+  const firstRow    = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW;
   const activeRange = sheet.getActiveRange();
   const activeRow   = sheet.getActiveCell().getRow();
   const activeCol   = sheet.getActiveCell().getColumn();
 
   if (activeRange.getNumColumns() >= sheet.getMaxColumns()) {
-    if (activeRow < 2) {
-      SpreadsheetApp.getUi().alert("⚠️ שורת כותרת — לא ניתן לסווג.");
+    if (activeRow < firstRow) {
+      SpreadsheetApp.getUi().alert("⚠️ שורה מוגנת (1-" + (firstRow - 1) + ") — לא ניתן לסווג.");
       return;
     }
     executeS07Classification(activeRow);
@@ -60,23 +64,23 @@ function classifyDocument() {
     return;
   }
 
-  if (activeRow < 2) {
-    SpreadsheetApp.getUi().alert("⚠️ שורת כותרת — לא ניתן לסווג.");
+  if (activeRow < firstRow) {
+    SpreadsheetApp.getUi().alert("⚠️ שורה מוגנת (1-" + (firstRow - 1) + ") — לא ניתן לסווג.");
     return;
   }
   executeS07Classification(activeRow);
 }
-
 // ══════════════════════════════════════════════════════════════════
 // עיבוד אצווה
 // ══════════════════════════════════════════════════════════════════
 
 function _processS07Batch(sheet, batchSize) {
+  const firstRow    = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW;
   const lastRow     = sheet.getLastRow();
   let processed     = 0;
-  let lastProcessed = 2;
+  let lastProcessed = firstRow;
 
-  for (let i = 2; i <= lastRow && processed < batchSize; i++) {
+  for (let i = firstRow; i <= lastRow && processed < batchSize; i++) {
     const fileId = sheet.getRange(i, 1).getValue();
     if (!fileId) continue;
 
@@ -161,8 +165,9 @@ function _safeClear(sheet, row, colName) {
 // ══════════════════════════════════════════════════════════════════
 
 function executeS07Classification(row) {
-  if (row < 2) {
-    Logger.log("[S07] דולג — שורה " + row + " היא כותרת.");
+  const firstRow = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW;
+  if (row < firstRow) {
+    Logger.log("[S07] דולג — שורה " + row + " מוגנת (1-" + (firstRow - 1) + ").");
     return false;
   }
 
