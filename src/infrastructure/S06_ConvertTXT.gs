@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S06_ConvertTXT.gs
- * @version 1.6.2 | @updated 14/06/2026 22:07 | @service S06
+ * @version 1.6.4 | @updated 20/06/2026 22:06 | @service S06
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S06_ConvertTXT.gs
  * @description המרת קבצים לפורמט TXT מובנה — 6 מסלולים לפי סוג קובץ.
  *              PDF→Visual, DOCX→Direct, GDoc→Doc, IMG→Image, TXT→Text, Sheet→Sheet.
@@ -14,9 +14,13 @@
  *              execute_Visual_Path, execute_Direct_Path, execute_Doc_Path,
  *              execute_Image_Path, execute_Text_Path, execute_Sheet_Path,
  *              finalize_And_Save_To_Drive, nightlyConvertBatch,
- *              createNightlyTrigger, deleteNightlyTrigger,
+ *              createNightlyTrigger, deleteNightlyTrigger, checkTxtUrlIntegrity, 
+ *              _extractDriveId_TxtCheck, _writeTxtCheckResults
  *              _callGemini, _safeParseJson, _writeError, _clearErrors
- * @changes     [v1.6.2] תיקון Tasks 9,10,11 — עדכון @git ל-GitHub API URL + @callers + @changes מלא
+ * @changes     [v1.6.4] תיקון קריטי — run_MedicalPilot_V2_6_2, _processBatch, nightlyConvertBatch  התחילו משורה 2 (כותרת ישנה) — עכשיו SHEET_CONFIG.FIRST_DATA_ROW (5).
+ *              nightlyConvertBatch (טריגר אוטומטי) היה כותב שגיאות לשורות 2-4 מוגנות.
+ *              [v1.6.3] [Task 72] הוספת checkTxtUrlIntegrity — אבחון TXT_URL שגוי/ריק, כתיבת תוצאות לגליון TXT_URL_בדיקה. אבחון בלבד — לא נוגע בסטטוסים.
+ *              [v1.6.2] תיקון Tasks 9,10,11 — עדכון @git ל-GitHub API URL + @callers + @changes מלא
  *              [v1.6.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
  *              [FIX-4] דילוג חכם — שגיאות זמניות ינסו שוב, קבועות ידולגו
  *              [FIX-3] Sleep(8000) בין שורות באצווה ידנית
@@ -108,14 +112,14 @@ function _clearErrors(sheet, row) {
 
 function run_MedicalPilot_V2_6_2() {
   const sheet       = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
+  const firstRow    = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW;
   const activeRange = sheet.getActiveRange();
   const activeRow   = sheet.getActiveCell().getRow();
   const activeCol   = sheet.getActiveCell().getColumn();
 
-  // שורה שלמה נבחרה → ריצה בודדת
   if (activeRange.getNumColumns() >= sheet.getMaxColumns()) {
-    if (activeRow < 2) {
-      SpreadsheetApp.getUi().alert("⚠️ שורת כותרת — לא ניתן לעבד.");
+    if (activeRow < firstRow) {
+      SpreadsheetApp.getUi().alert("⚠️ שורה מוגנת (1-" + (firstRow - 1) + ") — לא ניתן לעבד.");
       return;
     }
     _clearErrors(sheet, activeRow);
@@ -123,15 +127,13 @@ function run_MedicalPilot_V2_6_2() {
     return;
   }
 
-  // [FIX-1] סמן על עמודה M (13) → אצווה
   if (activeCol === 13) {
     _processBatch(sheet, 3);
     return;
   }
 
-  // כל תא אחר → ריצה בודדת על אותה שורה
-  if (activeRow < 2) {
-    SpreadsheetApp.getUi().alert("⚠️ שורת כותרת — לא ניתן לעבד.");
+  if (activeRow < firstRow) {
+    SpreadsheetApp.getUi().alert("⚠️ שורה מוגנת (1-" + (firstRow - 1) + ") — לא ניתן לעבד.");
     return;
   }
   _clearErrors(sheet, activeRow);
@@ -143,11 +145,12 @@ function run_MedicalPilot_V2_6_2() {
 // ══════════════════════════════════════════════════════════════════
 
 function _processBatch(sheet, batchSize) {
+  const firstRow    = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW;
   const lastRow     = sheet.getLastRow();
   let processed     = 0;
-  let lastProcessed = 2;
+  let lastProcessed = firstRow;
 
-  for (let i = 2; i <= lastRow && processed < batchSize; i++) {
+  for (let i = firstRow; i <= lastRow && processed < batchSize; i++) {
 
     // תנאי 1 — חייב File_ID
     const fileId = sheet.getRange(i, 1).getValue();
@@ -569,8 +572,8 @@ function nightlyConvertBatch() {
   const min  = now.getMinutes();
   const time = hour * 60 + min;
 
-  const start = 0 * 60 + 30;  // 00:30
-  const end   = 7 * 60 + 30;  // 07:30
+  const start = 0 * 60 + 30;
+  const end   = 7 * 60 + 30;
 
   if (time < start || time > end) {
     Logger.log("מחוץ לחלון הזמן — " + hour + ":" + min + " — דולג");
@@ -582,10 +585,11 @@ function nightlyConvertBatch() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
   if (!sheet) { Logger.log("גליון לא נמצא"); return; }
 
-  const lastRow = sheet.getLastRow();
-  let processed = 0;
+  const firstRow = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW;
+  const lastRow  = sheet.getLastRow();
+  let processed  = 0;
 
-  for (let i = 2; i <= lastRow && processed < 2; i++) {
+  for (let i = firstRow; i <= lastRow && processed < 2; i++) {
     const fileId = sheet.getRange(i, 1).getValue();
     if (!fileId) continue;
 
@@ -627,4 +631,98 @@ function deleteNightlyTrigger() {
     if (t.getHandlerFunction() === "nightlyConvertBatch") { ScriptApp.deleteTrigger(t); count++; }
   });
   ui.alert("✅ נמחקו " + count + " טריגרים של nightlyConvertBatch");
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task 72] בדיקת תקינות TXT_URL — אבחון בלבד, ללא כתיבה לסטטוסים
+// ══════════════════════════════════════════════════════════════════
+
+function checkTxtUrlIntegrity() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("ניהול_מיילים");
+  if (!sheet) { SpreadsheetApp.getUi().alert("גליון ניהול_מיילים לא נמצא."); return; }
+
+  const cfg      = SHEET_CONFIG["ניהול_מיילים"];
+  const startRow = cfg.FIRST_DATA_ROW;
+  const lastRow  = sheet.getLastRow();
+  if (lastRow < startRow) { SpreadsheetApp.getUi().alert("אין נתונים לבדיקה."); return; }
+
+  const data    = sheet.getRange(startRow, 1, lastRow - startRow + 1, 24).getValues();
+  const problems = [];
+  let checked = 0;
+
+  for (let i = 0; i < data.length; i++) {
+    const rowNum   = startRow + i;
+    const fileId   = data[i][0];               // A
+    const pipeline = data[i][12];               // M
+    const txtUrl   = String(data[i][23] || "").trim(); // X
+
+    if (!fileId) continue;
+    if (pipeline !== "הומר ל-TXT") continue;
+
+    checked++;
+
+    if (!txtUrl) {
+      problems.push([rowNum, fileId, "", "TXT_URL ריק", ""]);
+      continue;
+    }
+
+    const driveId = _extractDriveId_TxtCheck(txtUrl);
+    if (!driveId) {
+      problems.push([rowNum, fileId, txtUrl, "TXT_URL שגוי", "לא נמצא File ID תקין ב-URL"]);
+      continue;
+    }
+
+    try {
+      const content = DriveApp.getFileById(driveId).getBlob().getDataAsString();
+      if (!content || content.trim() === "") {
+        problems.push([rowNum, fileId, txtUrl, "TXT ריק בדרייב", "הקובץ נמצא אך ריק"]);
+      }
+    } catch (e) {
+      problems.push([rowNum, fileId, txtUrl, "TXT_URL שגוי", String(e.message).substring(0, 100)]);
+    }
+  }
+
+  _writeTxtCheckResults(ss, problems);
+
+  const msg = problems.length === 0
+    ? "✅ כל ה-TXT_URL תקינים (נבדקו " + checked + " שורות)"
+    : "נבדקו " + checked + " שורות עם M='הומר ל-TXT' | נמצאו " + problems.length +
+      " שורות פגומות | פירוט בגליון TXT_URL_בדיקה";
+
+  SpreadsheetApp.getUi().alert(msg);
+}
+
+// ── חילוץ File ID מתוך URL — לוקאלי לבדיקה זו ────────────────────
+
+function _extractDriveId_TxtCheck(url) {
+  if (!url) return null;
+  const m1 = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (m1) return m1[1];
+  const m2 = url.match(/id=([a-zA-Z0-9_-]+)/);
+  if (m2) return m2[1];
+  return null;
+}
+
+// ── כתיבת תוצאות לגליון TXT_URL_בדיקה ────────────────────────────
+
+function _writeTxtCheckResults(ss, problems) {
+  let sheet = ss.getSheetByName("TXT_URL_בדיקה");
+  if (!sheet) {
+    sheet = ss.insertSheet("TXT_URL_בדיקה");
+    sheet.getRange(1, 1, 1, 5).setValues([
+      ["Row_Number", "File_ID", "TXT_URL", "Problem", "Detail"]
+    ]).setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  } else {
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      sheet.getRange(2, 1, lastRow - 1, 5).clearContent();
+    }
+  }
+
+  if (problems.length > 0) {
+    sheet.getRange(2, 1, problems.length, 5).setValues(problems);
+  }
+  sheet.autoResizeColumns(1, 5);
 }
