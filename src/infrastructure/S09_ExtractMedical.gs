@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S09_ExtractMedical.gs
- @version 1.2.1 | @updated 18/06/2026 13:00 | @service S09
+ * @version 1.2.2 | @updated 26/06/2026 12:00 | @service S09
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S09_ExtractMedical.gs
  * @impacts חילוץ אירועים רפואיים ממסמכים מאומתים לגליונות יעד — מנגנון דואלי (שורה בודדת / אצווה).
  *          תנאי סף: עמודה M = "אומת ידנית" + עמודה L = רפואי + עמודה X לא ריקה.
@@ -10,7 +10,13 @@
  *          בדיקות_דם, בדיקות_גנטיות, הנחיות_רפואיות_ומשימות.
  *          תלויות: GEMINI_API_KEY (gemini-2.0-flash), Drive API, COLUMN_MAP.gs.
  *          מופעל מהתפריט ומאייקון עמודה O בגליון ניהול_מיילים.
- @changes [v1.2.1] תיקון Task 71 — שינוי S09_STATUS_TRIGGER מ-"אומת ידנית" ל-"מאושר" (13:00)
+ * @changes [v1.2.2] [Task 65] תיקון קריטי — בלוק כתיבת "יומן_אירועים_רפואי":
+ *                   הוסר sourceUrl מהמערך (לא קיים במפת 7 העמודות) — היה דורס
+ *                   את עמודה F (Routing_Category) עם לינק Drive, ודוחף את
+ *                   docData.fileId לעמודה H הלא-מוגדרת. כעת 7 ערכים מתואמים
+ *                   בדיוק ל-COLUMN_MAP: Event_Date, Event_Type, Medical_System,
+ *                   Issuer, Summary, Routing_Category, File_ID.
+ *          [v1.2.1] תיקון Task 71 — שינוי S09_STATUS_TRIGGER מ-"אומת ידנית" ל-"מאושר" (13:00)
  *                   והזרקתן לפרומפט Gemini לשיפור חילוץ
  *          [v1.0.0] גרסה ראשונה
  */
@@ -400,6 +406,8 @@ function _s09_writeToSheets(ss, extracted, docData) {
   const sourceUrl     = docData.sourceUrl ||
                         "https://drive.google.com/file/d/" + docData.fileId + "/view";
 
+  // [Task 65 — v1.2.2] תוקן: 7 ערכים מדויקים לפי COLUMN_MAP של "יומן_אירועים_רפואי"
+  // Event_Date | Event_Type | Medical_System | Issuer | Summary | Routing_Category | File_ID
   if (extracted.events && extracted.events.length > 0) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.events);
     extracted.events.forEach(e => {
@@ -409,7 +417,6 @@ function _s09_writeToSheets(ss, extracted, docData) {
         e["מערכת_רפואית"]   || "",
         e["מוסד_רופא"]      || docData.docIssuer,
         e["סיכום_ממצא"]     || "",
-        sourceUrl,
         e["קטגוריית_ניתוב"] || "",
         docData.fileId
       ]);
