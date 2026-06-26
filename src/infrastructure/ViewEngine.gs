@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version     2.5.0 | @updated 15/06/2026 17:15 | @service VIEW_ENGINE
+ * @version 2.6.0 | @updated 24/06/2026 21:39 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              14 מבטים: expand, systemCheck, accessCheck, gmail, whatsapp, drive,
@@ -31,7 +31,13 @@
  *              runQAView | runArchiveView | runStatusCheck
  *              setupIcons | cleanAndResetIcons | debugIcons
  *              runExpandViewEvents | runS10ViewIconEvents | setupMedicalEventsIcons
- * @changes     [v2.5.0] הוספת תמיכה בגליון יומן_אירועים_רפואי:
+ * @changes     [תיקון] Task 83 — runS08ViewIcon לא קיבל את התיקון שהוחל על S06/S07;
+ *          נוסף originalRow + _restoreActiveRowAfterSwitch — מתקן קיפוץ לשורה 4
+ *              [תיקון] Task 84 — runS07Icon ענף אצווה קרא ל-executeS07Classification()
+ *          בלי row — תוקן לקריאה נכונה ל-_processS07Batch(sheet, 3), כמו S06
+ *              [v2.6.0] [Task 83] תיקון switchView דורסת activeRow — הוספת
+*                    _restoreActiveRowAfterSwitch + originalRow ב-runS06Icon/runS07Icon
+ *              [v2.5.0] הוספת תמיכה בגליון יומן_אירועים_רפואי:
  *                       MEDICAL_EVENTS_ICON_MAP — מיפוי 2 איקונים (A + C)
  *                       runExpandViewEvents — רענון פילטר על הגליון הפעיל
  *                       runS10ViewIconEvents — S10 ללא switchView (לגליונות יעד)
@@ -397,6 +403,21 @@ function runDriveIcon() {
   }
 }
 
+
+// ══════════════════════════════════════════════════════════════════
+// [Task 83] שחזור השורה הפעילה המקורית אחרי switchView
+// switchView מפעילה activate() על שורה 4 (לצורך גלילה לעמודה) —
+// זה דורס את activeRow שהמשתמש עמד עליו. הפונקציה משחזרת אותו.
+// ══════════════════════════════════════════════════════════════════
+
+function _restoreActiveRowAfterSwitch(sheet, originalRow) {
+  const firstRow = SHEET_CONFIG[VIEW_SHEET_NAME].FIRST_DATA_ROW;
+  if (originalRow >= firstRow) {
+    const col = sheet.getActiveCell().getColumn();
+    sheet.getRange(originalRow, col).activate();
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════
 // runS05Icon — עמודה J — S05 חילוץ מטא-דאטה
 // ══════════════════════════════════════════════════════════════════
@@ -430,7 +451,10 @@ function runS05Icon() {
 function runS06Icon() {
   try {
     const ui     = SpreadsheetApp.getUi();
+    const sheet  = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
+    const originalRow = sheet.getActiveCell().getRow(); // [Task 83]
     switchView("convert");
+    _restoreActiveRowAfterSwitch(sheet, originalRow);    // [Task 83]
     const choice = ui.alert(
       "S06 — המרת TXT",
       "בחר מצב הרצה:\n\n" +
@@ -465,7 +489,10 @@ function runS06Icon() {
 function runS07Icon() {
   try {
     const ui     = SpreadsheetApp.getUi();
+    const sheet  = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
+    const originalRow = sheet.getActiveCell().getRow(); // [Task 83]
     switchView("classify");
+    _restoreActiveRowAfterSwitch(sheet, originalRow);    // [Task 83]
     const choice = ui.alert(
       "S07 — סיווג AI",
       "בחר מצב הרצה:\n\n" +
@@ -481,26 +508,29 @@ function runS07Icon() {
         ui.alert("שגיאה", "הפונקציה run_S07_ActiveRow לא נמצאה ב-S07_Classify.", ui.ButtonSet.OK);
       }
     } else if (choice === ui.Button.NO) {
-      if (typeof executeS07Classification === "function") {
+      if (typeof _processS07Batch === "function") {
+        const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
         SpreadsheetApp.getActiveSpreadsheet().toast("מריץ S07 — אצווה מלאה...", "MedicalPilot", 3);
-        executeS07Classification();
+        _processS07Batch(sheet, 3);
       } else {
-        ui.alert("שגיאה", "הפונקציה executeS07Classification לא נמצאה ב-S07_Classify.", ui.ButtonSet.OK);
+        ui.alert("שגיאה", "הפונקציה _processS07Batch לא נמצאה ב-S07_Classify.", ui.ButtonSet.OK);
       }
     }
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-runS07Icon: " + e.toString());
   }
 }
-
 // ══════════════════════════════════════════════════════════════════
 // runS08ViewIcon — עמודה N — S08 אימות ידני
 // ══════════════════════════════════════════════════════════════════
 
 function runS08ViewIcon() {
   try {
-    const ui      = SpreadsheetApp.getUi();
+    const ui     = SpreadsheetApp.getUi();
+    const sheet  = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
+    const originalRow = sheet.getActiveCell().getRow(); // [Task 83]
     switchView("s08");
+    _restoreActiveRowAfterSwitch(sheet, originalRow);    // [Task 83]
     const confirm = ui.alert(
       "S08 — אימות ידני",
       "עברת למבט אימות ידני.\nהאם לפתוח את מסך הבקרה?",
