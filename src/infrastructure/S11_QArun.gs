@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.3.2 | @updated 15/06/2026 16:35 | @service S11
+ * @version 1.4.0 | @updated 24/06/2026 20:32 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי 15 חוקי QA.
  * @impacts בודק עקביות עמודות L, M, N, Q, R, S, T, U לפי ציר התקדמות S03→S09.
@@ -14,8 +14,10 @@
  * @functions runQAViewMain, qa_getFindings, qa_applySelectedFixes,
  *            _qa_scanRow, _qa_scanAll, _qa_checkRow,
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol,
- *            _qa_loadEventsFileIds
- * @changes [v1.3.2] תיקון באג קריטי — E15: חסרה סוגרת findings.push + return findings
+ *            _qa_loadEventsFileIds, findAnchorRowAndAuditVerified
+ * @changes [v1.4.0] הוספת findAnchorRowAndAuditVerified — Task 77 (איתור שורת עוגן)
+ *                   + Task 82 (חקר מקור "אומת ידנית") — קריאה בלבד, אינו כותב לגליון
+ *          [v1.3.2] תיקון באג קריטי — E15: חסרה סוגרת findings.push + return findings
  *                   היה מחוץ ל-if — גרם ל-_qa_checkRow לא להחזיר ערך
  *                   תיקון סוגרת כפולה בסוף הקובץ }} שגרמה לשגיאת forEach
  *          [v1.3.1] הוספת עמודה 12 (Doc_Category) ל-QA_ALLOWED_COLS
@@ -523,4 +525,87 @@ function _qa_applyFixes(sheet, findings) {
   });
 
   SpreadsheetApp.flush();
+}
+// ══════════════════════════════════════════════════════════════════
+// findAnchorRowAndAuditVerified — Task 77 + Task 82
+// סריקה אחת לשתי הבדיקות: איתור שורת-עוגן (L=רפואי, M=מחולץ)
+// וריכוז שורות עם M=אומת ידנית לחקירת מקור
+// ══════════════════════════════════════════════════════════════════
+
+function findAnchorRowAndAuditVerified() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(QA_SHEET_NAME);
+  if (!sheet) {
+    Logger.log("❌ גליון '" + QA_SHEET_NAME + "' לא נמצא.");
+    return;
+  }
+
+  const COL_FILE_ID         = 1;  // A
+  const COL_SOURCE          = 3;  // C
+  const COL_SOURCE_TITLE    = 5;  // E
+  const COL_DOC_CATEGORY    = 12; // L
+  const COL_PIPELINE_STATUS = 13; // M
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < QA_DATA_START) {
+    Logger.log("⚠️ אין שורות נתונים בגליון.");
+    return;
+  }
+
+  const numRows = lastRow - QA_DATA_START + 1;
+  const data = sheet.getRange(QA_DATA_START, 1, numRows, COL_PIPELINE_STATUS).getValues();
+
+  const anchorCandidates = [];
+  const verifiedRows = [];
+
+  data.forEach(function(row, idx) {
+    const sheetRow = QA_DATA_START + idx;
+    const fileId   = row[COL_FILE_ID - 1];
+    const source   = row[COL_SOURCE - 1];
+    const title    = row[COL_SOURCE_TITLE - 1];
+    const category = row[COL_DOC_CATEGORY - 1];
+    const status   = row[COL_PIPELINE_STATUS - 1];
+
+    // Task 77 — מועמד לשורת עוגן
+    if (category === "רפואי" && status === "מחולץ") {
+      anchorCandidates.push({ row: sheetRow, fileId: fileId, title: title });
+    }
+
+    // Task 82 — חקר מקור "אומת ידנית"
+    if (status === "אומת ידנית") {
+      verifiedRows.push({ row: sheetRow, fileId: fileId, source: source, title: title });
+    }
+  });
+
+  let report77 = "Task 77 — מועמדים לשורת עוגן (L=רפואי, M=מחולץ)\n";
+  report77 += "═".repeat(50) + "\n";
+  if (anchorCandidates.length === 0) {
+    report77 += "❌ לא נמצאה אף שורה תואמת.\n";
+  } else {
+    report77 += "✅ נמצאו " + anchorCandidates.length + " מועמדים:\n\n";
+    anchorCandidates.forEach(function(c) {
+      report77 += "שורה " + c.row + " | File_ID: " + c.fileId + " | כותרת: " + c.title + "\n";
+    });
+  }
+
+  let report82 = "\n\nTask 82 — שורות עם M=אומת ידנית (חקר מקור)\n";
+  report82 += "═".repeat(50) + "\n";
+  if (verifiedRows.length === 0) {
+    report82 += "❌ לא נמצאה אף שורה עם הערך הזה.\n";
+  } else {
+    report82 += "⚠️ נמצאו " + verifiedRows.length + " שורות:\n\n";
+    verifiedRows.forEach(function(v) {
+      report82 += "שורה " + v.row + " | File_ID: " + v.fileId + " | מקור: " + v.source + " | כותרת: " + v.title + "\n";
+    });
+  }
+
+  const fullReport = report77 + report82;
+  Logger.log(fullReport);
+
+  const ui = SpreadsheetApp.getUi();
+  ui.alert(
+    "תוצאות סריקה — Task 77 + 82",
+    fullReport.length > 4000 ? fullReport.substring(0, 4000) + "\n\n... (ראה Logger.log לתוכן מלא)" : fullReport,
+    ui.ButtonSet.OK
+  );
 }
