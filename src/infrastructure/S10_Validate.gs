@@ -1,13 +1,27 @@
 /**
  * MedicalPilot — S10_Validate.gs
- * @version 1.0.1 | @updated 31/05/2026 21:00 | @service S10
+ * @version 1.0.3 | @updated 28/06/2026 20:25 | @service S10
  * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S10_Validate.gs
  * @impacts אימות ידני ולמידה של אירועים רפואיים שחולצו על ידי S09.
  *          קריאה: גליונות יעד של S09 + ניהול_מיילים (TXT_URL לפי File_ID).
  *          כתיבה: S10_למידה_רפואי + גליון היעד הפעיל (עדכון שדות).
  *          תלויות: S10_Sidebar.html, COLUMN_MAP.gs.
  *          מופעל מהתפריט — ממשק Dialog לעריכה ואישור אירועים.
- * שינוי: [v1.0.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
+ * שינוי: [v1.0.3] [Task 66] תיקון sourceUrl ב-_s10_buildPayload — עבור
+ *         "יומן_אירועים_רפואי" config.sourceCol(6) הוא בפועל Routing_Category
+ *         (Task 65 לא כותב sourceUrl לגליון הזה), לא URL. ה-iframe ב-Sidebar
+ *         ניסה לטעון תצוגה מטקסט קטגוריה וקיבל "לא ניתן לפתוח את הקובץ".
+ *         נוסף fallback: אם הערך שנקרא אינו מתחיל ב-http, נבנה קישור Drive
+ *         ישירות מ-fileId (שהוא עצמו File_ID של המסמך המקורי — אומת בפועל).
+ *         לא משפיע על שאר 5 הגליונות — sourceCol שלהם תקין ומכיל URL אמיתי.
+ *         [v1.0.2] [Task 66] תיקון fileIdCol עבור "יומן_אירועים_רפואי" מ-8 ל-7 —
+ *         S10_SHEET_CONFIG ציפה ל-Source_FileID בעמודה H (לפי Task 64), אבל
+ *         S09_ExtractMedical (מ-Task 65) כותב את File_ID בפועל לעמודה G(7).
+ *         זה גרם ל-"לא ניתן לטעון נתוני שורה" — payload חזר null כי fileId
+ *         נקרא מעמודה ריקה. אומת בפועל על שורה 5 — היה ריק. תיקון נקודתי
+ *         בלבד — sourceCol (6) לא שונה: ידוע שהוא כרגע מצביע על
+ *         Routing_Category ולא על Source_URL בפועל — ממצא נפרד, לא בסקופ.
+ *         [v1.0.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
  *         [v1.0.0] גרסה ראשונה
  */
 // ══════════════════════════════════════════════════════════════════
@@ -24,7 +38,7 @@ const S10_SOURCE_SHEET    = "ניהול_מיילים";
 const S10_SHEET_CONFIG = {
   "יומן_אירועים_רפואי": {
     icon:      "🏥",
-    fileIdCol: 8,
+    fileIdCol: 7,
     sourceCol: 6,
     fields: [
       { label: "תאריך אירוע",  col: 1 },
@@ -161,9 +175,17 @@ function _s10_buildPayload(ss, sheet, sheetName, row) {
   try {
     const config   = S10_SHEET_CONFIG[sheetName];
     const fileId   = (sheet.getRange(row, config.fileIdCol).getValue() || "").toString().trim();
-    const sourceUrl = (sheet.getRange(row, config.sourceCol).getValue() || "").toString().trim();
+    let sourceUrl = (sheet.getRange(row, config.sourceCol).getValue() || "").toString().trim();
 
     if (!fileId) return null;
+
+    // [v1.0.3 — Task 66] fallback: אם הערך בעמודת sourceCol אינו URL בפועל
+    // (למשל "יומן_אירועים_רפואי" — Task 65 לא כותב sourceUrl לשם, העמודה
+    // היא בפועל Routing_Category) — נבנה קישור Drive ישירות מ-fileId,
+    // שהוא בעצמו ה-File_ID של המסמך המקורי.
+    if (!sourceUrl.startsWith("http")) {
+      sourceUrl = "https://drive.google.com/file/d/" + fileId + "/view";
+    }
 
     // חישוב Split_Index — X/Y בזמן טעינה
     const splitData = _s10_calcSplitIndex(sheet, row, config.fileIdCol, fileId);
@@ -172,12 +194,17 @@ function _s10_buildPayload(ss, sheet, sheetName, row) {
     const txtUrl = _s10_fetchTxtUrl(ss, fileId);
 
     // שליפת שדות
+    // שליפת שדות
+    // [Task 66] עיצוב Date אמיתי כ-DD/MM/YYYY במקום toString() גולמי
     const fields = config.fields.map(function(f) {
-      return {
-        label:    f.label,
-        col:      f.col,
-        value:    (sheet.getRange(row, f.col).getValue() || "").toString()
-      };
+      const rawValue = sheet.getRange(row, f.col).getValue();
+      let value;
+      if (rawValue instanceof Date) {
+        value = Utilities.formatDate(rawValue, Session.getScriptTimeZone(), "dd/MM/yyyy");
+      } else {
+        value = (rawValue || "").toString();
+      }
+      return { label: f.label, col: f.col, value: value };
     });
 
     // שליפת lastRow בגליון הפעיל
