@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S09_ExtractMedical.gs
- * @version 1.2.2 | @updated 26/06/2026 12:00 | @service S09
+ * @version 1.2.4 | @updated 28/06/2026 19:30 | @service S09
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S09_ExtractMedical.gs
  * @impacts חילוץ אירועים רפואיים ממסמכים מאומתים לגליונות יעד — מנגנון דואלי (שורה בודדת / אצווה).
  *          תנאי סף: עמודה M = "אומת ידנית" + עמודה L = רפואי + עמודה X לא ריקה.
@@ -10,7 +10,29 @@
  *          בדיקות_דם, בדיקות_גנטיות, הנחיות_רפואיות_ומשימות.
  *          תלויות: GEMINI_API_KEY (gemini-2.0-flash), Drive API, COLUMN_MAP.gs.
  *          מופעל מהתפריט ומאייקון עמודה O בגליון ניהול_מיילים.
- * @changes [v1.2.2] [Task 65] תיקון קריטי — בלוק כתיבת "יומן_אירועים_רפואי":
+ * @changes [v1.2.4] [Task 79] תיקון _s09_fetchTxtContent — הכשל החזיר שגיאת ACCESS
+ *                   גנרית ("שגיאת גישה לקובץ TXT") בלי לרשום fileId/txtUrl/e.message
+ *                   בפועל. נבדק חיצונית — הקובץ ב-Drive תקין ונגיש (text/plain,
+ *                   2754 בייט) — כלומר זו לא בעיית קובץ אלא תקלה בתוך DriveApp
+ *                   בעורך (הרשאה/scope). כעת הלוג ירשום בדיוק את ה-fileId שחולץ,
+ *                   ה-txtUrl המקורי, וההודעה המדויקת מ-DriveApp, כדי לאתר את
+ *                   השורש האמיתי בריצה הבאה.
+ *          [v1.2.3] [Task 79] תיקון באג PARSE — _s09_callGemini היה בולע כל כשל פענוח
+ *                   לכדי "Gemini לא החזיר JSON תקין" גנרי, בלי לדעת את הסיבה האמיתית:
+ *                   (1) הוספת בדיקת response.getResponseCode() לפני כל ניסיון פענוח —
+ *                       שגיאת HTTP (429/503/וכו') לא תיתפס יותר כ-PARSE עיוור.
+ *                   (2) הוספת בדיקת candidate.finishReason (SAFETY/MAX_TOKENS) — אם
+ *                       Gemini חסם או קטע את התשובה, candidate.content.parts[0] לא
+ *                       קיים והפונקציה תקרוס; כעת זה מאותר ונרשם לפני שזה קורה.
+ *                   (3) הוספת maxOutputTokens:8192 ל-generationConfig — מניעת קיטוע
+ *                       תשובה ארוכה (מסמך עם אירועים רבים) שגרם ל-JSON חצי.
+ *                   (4) Fallback לחילוץ תת-מחרוזת JSON (בין '{' ל-'}' האחרון) אם
+ *                       JSON.parse הראשי נכשל — מטפל בטקסט עוטף שהמודל הוסיף בכל זאת.
+ *                   (5) כל נקודת כשל כותבת ל-Logger את raw/responseCode/candidate
+ *                       (עד 1000 תווים) — בעבר ה-catch לא רשם את raw כלל, מה שהפך
+ *                       אבחון לבלתי אפשרי. חוזה ההחזרה (null בכשל) לא השתנה — אין
+ *                       צורך בשינוי בקוד הקורא (_s09_processRow).
+ *          [v1.2.2] [Task 65] תיקון קריטי — בלוק כתיבת "יומן_אירועים_רפואי":
  *                   הוסר sourceUrl מהמערך (לא קיים במפת 7 העמודות) — היה דורס
  *                   את עמודה F (Routing_Category) עם לינק Drive, ודוחף את
  *                   docData.fileId לעמודה H הלא-מוגדרת. כעת 7 ערכים מתואמים
@@ -28,7 +50,7 @@ const S09_SOURCE_SHEET    = "ניהול_מיילים";
 const S09_LEARNING_SHEET  = "S10_למידה_רפואי";
 const S09_CATEGORIES      = ["רפואי", "מסמך רפואי"];
 const S09_STATUS_TRIGGER = "מאושר";
-const S09_GEMINI_MODEL    = "gemini-2.0-flash";
+const S09_GEMINI_MODEL    = "gemini-2.5-flash";
 const S09_MAX_EXAMPLES    = 5;
 
 const S09_TARGET_SHEETS  = {
@@ -260,14 +282,21 @@ function _s09_buildFewShotBlock(examples) {
 // ══════════════════════════════════════════════════════════════════
 
 function _s09_fetchTxtContent(txtUrl) {
+  let fileId = null;
   try {
-    let fileId = null;
     if (txtUrl.includes("/d/"))  fileId = txtUrl.split("/d/")[1].split("/")[0];
     if (txtUrl.includes("id=")) fileId = txtUrl.split("id=")[1].split("&")[0];
-    if (!fileId) return null;
-    return DriveApp.getFileById(fileId).getBlob().getDataAsString("UTF-8");
+    if (!fileId) {
+      Logger.log("[S09] לא ניתן לחלץ fileId מ-txtUrl: " + txtUrl);
+      return null;
+    }
+    const file = DriveApp.getFileById(fileId);
+    return file.getBlob().getDataAsString("UTF-8");
   } catch (e) {
-    Logger.log("[S09] שגיאת קריאת TXT: " + e.message);
+    // [v1.2.4 — Task 79] רישום מפורט: fileId + txtUrl + הודעת השגיאה המדויקת,
+    // כדי לדעת אם זו שגיאת הרשאה, קובץ לא נמצא, או משהו אחר
+    Logger.log("[S09] שגיאת קריאת TXT — fileId: " + fileId + " | txtUrl: " + txtUrl +
+      " | שגיאה: " + e.message);
     return null;
   }
 }
@@ -277,6 +306,7 @@ function _s09_fetchTxtContent(txtUrl) {
 // ══════════════════════════════════════════════════════════════════
 
 function _s09_callGemini(txtContent, docData, fewShotExamples) {
+  let raw = null;
   try {
     const apiKey = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY");
     const url    = "https://generativelanguage.googleapis.com/v1beta/models/" +
@@ -373,7 +403,8 @@ ${txtContent}
 
     const payload = {
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.1 }
+      // [v1.2.3 — Task 79] maxOutputTokens — מניעת קיטוע תשובה ארוכה (JSON חצי)
+      generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
     };
 
     const response = UrlFetchApp.fetch(url, {
@@ -383,16 +414,71 @@ ${txtContent}
       muteHttpExceptions: true
     });
 
-    const json = JSON.parse(response.getContentText());
-    if (!json.candidates || !json.candidates[0]) return null;
+    const responseCode = response.getResponseCode();
+    const bodyText      = response.getContentText();
 
-    let raw = json.candidates[0].content.parts[0].text.trim();
+    // [v1.2.3 — Task 79] BUG-A: בדיקת קוד HTTP לפני כל ניסיון פענוח
+    if (responseCode !== 200) {
+      Logger.log("[S09] שגיאת HTTP מ-Gemini — קוד: " + responseCode +
+        " | גוף תשובה (1000 תווים ראשונים): " + bodyText.substring(0, 1000));
+      return null;
+    }
+
+    const json      = JSON.parse(bodyText);
+    const candidate = json.candidates && json.candidates[0];
+
+    if (!candidate) {
+      Logger.log("[S09] Gemini לא החזיר candidates — promptFeedback: " +
+        JSON.stringify(json.promptFeedback || {}));
+      return null;
+    }
+
+    // [v1.2.3 — Task 79] BUG-B: בדיקת finishReason — SAFETY/MAX_TOKENS גורמים
+    // ל-content.parts חסר, וקודם לכן זה היה קורס בלי הסבר
+    if (candidate.finishReason && candidate.finishReason !== "STOP") {
+      Logger.log("[S09] Gemini הסתיים עם finishReason לא תקין: " + candidate.finishReason +
+        " | candidate (1000 תווים ראשונים): " + JSON.stringify(candidate).substring(0, 1000));
+      return null;
+    }
+
+    const textPart = candidate.content && candidate.content.parts &&
+                     candidate.content.parts[0] && candidate.content.parts[0].text;
+
+    if (!textPart) {
+      Logger.log("[S09] Gemini החזיר candidate בלי content.parts[0].text — candidate " +
+        "(1000 תווים ראשונים): " + JSON.stringify(candidate).substring(0, 1000));
+      return null;
+    }
+
+    raw = textPart.trim();
     raw = raw.replace(/```json/g, "").replace(/```/g, "").trim();
 
-    return JSON.parse(raw);
+    try {
+      return JSON.parse(raw);
+    } catch (parseErr) {
+      // [v1.2.3 — Task 79] BUG-D fallback: חילוץ תת-מחרוזת JSON אם המודל הוסיף
+      // טקסט עוטף לפני/אחרי ה-JSON בניגוד להוראה "החזר JSON בלבד"
+      const firstBrace = raw.indexOf("{");
+      const lastBrace   = raw.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        try {
+          return JSON.parse(raw.substring(firstBrace, lastBrace + 1));
+        } catch (innerErr) {
+          Logger.log("[S09] חילוץ תת-מחרוזת JSON נכשל גם הוא — raw (1000 תווים ראשונים): " +
+            raw.substring(0, 1000));
+          return null;
+        }
+      }
+      Logger.log("[S09] JSON.parse נכשל ולא נמצאו סוגריים מסולסלים תואמים — raw " +
+        "(1000 תווים ראשונים): " + raw.substring(0, 1000));
+      return null;
+    }
 
   } catch (e) {
-    Logger.log("[S09] שגיאת Gemini: " + e.message);
+    // [v1.2.3 — Task 79] BUG-D: כעת רושם גם את raw (אם הגענו אליו) — בעבר נרשמה
+    // רק e.message בלי שום הקשר לתוכן שגרם לכשל
+    Logger.log("[S09] שגיאת Gemini: " + e.message +
+      (raw ? " | raw (1000 תווים ראשונים): " + raw.substring(0, 1000) : ""));
     return null;
   }
 }
