@@ -1,10 +1,11 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.6.0 | @updated 24/06/2026 21:39 | @service VIEWENGINE
+ * @version 2.7.0 | @updated 28/06/2026 19:56 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
- *              14 מבטים: expand, systemCheck, accessCheck, gmail, whatsapp, drive,
- *              metadata, convert, classify, s08, s09, s10, qa, archive.
+ *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
+ *              expand, systemCheck, accessCheck, gmail, whatsapp, drive,
+ *              metadata, convert, classify, s08, s09, qa, archive.
  *              כל איקון קבוע בעמודה קבועה לפי ICON_MAP — לעולם לא נמחק או מוזז.
  *              עמודות תמיד גלויות — אין הסתרת עמודות (חוץ מ-A בברירת מחדל).
  *              כל מבט = פילטר שורות + גלילה לעמודה רלוונטית.
@@ -31,7 +32,13 @@
  *              runQAView | runArchiveView | runStatusCheck
  *              setupIcons | cleanAndResetIcons | debugIcons
  *              runExpandViewEvents | runS10ViewIconEvents | setupMedicalEventsIcons
- * @changes     [תיקון] Task 83 — runS08ViewIcon לא קיבל את התיקון שהוחל על S06/S07;
+ * @changes     [v2.7.0] הוסר איקון S10 (עמודה 16) מ-ICON_MAP של ניהול_מיילים —
+ *          S10 כבר עובד מלא דרך MEDICAL_EVENTS_ICON_MAP ביומן_אירועים_רפואי
+ *          (runS10ViewIconEvents, v2.5.0). VIEW_CONFIG.s10, ROW3_COLORS[16]
+ *          ו-runS10ViewIcon() נשארו בקוד (קוד מת, לא מזיק) — לא נמחקו.
+ *          לאחר הדבקה: יש להריץ cleanAndResetIcons() מהעורך כדי שהאיקון
+ *          הקיים בעמודה P יוסר בפועל מהגליון (כותרת+תמונה).
+ *              [תיקון] Task 83 — runS08ViewIcon לא קיבל את התיקון שהוחל על S06/S07;
  *          נוסף originalRow + _restoreActiveRowAfterSwitch — מתקן קיפוץ לשורה 4
  *              [תיקון] Task 84 — runS07Icon ענף אצווה קרא ל-executeS07Classification()
  *          בלי row — תוקן לקריאה נכונה ל-_processS07Batch(sheet, 3), כמו S06
@@ -58,8 +65,8 @@ const VIEW_SHEET_NAME = "ניהול_מיילים";
 const VIEW_TOTAL_COLS = 26;
 
 // ══════════════════════════════════════════════════════════════════
-// מיפוי איקונים — 14 איקונים
-// [v2.3.0] S11 QA הוזז מעמודה 21 לעמודה 17
+// מיפוי איקונים — 13 איקונים
+// [v2.7.0] S10 הוסר — עבר ליומן_אירועים_רפואי
 // ══════════════════════════════════════════════════════════════════
 
 const ICON_MAP = [
@@ -74,7 +81,6 @@ const ICON_MAP = [
   { col: 13, script: "runS07Icon",         fileId: "1eyjIU2H13ZnTL5H9UJntV0egdbh3WyUY", label: "[ S07 סיווג AI ]"     },
   { col: 14, script: "runS08ViewIcon",     fileId: "1Xckh4J0FVgr2gIY6os92qlLLyMk-EyQp", label: "[ S08 אימות ידני ]"  },
   { col: 15, script: "runS09ViewIcon",     fileId: "1mX_Wi6MLfLvcmRqCe8WPvWD9hP4gpAgN", label: "[ S09 חילוץ ]"       },
-  { col: 16, script: "runS10ViewIcon",     fileId: "1YZcEifvHAsBtstAFdtVtqNTODpxuXCkM", label: "[ S10 אימות ]"       },
   { col: 17, script: "runQAView",          fileId: "1hw2sA4t4H5-OR0k8crG7wuI5Pkh0-_3G", label: "[ S11 QA ]"          },
   { col: 22, script: "runArchiveView",     fileId: "1sHIxX5ZUy-u1MRUxqOnvM9ngVd7ew5EU", label: "[ S12 ארכיון ]"      }
 ];
@@ -554,11 +560,14 @@ function runS08ViewIcon() {
 
 function runS09ViewIcon() {
   try {
-    const ui      = SpreadsheetApp.getUi();
+    const ui    = SpreadsheetApp.getUi();
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
+    const originalRow = sheet.getActiveCell().getRow(); // [Task 84-fix]
     switchView("s09");
+    _restoreActiveRowAfterSwitch(sheet, originalRow);    // [Task 84-fix]
     const confirm = ui.alert(
       "S09 — חילוץ אירועים רפואיים",
-      "עברת למבט חילוץ אירועים.\nהאם להריץ חילוץ?",
+      "עברת למבט חילוץ אירועים.\nהאם להריץ חילוץ עכשיו?",
       ui.ButtonSet.YES_NO
     );
     if (confirm === ui.Button.YES) {
@@ -572,9 +581,10 @@ function runS09ViewIcon() {
     Logger.log("[ViewEngine] שגיאה ב-runS09ViewIcon: " + e.toString());
   }
 }
-
 // ══════════════════════════════════════════════════════════════════
 // runS10ViewIcon — עמודה P — S10 אימות אירועים (ניהול_מיילים)
+// [v2.7.0] הוסר מ-ICON_MAP — לא מחובר יותר לאייקון בגליון. נשארה
+// פונקציונלית כקוד מת ליתר ביטחון.
 // ══════════════════════════════════════════════════════════════════
 
 function runS10ViewIcon() {
@@ -693,7 +703,7 @@ function runStatusCheck() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// setupIcons — הכנה חד פעמית של כל 14 האיקונים
+// setupIcons — הכנה חד פעמית של כל 13 האיקונים
 // להרצה ידנית בלבד
 // ══════════════════════════════════════════════════════════════════
 
@@ -772,7 +782,7 @@ function setupIcons() {
     });
 
     SpreadsheetApp.flush();
-    Logger.log("[ViewEngine] setupIcons הושלם — 14 איקונים — גודל: " + iconSize + "px");
+    Logger.log("[ViewEngine] setupIcons הושלם — " + ICON_MAP.length + " איקונים — גודל: " + iconSize + "px");
 
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-setupIcons: " + e.toString());
