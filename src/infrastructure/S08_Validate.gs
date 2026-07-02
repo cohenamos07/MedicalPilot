@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S08_Validate.gs
- * @version 1.0.10 | @updated 14/06/2026 22:07 | @service S08
+ * @version 1.0.11 | @updated 02/07/2026 19:05 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
  * @impacts     קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,P,Q,R,W,X.
@@ -16,7 +16,11 @@
  *              s08_approve, s08_updateAndLearn, s08_learnOnly,
  *              _s08_saveToLearning, s08_delete,
  *              _s08_trashDriveFile, _s08_getDuplicateRowNumber
- * @changes     [v1.0.10] תיקון Task 14 — הוספת @callers + @functions + @changes מלא
+ * @changes     [v1.0.11] Task 74+92 — הוספת בדיקת כניסה M=מחולץ ב-showMainSidebar.
+ *                        s08_getDuplicateRowData + _s08_getDuplicateRowNumber:
+ *                        מעבר מ-regex על טקסט R → קריאת getNote() + חיפוש File_ID בעמודה A.
+ *    
+ *              [v1.0.10] תיקון Task 14 — הוספת @callers + @functions + @changes מלא
  *              [v1.0.9]  s08_findLearningDuplicate — חיפוש כפול בדוגמאות_למידה
  *              [v1.0.8]  תיקון באג s08_updateAndLearn + s08_learnOnly
  *              [v1.0.7]  הודעת כפול כוללת מספר שורה
@@ -50,6 +54,16 @@ function showMainSidebar() {
     SpreadsheetApp.getUi().alert(
       "⛔ לא נמצא קובץ טקסט לשורה זו (עמודה X ריקה).\n" +
       "יש להריץ קודם את שירות S06 — המרה ל-TXT."
+    );
+    return;
+  }
+  // [v1.0.11] Task 74 — בדיקת תנאי כניסה: Pipeline_Status חייב להיות "מחולץ"
+  const pipelineStatus = sheet.getRange(row, 13).getValue() || "";
+  if (pipelineStatus !== "מחולץ") {
+    SpreadsheetApp.getUi().alert(
+      "⛔ שורה זו אינה מוכנה לאימות ידני.\n" +
+      "סטטוס נדרש: מחולץ | סטטוס נוכחי: " + (pipelineStatus || "ריק") + "\n" +
+      "יש להריץ קודם את שירות S07 — סיווג מסמכים."
     );
     return;
   }
@@ -285,19 +299,27 @@ function s08_fetchTxtContent(txtUrl) {
 // שליפת נתוני שורת כפול להשוואה
 // ══════════════════════════════════════════════════════════════════
 
-function s08_getDuplicateRowData(duplicateFlag) {
+function s08_getDuplicateRowData(duplicateFlag, currentRow) {
   try {
-    if (!duplicateFlag) return null;
-    const match = duplicateFlag.toString().match(/(\d+)/);
-    if (!match) return null;
-    const dupRow = parseInt(match[1], 10);
-    const ss     = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet  = ss.getSheetByName("ניהול_מיילים");
+    if (!duplicateFlag || !currentRow) return null;
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("ניהול_מיילים");
+
+    // [v1.0.11] קריאת File_ID מ-Note של תא R בשורה הנוכחית
+    const fileId = sheet.getRange(currentRow, 18).getNote() || "";
+    if (!fileId) return null;
+
+    // חיפוש File_ID בעמודה A לקבלת מספר שורה עדכני
+    const colA   = sheet.getRange(5, 1, sheet.getLastRow() - 4, 1).getValues();
+    const idx    = colA.findIndex(function(r) { return r[0] === fileId; });
+    if (idx === -1) return null;
+    const actualRow = idx + 5;  // offset: FIRST_DATA_ROW=5 → index 0
+
     return {
-      row:      dupRow,
-      title:    sheet.getRange(dupRow, 9).getValue()  || "—",
-      issuer:   sheet.getRange(dupRow, 10).getValue() || "—",
-      fileSize: sheet.getRange(dupRow, 16).getValue() || "—"
+      row:      actualRow,
+      title:    sheet.getRange(actualRow, 9).getValue()  || "—",
+      issuer:   sheet.getRange(actualRow, 10).getValue() || "—",
+      fileSize: sheet.getRange(actualRow, 16).getValue() || "—"
     };
   } catch (e) {
     Logger.log("s08_getDuplicateRowData: " + e.message);
@@ -474,7 +496,10 @@ function _s08_trashDriveFile(url) {
 }
 
 function _s08_getDuplicateRowNumber(sheet, currentRow) {
-  const flag  = sheet.getRange(currentRow, 18).getValue() || "";
-  const match = flag.toString().match(/(\d+)/);
-  return match ? parseInt(match[1], 10) : null;
+  // [v1.0.11] קריאת File_ID מ-Note של תא R → חיפוש בעמודה A
+  const fileId = sheet.getRange(currentRow, 18).getNote() || "";
+  if (!fileId) return null;
+  const colA   = sheet.getRange(5, 1, sheet.getLastRow() - 4, 1).getValues();
+  const idx    = colA.findIndex(function(r) { return r[0] === fileId; });
+  return idx === -1 ? null : idx + 5;
 }
