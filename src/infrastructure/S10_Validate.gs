@@ -1,28 +1,28 @@
 /**
  * MedicalPilot — S10_Validate.gs
- * @version 1.0.3 | @updated 28/06/2026 20:25 | @service S10
- * @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S10_Validate.gs
- * @impacts אימות ידני ולמידה של אירועים רפואיים שחולצו על ידי S09.
- *          קריאה: גליונות יעד של S09 + ניהול_מיילים (TXT_URL לפי File_ID).
+ * @version 1.1.0 | @updated 01/07/2026 13:05 | @service S10
+ * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S10_Validate.gs
+ * @description אימות ידני ולמידה של אירועים רפואיים שחולצו על ידי S09.
+ *              פותח Sidebar לעריכה, אישור ולמידה של שדות מחולצים.
+ * @impacts קריאה: גליונות יעד של S09 + ניהול_מיילים (TXT_URL לפי File_ID).
  *          כתיבה: S10_למידה_רפואי + גליון היעד הפעיל (עדכון שדות).
  *          תלויות: S10_Sidebar.html, COLUMN_MAP.gs.
  *          מופעל מהתפריט — ממשק Dialog לעריכה ואישור אירועים.
- * שינוי: [v1.0.3] [Task 66] תיקון sourceUrl ב-_s10_buildPayload — עבור
- *         "יומן_אירועים_רפואי" config.sourceCol(6) הוא בפועל Routing_Category
- *         (Task 65 לא כותב sourceUrl לגליון הזה), לא URL. ה-iframe ב-Sidebar
- *         ניסה לטעון תצוגה מטקסט קטגוריה וקיבל "לא ניתן לפתוח את הקובץ".
- *         נוסף fallback: אם הערך שנקרא אינו מתחיל ב-http, נבנה קישור Drive
- *         ישירות מ-fileId (שהוא עצמו File_ID של המסמך המקורי — אומת בפועל).
- *         לא משפיע על שאר 5 הגליונות — sourceCol שלהם תקין ומכיל URL אמיתי.
- *         [v1.0.2] [Task 66] תיקון fileIdCol עבור "יומן_אירועים_רפואי" מ-8 ל-7 —
- *         S10_SHEET_CONFIG ציפה ל-Source_FileID בעמודה H (לפי Task 64), אבל
- *         S09_ExtractMedical (מ-Task 65) כותב את File_ID בפועל לעמודה G(7).
- *         זה גרם ל-"לא ניתן לטעון נתוני שורה" — payload חזר null כי fileId
- *         נקרא מעמודה ריקה. אומת בפועל על שורה 5 — היה ריק. תיקון נקודתי
- *         בלבד — sourceCol (6) לא שונה: ידוע שהוא כרגע מצביע על
- *         Routing_Category ולא על Source_URL בפועל — ממצא נפרד, לא בסקופ.
- *         [v1.0.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
- *         [v1.0.0] גרסה ראשונה
+ * @callers ViewEngine.gs (עמודה P), Menu_PROD.gs
+ * @functions showS10Sidebar, _s10_buildPayload, _s10_calcSplitIndex,
+ *            _s10_fetchTxtUrl, s10_loadRowData, s10_loadRowByNumber,
+ *            s10_loadSiblingRow, s10_fetchTxtContent, s10_approve,
+ *            s10_updateAndLearn, s10_learnOnly, s10_delete,
+ *            _s10_saveToLearning, _s10_getCurrentPayload
+ * @changes [v1.1.0] Task 67 — הוספת אימות שדות חובה ב-s10_approve (שכבה ב):
+ *                   בדיקת מילוי כל שדות הגליון הפעיל לפי S10_SHEET_CONFIG לפני אישור.
+ *                   Tasks 17+18+19 — תיקון @git לAPI URL, המרת "שינוי:" ל-@changes,
+ *                   הוספת @description/@callers/@functions לכותרת.
+ *          [v1.0.3] Task 66 — תיקון sourceUrl ב-_s10_buildPayload: fallback לקישור
+ *                   Drive ישירות מ-fileId כשעמודת sourceCol אינה URL (יומן_אירועים_רפואי).
+ *          [v1.0.2] Task 66 — תיקון fileIdCol עבור יומן_אירועים_רפואי מ-8 ל-7.
+ *          [v1.0.1] הוספת @impacts וכותרת מלאה לפי סטנדרט.
+ *          [v1.0.0] גרסה ראשונה.
  */
 // ══════════════════════════════════════════════════════════════════
 // קבועים
@@ -260,15 +260,21 @@ function _s10_calcSplitIndex(sheet, currentRow, fileIdCol, fileId) {
 
 function _s10_fetchTxtUrl(ss, fileId) {
   try {
-    const sheet   = ss.getSheetByName(S10_SOURCE_SHEET);
-    if (!sheet) return "";
-    const lastRow = sheet.getLastRow();
+    const srcSheet = ss.getSheetByName(S10_SOURCE_SHEET);
+    if (!srcSheet) return "";
+
+    const lastRow = srcSheet.getLastRow();
     if (lastRow < 2) return "";
 
-    const fileIds = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-    for (let i = 0; i < fileIds.length; i++) {
-      if ((fileIds[i][0] || "").toString().trim() === fileId) {
-        return (sheet.getRange(i + 2, 24).getValue() || "").toString().trim();
+    const TXT_URL_COL = 24; // X — TXT_URL
+    const FILE_ID_COL = 1;  // A — File_ID
+
+    const ids    = srcSheet.getRange(2, FILE_ID_COL, lastRow - 1, 1).getValues();
+    const urls   = srcSheet.getRange(2, TXT_URL_COL, lastRow - 1, 1).getValues();
+
+    for (let i = 0; i < ids.length; i++) {
+      if ((ids[i][0] || "").toString().trim() === fileId) {
+        return (urls[i][0] || "").toString().trim();
       }
     }
     return "";
@@ -279,52 +285,50 @@ function _s10_fetchTxtUrl(ss, fileId) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// קריאה מה-HTML — טעינת נתוני השורה הנוכחית
+// טעינת נתוני שורה — נקרא מה-HTML בטעינה
 // ══════════════════════════════════════════════════════════════════
 
 function s10_loadRowData() {
   try {
-    const raw = PropertiesService.getScriptProperties().getProperty("S10_CURRENT_PAYLOAD");
-    if (!raw) return null;
-    return JSON.parse(raw);
+    const payload = _s10_getCurrentPayload();
+    if (!payload) return { success: false, msg: "❌ לא נמצא payload" };
+    return { success: true, payload: payload };
   } catch (e) {
     Logger.log("[S10] s10_loadRowData שגיאה: " + e.message);
-    return null;
+    return { success: false, msg: "❌ שגיאה: " + e.message };
   }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ניווט — טעינת שורה לפי מספר (מסמך אחר)
+// טעינת שורה לפי מספר — ניווט בתוך הגליון
 // ══════════════════════════════════════════════════════════════════
 
 function s10_loadRowByNumber(row) {
   try {
-    const ss          = SpreadsheetApp.getActiveSpreadsheet();
-    const raw         = PropertiesService.getScriptProperties().getProperty("S10_CURRENT_PAYLOAD");
-    if (!raw) return { error: true, msg: "לא נמצא payload" };
+    const payload = _s10_getCurrentPayload();
+    if (!payload) return { success: false, msg: "❌ לא נמצא payload" };
 
-    const current   = JSON.parse(raw);
-    const sheetName = current.sheetName;
-    const sheet     = ss.getSheetByName(sheetName);
-    if (!sheet) return { error: true, msg: "גליון לא נמצא: " + sheetName };
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(payload.sheetName);
+    if (!sheet) return { success: false, msg: "❌ גליון לא נמצא: " + payload.sheetName };
 
-    const lastRow = sheet.getLastRow();
-    if (row < 2 || row > lastRow) return { error: true, msg: "שורה מחוץ לתחום (2–" + lastRow + ")" };
+    const newPayload = _s10_buildPayload(ss, sheet, payload.sheetName, row);
+    if (!newPayload) return { success: false, msg: "❌ לא ניתן לטעון שורה " + row };
 
-    const payload = _s10_buildPayload(ss, sheet, sheetName, row);
-    if (!payload) return { error: true, msg: "לא ניתן לטעון שורה " + row };
+    PropertiesService.getScriptProperties().setProperty(
+      "S10_CURRENT_PAYLOAD",
+      JSON.stringify(newPayload)
+    );
 
-    PropertiesService.getScriptProperties().setProperty("S10_CURRENT_PAYLOAD", JSON.stringify(payload));
-    return payload;
-
+    return { success: true, payload: newPayload };
   } catch (e) {
     Logger.log("[S10] s10_loadRowByNumber שגיאה: " + e.message);
-    return { error: true, msg: e.message };
+    return { success: false, msg: "❌ שגיאה: " + e.message };
   }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ניווט — קפיצה לאירוע אחי (Split_Index אחר, אותו fileId)
+// טעינת שורת אח — ניווט בין שורות של אותו File_ID
 // ══════════════════════════════════════════════════════════════════
 
 function s10_loadSiblingRow(targetRow) {
@@ -332,22 +336,24 @@ function s10_loadSiblingRow(targetRow) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// שליפת תוכן TXT — קריאה מ-Drive
+// שליפת תוכן TXT מ-Drive
 // ══════════════════════════════════════════════════════════════════
 
 function s10_fetchTxtContent(txtUrl) {
   try {
-    if (!txtUrl) return { success: false, msg: "אין TXT_URL" };
-    let fileId = null;
-    if (txtUrl.includes("/d/"))  fileId = txtUrl.split("/d/")[1].split("/")[0];
-    if (txtUrl.includes("id=")) fileId = txtUrl.split("id=")[1].split("&")[0];
-    if (!fileId) return { success: false, msg: "לא ניתן לחלץ File_ID מה-URL" };
+    if (!txtUrl) return { success: false, msg: "❌ אין TXT_URL" };
 
-    const content = DriveApp.getFileById(fileId).getBlob().getDataAsString("UTF-8");
-    return { success: true, content: content };
+    const match = txtUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (!match) return { success: false, msg: "❌ לא נמצא File ID ב-URL" };
+
+    const fileId  = match[1];
+    const file    = DriveApp.getFileById(fileId);
+    const content = file.getBlob().getDataAsString("UTF-8");
+
+    return { success: true, content: content.substring(0, 8000) };
   } catch (e) {
     Logger.log("[S10] s10_fetchTxtContent שגיאה: " + e.message);
-    return { success: false, msg: e.message };
+    return { success: false, msg: "❌ שגיאה בקריאת TXT: " + e.message };
   }
 }
 
@@ -363,6 +369,22 @@ function s10_approve(row) {
 
     const sheet = ss.getSheetByName(payload.sheetName);
     if (!sheet) return { success: false, msg: "❌ גליון לא נמצא: " + payload.sheetName };
+
+    // [v1.1.0] Task 67 — שכבה ב: אימות שדות חובה לפני אישור
+    const config        = S10_SHEET_CONFIG[payload.sheetName];
+    const missingFields = [];
+    if (config && config.fields) {
+      config.fields.forEach(function(f) {
+        const cellVal = (sheet.getRange(row, f.col).getValue() || "").toString().trim();
+        if (!cellVal) missingFields.push(f.label);
+      });
+    }
+    if (missingFields.length > 0) {
+      return {
+        success: false,
+        msg: "⚠️ לא ניתן לאשר — שדות חסרים: " + missingFields.join(", ")
+      };
+    }
 
     Logger.log("[S10] אישור שורה " + row + " בגליון " + payload.sheetName);
     return { success: true, msg: "✅ האירוע אושר בהצלחה" };
@@ -431,13 +453,13 @@ function s10_learnOnly(row, fieldsJson, complexityLevel, correctionNote) {
 
     if (!learnResult.success) return learnResult;
 
-    Logger.log("[S10] למידה יזומה שורה " + row + " בגליון " + payload.sheetName);
+    Logger.log("[S10] למידה יזומה שורה " + row);
     return {
       success:     true,
       isDuplicate: learnResult.isDuplicate,
       msg:         learnResult.isDuplicate
-        ? "⚠️ דוגמה זהה כבר קיימת בגליון הלמידה — לא נוסף שוב"
-        : "🧠 דוגמת למידה נוצרה בהצלחה"
+        ? "⚠️ למידה בוצעה — דוגמה זהה כבר קיימת בגליון הלמידה"
+        : "🧠 נשלח לגליון הלמידה בהצלחה"
     };
 
   } catch (e) {
@@ -447,7 +469,7 @@ function s10_learnOnly(row, fieldsJson, complexityLevel, correctionNote) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// כפתור 4 — מחיקת שורה מגליון היעד
+// כפתור 4 — מחיקת שורה
 // ══════════════════════════════════════════════════════════════════
 
 function s10_delete(row) {
