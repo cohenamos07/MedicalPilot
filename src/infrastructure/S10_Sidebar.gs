@@ -1,13 +1,21 @@
 <!--
   MedicalPilot — S10_Sidebar.html
-  @version 1.0.1 | @updated 31/05/2026 20:57 | @service S10
-  @git https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/S10_Sidebar.html
-  @impacts ממשק Dialog לאימות ידני של אירועים רפואיים — S10.
-           מציג אירוע מחולץ לעריכה ואישור לפני שמירה לגליונות יעד.
-           כפתורים: אישור, עדכון ולמידה, למידה יזומה, מחיקה.
+  @version 1.0.2 | @updated 01/07/2026 20:27 | @service S10
+  @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S10_Sidebar.html
+  @description ממשק Dialog לאימות ידני של אירועים רפואיים שחולצו על ידי S09.
+               מציג אירוע מחולץ לעריכה ואישור לפני שמירה לגליונות יעד.
+  @impacts כפתורים: אישור, עדכון ולמידה, למידה יזומה, מחיקה.
            תלוי ב: S10_Validate.gs — כל הלוגיקה מתבצעת שם.
-  שינוי: [v1.0.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
-          [v1.0.0] גרסה ראשונה
+  @callers S10_Validate.gs (showS10Sidebar)
+  @functions initUI, buildFields, collectFields, switchView,
+             showSourceView, showTxtView, prevSibling, nextSibling,
+             navigateToSibling, prevRow, nextRow, jumpToRow,
+             navigateTo, closeDialog, doApprove, doUpdate,
+             doLearn, doDelete, handleResult, handleError
+  @changes [v1.0.2] Tasks 15+16 — תיקון @git לAPI URL, המרת "שינוי:" ל-@changes,
+                    הוספת @description/@callers/@functions לכותרת.
+           [v1.0.1] הוספת @impacts וכותרת מלאה לפי סטנדרט.
+           [v1.0.0] גרסה ראשונה.
 -->
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
