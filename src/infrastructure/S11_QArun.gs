@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.4.0 | @updated 24/06/2026 20:32 | @service S11
+ * @version 1.5.0 | @updated 01/07/2026 13:05 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי 15 חוקי QA.
  * @impacts בודק עקביות עמודות L, M, N, Q, R, S, T, U לפי ציר התקדמות S03→S09.
@@ -15,7 +15,12 @@
  *            _qa_scanRow, _qa_scanAll, _qa_checkRow,
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol,
  *            _qa_loadEventsFileIds, findAnchorRowAndAuditVerified
- * @changes [v1.4.0] הוספת findAnchorRowAndAuditVerified — Task 77 (איתור שורת עוגן)
+ * @changes [v1.5.0] תיקון Task 89: (1) E11 — החלפת return findings ב-if (targetRow >= QA_DATA_START)
+ *                   למניעת קטיעת הבדיקות E12-E15 באותה שורה. (2) הוספת trim() לעמודות
+ *                   category/status ב-findAnchorRowAndAuditVerified למניעת פספוס שורות עוגן.
+ *                   (3) הוספת setNote(File_ID) ב-_qa_applyFixes case write כשcol===18
+ *                   לשמירת File_ID יציב ב-Note של תא R (תשתית לTask 91).
+ *                   [v1.4.0] הוספת findAnchorRowAndAuditVerified — Task 77 (איתור שורת עוגן)
  *                   + Task 82 (חקר מקור "אומת ידנית") — קריאה בלבד, אינו כותב לגליון
  *          [v1.3.2] תיקון באג קריטי — E15: חסרה סוגרת findings.push + return findings
  *                   היה מחוץ ל-if — גרם ל-_qa_checkRow לא להחזיר ערך
@@ -367,30 +372,32 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds) {
     const match = r.match(/שורה\s+(\d+)/);
     if (match) {
       const targetRow = parseInt(match[1], 10);
-      if (targetRow < QA_DATA_START) return findings; // דלג שורות מוגנות 1-4
-      const targetIdx = targetRow - QA_DATA_START;
-      if (targetIdx >= 0 && targetIdx < allData.length) {
-        const targetR = (allData[targetIdx][17] || "").toString().trim();
-        if (!targetR) {
+      // [v1.5.0] תיקון E11: שורות מוגנות 1-4 — דלג בלבד, לא קטע את כל _qa_checkRow
+      if (targetRow >= QA_DATA_START) {
+        const targetIdx = targetRow - QA_DATA_START;
+        if (targetIdx >= 0 && targetIdx < allData.length) {
+          const targetR = (allData[targetIdx][17] || "").toString().trim();
+          if (!targetR) {
+            findings.push({
+              row:   targetRow,
+              code:  "E11",
+              col:   18,
+              desc:  "שורה " + targetRow + " חסרה הפניה חזרה לשורה " + row,
+              fix:   "write",
+              value: "חשוד ככפול — שורה " + row
+            });
+          }
+        } else {
+          // E12 — שורת הכפול לא קיימת
           findings.push({
-            row:   targetRow,
-            code:  "E11",
-            col:   18,
-            desc:  "שורה " + targetRow + " חסרה הפניה חזרה לשורה " + row,
-            fix:   "write",
-            value: "חשוד ככפול — שורה " + row
+            row:   row,
+            code:  "E12",
+            col:   21,
+            desc:  "R מצביע על שורה " + targetRow + " שלא קיימת",
+            fix:   "flag",
+            value: "⚠️ כפול מצביע לשורה שנמחקה: " + targetRow
           });
         }
-      } else {
-        // E12 — שורת הכפול לא קיימת
-        findings.push({
-          row:   row,
-          code:  "E12",
-          col:   21,
-          desc:  "R מצביע על שורה " + targetRow + " שלא קיימת",
-          fix:   "flag",
-          value: "⚠️ כפול מצביע לשורה שנמחקה: " + targetRow
-        });
       }
     }
   }
@@ -499,6 +506,11 @@ function _qa_applyFixes(sheet, findings) {
 
         case "write":
           sheet.getRange(f.row, f.col).setValue(f.value);
+          // [v1.5.0] Task 91 — שמירת File_ID ב-Note של עמודה R לרפרנס יציב
+          if (f.col === 18) {
+            const _srcId = sheet.getRange(f.row, 1).getValue().toString().trim();
+            if (_srcId) { sheet.getRange(f.row, 18).setNote(_srcId); }
+          }
           break;
 
         case "clear":
@@ -563,8 +575,8 @@ function findAnchorRowAndAuditVerified() {
     const fileId   = row[COL_FILE_ID - 1];
     const source   = row[COL_SOURCE - 1];
     const title    = row[COL_SOURCE_TITLE - 1];
-    const category = row[COL_DOC_CATEGORY - 1];
-    const status   = row[COL_PIPELINE_STATUS - 1];
+    const category = (row[COL_DOC_CATEGORY - 1]    || "").toString().trim(); // [v1.5.0] trim
+    const status   = (row[COL_PIPELINE_STATUS - 1] || "").toString().trim(); // [v1.5.0] trim
 
     // Task 77 — מועמד לשורת עוגן
     if (category === "רפואי" && status === "מחולץ") {
