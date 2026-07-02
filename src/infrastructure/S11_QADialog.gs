@@ -1,13 +1,17 @@
 <!--
   MedicalPilot — S11_QADialog.html
-  @version 1.0.0 | @updated 14/06/2026 20:51 | @service S11
+  @version 1.1.0 | @updated 01/07/2026 13:05 | @service S11
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QADialog.html
   @description ממשק HTML לדוח ממצאי QA — טבלת ממצאים עם צ'קבוקסים,
                סינון לפי קוד שגיאה, קיבוץ E11 לפי הפניה, כפתור תקן נבחרים.
   @impacts נקרא מ-S11_QArun.gs דרך HtmlService — מציג ממצאים ומאשר תיקונים.
            שולח תיקונים חזרה ל-S11_QArun.gs דרך google.script.run.
   @callers S11_QArun.gs (runQAViewMain)
-  @changes [v1.0.0] גרסה ראשונה — Dialog HTML במקום ui.alert
+  @functions initFindings, buildFilterButtons, filterBy, renderTable,
+             toggleSelectAll, updateSelectedCount, applySelected
+  @changes [v1.1.0] Task 89 — הוספת ענף clear_u (תווית + class fix-clear) עבור חוק E15
+           [v1.0.0] גרסה ראשונה — Dialog HTML במקום ui.alert
+
 -->
 <!DOCTYPE html>
 <html dir="rtl">
@@ -253,6 +257,7 @@
       var fixLabel = '';
       var fixClass = '';
       if (f.fix === 'write')    { fixLabel = '→ כתיבה אוטומטית'; fixClass = 'fix-auto';  }
+     if (f.fix === 'clear_u')  { fixLabel = '→ ניקוי U';         fixClass = 'fix-clear'; } 
       if (f.fix === 'clear')    { fixLabel = '→ ניקוי עמודה';    fixClass = 'fix-clear'; }
       if (f.fix === 'clear_st') { fixLabel = '→ ניקוי S+T';      fixClass = 'fix-clear'; }
       if (f.fix === 'flag')     { fixLabel = '→ דגל U';           fixClass = 'fix-flag';  }
