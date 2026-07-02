@@ -1,7 +1,7 @@
 /**
  * @file        S07_Classify.gs
- * @version     2.5.1 | @updated 20/06/2026 22:08 | @service S07
- * @git         src/infrastructure/S07_Classify.gs
+ * @version     2.6.1 | @updated 01/07/2026 21:25 | @service S07
+ * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S07_Classify.gs
  * @description סיווג מסמכים רפואיים בעזרת Gemini API.
  *              קורא טקסט מ-TXT_URL (X) או Raw_Text (Z).
  *              מחלץ: כותרת, מנפיק, תאריך, קטגוריה, מורכבות.
@@ -25,20 +25,17 @@
  *              _fetchTextFromUrl_S07 | _getLearningExamples_S07
  *              _calculateDuplicates_S07 | _extractTxtHeader_S07
  *              S07_ValidateWritePermissions
- * @changes     [v2.5.1] תיקון קריטי — classifyDocument, _processS07Batch,
- *                       executeS07Classification התחילו משורה 2 — עכשיו
- *                       SHEET_CONFIG.FIRST_DATA_ROW (5), כמו S06 ו-S05
- *              [v2.5.0] תיקון Duplicate_Flag — פורמט: "כפול מאושר — שורה X | ניקוד Y/5"
- *                       סימטריה: כתיבת Duplicate_Flag גם בשורת הכפול
- *                       _calculateDuplicates_S07 מחזירה { sheetRow, score } במקום מספר בלבד
- *              [v2.4.0] תיקון Complexity — דינמי מ-Gemini בעברית במקום 'SIMPLE' קשיח
- *                       הוספת complexity לפרומפט AI — ערכים: פשוט / בינוני / מורכב
- *                       כותרת מורחבת לפי סטנדרט
- *              [v2.3.6] שיפור _calculateDuplicates_S07 — 5 קריטריונים, סף 3/5
- *              [v2.3.5] תיקון _calculateDuplicates_S07 — מחזיר מספר שורה
- *              [v2.3.4] טריגר אצווה עבר לעמודה M | גודל אצווה 3
+ * @changes     [v2.6.1] Task 91 fix — תיקון Note: שורה Y מקבלת File_ID של X,
+ *                       שורה X מקבלת File_ID של Y (כיוונים מתוקנים).
+ *              [v2.6.0] Task 91 — הוספת setNote(File_ID) לתא R בכתיבת Duplicate_Flag.
+ *                       Task 73 — תיקון פרומפט Gemini + נרמול category.
+ *              [v2.5.1] תיקון קריטי — SHEET_CONFIG.FIRST_DATA_ROW (5).
+ *              [v2.5.0] תיקון Duplicate_Flag + סימטריה.
+ *              [v2.4.0] תיקון Complexity דינמי + כותרת מורחבת.
+ *              [v2.3.6] שיפור _calculateDuplicates_S07 — 5 קריטריונים, סף 3/5.
+ *              [v2.3.5] תיקון _calculateDuplicates_S07 — מחזיר מספר שורה.
+ *              [v2.3.4] טריגר אצווה עבר לעמודה M | גודל אצווה 3.
  */
-
 // ══════════════════════════════════════════════════════════════════
 // גשר לתפריט
 // ══════════════════════════════════════════════════════════════════
@@ -159,7 +156,6 @@ function _safeWrite(sheet, row, colName, value) {
 function _safeClear(sheet, row, colName) {
   _safeWrite(sheet, row, colName, "");
 }
-
 // ══════════════════════════════════════════════════════════════════
 // פונקציית ליבה
 // ══════════════════════════════════════════════════════════════════
@@ -195,13 +191,20 @@ function executeS07Classification(row) {
       throw new Error("NO_TEXT_FOUND: הטקסט שהתקבל ריק");
 
     // [v2.5.0] כפולים — { sheetRow, score } + סימטריה
+    // [v2.6.1] Task 91 fix — Note מכיל File_ID של שורת המטרה (לא השורה הנוכחית)
+    const fileIdForNote = (data[0] || "").toString().trim(); // File_ID של שורה Y הנוכחית
     const dupResult = _calculateDuplicates_S07(row, sheet, fullText);
     if (dupResult) {
       const dupFlag = "כפול מאושר — שורה " + dupResult.sheetRow + " | ניקוד " + dupResult.score + "/5";
       _safeWrite(sheet, row, "Duplicate_Flag", dupFlag);
+      // Note של שורה Y = File_ID של שורת המטרה X
+      const dupTargetFileId = (sheet.getRange(dupResult.sheetRow, 1).getValue() || "").toString().trim();
+      if (dupTargetFileId) { sheet.getRange(row, 18).setNote(dupTargetFileId); }
       try {
         const mirrorFlag = "כפול מאושר — שורה " + row + " | ניקוד " + dupResult.score + "/5";
         _safeWrite(sheet, dupResult.sheetRow, "Duplicate_Flag", mirrorFlag);
+        // Note של שורה X = File_ID של שורה Y (fileIdForNote)
+        if (fileIdForNote) { sheet.getRange(dupResult.sheetRow, 18).setNote(fileIdForNote); }
       } catch (mirrorErr) {
         Logger.log("[S07] סימטריה — לא הצליח לכתוב לשורה " + dupResult.sheetRow + ": " + mirrorErr.message);
       }
@@ -254,10 +257,6 @@ function executeS07Classification(row) {
     return false;
   }
 }
-
-// ══════════════════════════════════════════════════════════════════
-// [v2.5.0] בדיקת כפולים — מחזירה { sheetRow, score } או null
-// ══════════════════════════════════════════════════════════════════
 
 function _extractTxtHeader_S07(txtContent) {
   if (!txtContent) return {};
@@ -412,6 +411,7 @@ function _callAiWithFullPrompt_S07(text, extractor, examples) {
     "החזר JSON בלבד ללא טקסט נוסף:\n" +
     "{ \"title\": \"\", \"issuer\": \"\", \"date\": \"\", \"category\": \"\", \"complexity\": \"\" }\n" +
     "ערכי category חוקיים: רפואי / חשבונאי / משפטי / ביטוחי / אחר\n" +
+    "חשוב: category חייב להיות בדיוק אחד מהערכים הנ\"ל — ללא מילת 'מסמך' לפניו.\n" + // [v2.6.0] Task 73
     "ערכי complexity חוקיים: פשוט / בינוני / מורכב\n" +
     "חובה למלא לפחות title ו-category.\n" +
     examples +
@@ -476,6 +476,9 @@ function _validateAiResult_S07(ai) {
   if (!_isFilled_S07(ai.category))
     throw new Error("VALIDATION_FAIL_CATEGORY: קטגוריה חסרה");
 
+  // [v2.6.0] Task 73 — נרמול category: הסרת "מסמך " מקדים אם קיים
+  if (ai.category) { ai.category = ai.category.trim().replace(/^מסמך\s+/, ""); }
+
   const allowed = ["רפואי", "חשבונאי", "משפטי", "ביטוחי", "אחר"];
   if (allowed.indexOf(ai.category.trim()) === -1)
     throw new Error("VALIDATION_FAIL_CATEGORY: לא חוקית — " + ai.category);
@@ -486,7 +489,6 @@ function _validateAiResult_S07(ai) {
   if (_isFilled_S07(ai.date) && ai.date.trim().length < 4)
     throw new Error("VALIDATION_FAIL_DATE: תאריך קצר מדי");
 }
-
 // ══════════════════════════════════════════════════════════════════
 // קריאת טקסט מ-TXT_URL
 // ══════════════════════════════════════════════════════════════════
