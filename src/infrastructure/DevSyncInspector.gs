@@ -1,10 +1,10 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 3.2 | @updated 14/06/2026 20:21 | @service DEV_SYNC
+ * @version 3.3 | @updated 02/07/2026 19:35 | @service DEV_SYNC
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/DevSyncInspector.gs
  * @description מנוע סנכרון ודיווח בין עורך GAS לגיטהאב — 15 עמודות + אזור מרחבי.
- * @impacts אחריות: נתוני דוח בלבד (שורות 5+) + כותרות N+ בשורה 4.
- *          ViewEngine אחראי לשורות 1-3, עמודות A-O בשורה 4, רוחב עמודות והקפאות.
+ * @impacts אחריות: נתוני דוח בלבד (שורות 5+) + כותרות N+ בשורה 4 + גיבוי קוד מקור מלא בשורה 70 (במצב CLIP).
+ *         ViewEngine אחראי לשורות 1-3, עמודות A-O בשורה 4, רוחב עמודות והקפאות.
  *          תלויות: GITHUB_PAT ב-Script Properties, Apps Script API, GitHub Contents API.
  * @callers Menu_LAB.gs (devSync_RunScanButton), ViewEngine.gs (איקון סנכרון)
  * @functions devSync_RunScanButton, devSync_countLines, devSync_extractFunctions,
@@ -13,14 +13,15 @@
  *            devSync_calcStatus, devSync_calcNotes, devSync_generateAndPushIndex,
  *            devSync_purgeJsDelivr, devSync_pushRawToGitHub, devSync_getEditorFilesMap,
  *            devSync_getGitFilesMap, devSync_fetchGitFileContent, devSync_extractVersionLine,
- *            devSync_extractImpactsText, devSync_parseVersionParts, devSync_extractDate,
- *            devSync_OpenSheet, onSelectionChange
- * @changes [v3.2] תיקון Tasks 1,2 — עדכון @git ל-GitHub API URL + הוספת @changes מלא
+ *           devSync_extractImpactsText, devSync_parseVersionParts, devSync_extractDate,
+ *             devSync_OpenSheet, onSelectionChange, devSync_BackupCodeToRow70Dynamic
+ * @changes [v3.3] משימה 95: אינטגרציה מלאה של פונקציית devSync_BackupCodeToRow70Dynamic לגיבוי קוד מקור מלא בשורה 70 לפי מיפוי דינמי בשורה 4 במצב CLIP.
+ *          [v3.2] תיקון Tasks 1,2 — עדכון @git ל-GitHub API URL + הוספת @changes מלא
  *          [v3.1] הוספת שורה 47 באזור המרחבי — רשימת פונקציות חשופות לכל ספרייה.
- *                 נוספה devSync_extractFunctions לחילוץ פונקציות חשופות מקוד מקור.
+ *          נוספה devSync_extractFunctions לחילוץ פונקציות חשופות מקוד מקור.
  *          [v3.0] הוספת Editor_Lines (E) ו-Git_Lines (F) — ספירת שורות קוד להשוואה.
- *                 הזזת Version_Editor→G, Version_Git→H, Service_Editor→I, Service_Git→J,
- *                 Sync_Status→K, System_Notes→L, System_Path→M, Git_Raw_Link→N, Git_Web_Link→O.
+ *          הזזת Version_Editor→G, Version_Git→H, Service_Editor→I, Service_Git→J,
+ *          Sync_Status→K, System_Notes→L, System_Path→M, Git_Raw_Link→N, Git_Web_Link→O.
  *          [v2.9] גרסה קודמת
  */
 // ════════════════════════════════════════════════════════════════════
@@ -715,3 +716,57 @@ function devSync_OpenSheet() {
   const sheet = ss.getSheetByName(DEV_SYNC_SHEET_NAME);
   if (sheet) ss.setActiveSheet(sheet);
 }
+function devSync_BackupCodeToRow70Dynamic(sheet, fileName) {
+  try {
+    if (!sheet || !fileName || fileName === "") return;
+    
+    // 1. איתור דינמי של העמודה המתאימה לפי כותרות שורה 4
+    var startColumnIndex = sheet.getRange("P4").getColumnIndex();
+    var lastColumn = sheet.getLastColumn();
+    var targetColumnIndex = -1;
+    
+    // סריקת שורה 4 החל מעמודה P לחפש התאמה לשם הקובץ
+    for (var col = startColumnIndex; col <= lastColumn; col++) {
+      var headerValue = sheet.getRange(4, col).getValue();
+      if (headerValue === fileName || headerValue === fileName.replace(".gs", "").replace(".html", "")) {
+        targetColumnIndex = col;
+        break;
+      }
+    }
+    
+    // אם לא נמצאה התאמה מדויקת, נחפש בשורה 5 (שם הספרייה הכללי) כגיבוי
+    if (targetColumnIndex === -1) {
+      for (var col = startColumnIndex; col <= lastColumn; col++) {
+        var libValue = sheet.getRange(5, col).getValue();
+        if (libValue && (fileName.indexOf(libValue) !== -1 || libValue.indexOf(fileName) !== -1)) {
+          targetColumnIndex = col;
+          break;
+        }
+      }
+    }
+    
+    // 2. במידה ונמצאה עמודה מתאימה - שליפת הקוד והזרקתו לשורה 70
+    if (targetColumnIndex !== -1) {
+      var scriptResource = ScriptApp.getResource(fileName);
+      if (scriptResource) {
+        var fileContent = scriptResource.asText();
+        if (fileContent && fileContent !== "") {
+          var targetCell = sheet.getRange(70, targetColumnIndex);
+          
+          // כתיבת הקוד והחלת מצב חיתוך (Clip)
+          targetCell.setValue(fileContent);
+          targetCell.setTextWrapStrategy(SpreadsheetApp.TextWrapStrategy.CLIP);
+          
+          Logger.log("משימה 95: קוד מקור מלא עבור " + fileName + " גובה דינמית בעמודה " + targetColumnIndex + " שורה 70.");
+        }
+      }
+    } else {
+      Logger.log("משימה 95: לא נמצאה עמודה מתאימה בשורה 4 או 5 עבור הקובץ " + fileName);
+    }
+    
+  } catch (err) {
+    Logger.log("שגיאה במשימה 95 בגיבוי דינמי עבור " + fileName + ": " + err.message);
+  }
+}
+
+
