@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.6.2 | @updated 03/07/2026 12:54 | @service S11
+ * @version 1.6.3 | @updated 04/07/2026 21:57 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי 15 חוקי QA.
  * @impacts בודק עקביות עמודות L, M, N, Q, R, S, T, U לפי ציר התקדמות S03→S09.
@@ -23,6 +23,9 @@
  *                   בלבד) ל-"clear" על עמודה 18 — מנקה את R עצמו דרך הדיאלוג הרגיל
  *                   (S11 QA), ללא צורך בכלי חד-פעמי נפרד. מייתר את הצורך בהרצת
  *                   qa_clearOrphanDuplicateFlags_Task93 שהוצע ולא הוחל.
+ *          [v1.6.3] Task 99 — הוספת כלל E17: SOURCE_GONE ב-_qa_checkRow — דגל U לא הרסני
+ *                   כאשר DriveApp.getFileById(File_ID) נכשל (קובץ לא נגיש/נמחק). אין מחיקה,
+ *                   תצוגה בלבד, שמרני.
  *          [v1.6.1] Task 93 — הוספת qa_findOrphanDuplicateRef_Task93: פונקציית אבחון
  *                   קריאה-בלבד. מאתרת שורות שבהן R מכיל תבנית "שורה X" אך אין להן
  *                   Note (כלומר qa_migrateNotesFromR_Task93 לא הצליחה למלא אותן),
@@ -458,6 +461,25 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds) {
       fix:   "clear_u",
       value: ""
     });
+  }
+
+  // ── [Task 99] E17: SOURCE_GONE — File_ID מצביע לקובץ שאינו נגיש/נמחק ב-Drive ─
+  // שמרני: בדיקת קיום/גישה ל-File_ID בלבד; ללא מחיקה, דגל לא הרסני בעמודה U
+  if (fileId) {
+    try {
+      // תצוגה בלבד — אימות זמינות המקור. אין שימוש באובייקט המוחזר.
+      DriveApp.getFileById(fileId);
+    } catch (e) {
+      var shortId = fileId.length > 10 ? (fileId.substring(0, 6) + "..." + fileId.substring(fileId.length - 4)) : fileId;
+      findings.push({
+        row:   row,
+        code:  "E17",
+        col:   21, // QA_Status (U)
+        desc:  "מקור חסר/לא נגיש — File_ID אינו זמין ב-Drive (" + shortId + ")",
+        fix:   "flag",
+        value: "⚠️ מקור חסר (Drive)"
+      });
+    }
   }
 
   return findings;
