@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S06_ConvertTXT.gs
- * @version 1.6.4 | @updated 20/06/2026 22:06 | @service S06
+ * @version 1.6.5 | @updated 04/07/2026 21:38 | @service S06
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S06_ConvertTXT.gs
  * @description המרת קבצים לפורמט TXT מובנה — 6 מסלולים לפי סוג קובץ.
  *              PDF→Visual, DOCX→Direct, GDoc→Doc, IMG→Image, TXT→Text, Sheet→Sheet.
@@ -17,7 +17,10 @@
  *              createNightlyTrigger, deleteNightlyTrigger, checkTxtUrlIntegrity, 
  *              _extractDriveId_TxtCheck, _writeTxtCheckResults
  *              _callGemini, _safeParseJson, _writeError, _clearErrors
- * @changes     [v1.6.4] תיקון קריטי — run_MedicalPilot_V2_6_2, _processBatch, nightlyConvertBatch  התחילו משורה 2 (כותרת ישנה) — עכשיו SHEET_CONFIG.FIRST_DATA_ROW (5).
+ * @changes     [v1.6.5] [Task 97] הוספת פונקציית אבחון קריאה-בלבד s06_diagnostics_ErrorCodeSummary —
+ *                        סופרת שורות ממתינות ל-TXT לפי Error_Code (EMPTY/ACCESS/UNKNOWN/NO_ID/UNSUPPORTED/429/503/OTHER),
+ *                        ללא כתיבה לגיליון וללא פעולה על Drive.
+ *              [v1.6.4] תיקון קריטי — run_MedicalPilot_V2_6_2, _processBatch, nightlyConvertBatch  התחילו משורה 2 (כותרת ישנה) — עכשיו SHEET_CONFIG.FIRST_DATA_ROW (5).
  *              nightlyConvertBatch (טריגר אוטומטי) היה כותב שגיאות לשורות 2-4 מוגנות.
  *              [v1.6.3] [Task 72] הוספת checkTxtUrlIntegrity — אבחון TXT_URL שגוי/ריק, כתיבת תוצאות לגליון TXT_URL_בדיקה. אבחון בלבד — לא נוגע בסטטוסים.
  *              [v1.6.2] תיקון Tasks 9,10,11 — עדכון @git ל-GitHub API URL + @callers + @changes מלא
@@ -725,4 +728,86 @@ function _writeTxtCheckResults(ss, problems) {
     sheet.getRange(2, 1, problems.length, 5).setValues(problems);
   }
   sheet.autoResizeColumns(1, 5);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task 97] Diagnostics — count pending-to-TXT rows by Error_Code
+//            Read-only: scans ניהול_מיילים and returns/logs a summary
+// ══════════════════════════════════════════════════════════════════
+
+function s06_diagnostics_ErrorCodeSummary() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("ניהול_מיילים");
+  if (!sheet) {
+    Logger.log("S06 diag: sheet ניהול_מיילים not found");
+    return { total: 0, pending: 0, buckets: {} };
+  }
+
+  const cfg      = SHEET_CONFIG["ניהול_מיילים"]; // reuse existing config pattern
+  const startRow = cfg.FIRST_DATA_ROW;
+  const lastRow  = sheet.getLastRow();
+  if (lastRow < startRow) {
+    Logger.log("S06 diag: no data rows to scan");
+    return { total: 0, pending: 0, buckets: {} };
+  }
+
+  // Fetch minimal needed columns once: A(File_ID), M(Pipeline_Status), S(Error_Code), X(TXT_URL)
+  const widthAtoX = 24;
+  const data = sheet.getRange(startRow, 1, lastRow - startRow + 1, widthAtoX).getValues();
+
+  const buckets = {
+    EMPTY: 0,      // no error code set
+    ACCESS: 0,
+    UNKNOWN: 0,
+    NO_ID: 0,
+    UNSUPPORTED: 0,
+    "429": 0,
+    "503": 0,
+    OTHER: 0
+  };
+
+  let total = 0;
+  let pending = 0; // rows that are still candidates for TXT conversion
+
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const fileId   = (row[0]  || "").toString().trim();      // A
+    const pipeline = (row[12] || "").toString().trim();      // M
+    const errCode  = (row[18] || "").toString().trim();      // S (19)
+    const txtUrl   = (row[23] || "").toString().trim();      // X (24)
+
+    if (!fileId) continue; // skip empty rows
+    total++;
+
+    // Consider as pending-to-TXT if no TXT link yet and not already marked as converted
+    const isConverted = pipeline === "הומר ל-TXT";
+    const hasTxtLink  = txtUrl !== "";
+    if (!isConverted && !hasTxtLink) pending++;
+
+    // Bucketize error codes observed, regardless of pending state — gives a full picture
+    if (!errCode) {
+      buckets.EMPTY++;
+    } else if (errCode === "ACCESS") {
+      buckets.ACCESS++;
+    } else if (errCode === "UNKNOWN") {
+      buckets.UNKNOWN++;
+    } else if (errCode === "NO_ID") {
+      buckets.NO_ID++;
+    } else if (errCode === "UNSUPPORTED") {
+      buckets.UNSUPPORTED++;
+    } else if (errCode === "429") {
+      buckets["429"]++;
+    } else if (errCode === "503") {
+      buckets["503"]++;
+    } else {
+      buckets.OTHER++;
+    }
+  }
+
+  const sumKnown = buckets.EMPTY + buckets.ACCESS + buckets.UNKNOWN + buckets.NO_ID + buckets.UNSUPPORTED + buckets["429"] + buckets["503"] + buckets.OTHER;
+  Logger.log("S06 diagnostics — Error_Code summary");
+  Logger.log("Rows scanned: " + total + ", pending-to-TXT: " + pending);
+  Logger.log("EMPTY=" + buckets.EMPTY + ", ACCESS=" + buckets.ACCESS + ", UNKNOWN=" + buckets.UNKNOWN + ", NO_ID=" + buckets.NO_ID + ", UNSUPPORTED=" + buckets.UNSUPPORTED + ", 429=" + buckets["429"] + ", 503=" + buckets["503"] + ", OTHER=" + buckets.OTHER + "; totalBucketed=" + sumKnown);
+
+  return { total: total, pending: pending, buckets: buckets };
 }
