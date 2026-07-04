@@ -1,21 +1,39 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.5.0 | @updated 01/07/2026 13:05 | @service S11
+ * @version 1.6.2 | @updated 03/07/2026 12:54 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי 15 חוקי QA.
  * @impacts בודק עקביות עמודות L, M, N, Q, R, S, T, U לפי ציר התקדמות S03→S09.
  *          שורה בודדת: סריקת השורה הנבחרת בלבד.
  *          כל הגליון: סריקה מלאה + Dialog HTML + תיקון נבחר באישור.
  *          כותב לעמודות: M (תיקון סטטוס), N (תיקון Extraction), Q (ניקוי),
- *          R (השלמת סימטריה כפולים), S+T (ניקוי שגיאות ישנות), U (דגל/ניקוי).
+ *          R (השלמת סימטריה כפולים / ניקוי הפניות יתומות), S+T (ניקוי שגיאות ישנות), U (דגל/ניקוי).
  *          תלויות: COLUMN_MAP.gs (SHEET_CONFIG), S11_QADialog.html, גליון ניהול_מיילים.
  *          שורות 1-4 מוגנות — הלולאה מתחילה תמיד מ-SHEET_CONFIG.FIRST_DATA_ROW (5).
- * @callers ViewEngine.gs (runQAView), Menu_PROD.gs
+ * @callers ViewEngine.gs (runQAView), Menu_PROD.gs, Menu_LAB.gs
+ *          (qa_migrateNotesFromR_Task93, qa_findOrphanDuplicateRef_Task93)
  * @functions runQAViewMain, qa_getFindings, qa_applySelectedFixes,
  *            _qa_scanRow, _qa_scanAll, _qa_checkRow,
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol,
- *            _qa_loadEventsFileIds, findAnchorRowAndAuditVerified
- * @changes [v1.5.0] תיקון Task 89: (1) E11 — החלפת return findings ב-if (targetRow >= QA_DATA_START)
+ *            _qa_loadEventsFileIds, findAnchorRowAndAuditVerified,
+ *            qa_migrateNotesFromR_Task93, qa_findOrphanDuplicateRef_Task93
+ * @changes [v1.6.2] Task 93 — הרחבת כלל E12 הקיים בתוך _qa_checkRow: כעת מזהה גם R
+ *                   המצביע לשורה מתחת ל-QA_DATA_START (שורה מוגנת/לא קיימת), לא רק
+ *                   הפניות מעבר לטווח הנתונים. שונה ה-fix של E12 מ-"flag" (סימון U
+ *                   בלבד) ל-"clear" על עמודה 18 — מנקה את R עצמו דרך הדיאלוג הרגיל
+ *                   (S11 QA), ללא צורך בכלי חד-פעמי נפרד. מייתר את הצורך בהרצת
+ *                   qa_clearOrphanDuplicateFlags_Task93 שהוצע ולא הוחל.
+ *          [v1.6.1] Task 93 — הוספת qa_findOrphanDuplicateRef_Task93: פונקציית אבחון
+ *                   קריאה-בלבד. מאתרת שורות שבהן R מכיל תבנית "שורה X" אך אין להן
+ *                   Note (כלומר qa_migrateNotesFromR_Task93 לא הצליחה למלא אותן),
+ *                   ומציגה לכל שורה כזו את מספרה, כותרתה, שורת היעד ומצבה
+ *                   (יעד לא קיים / File_ID ריק בשורת היעד).
+ *          [v1.6.0] Task 93 — הוספת qa_migrateNotesFromR_Task93: מיגרציה חד-פעמית.
+ *                   סורקת את כל עמודה R הקיימת, מחלצת מספר שורת-יעד מתוך התבנית
+ *                   "שורה X", שולפת את File_ID של שורת היעד מעמודה A, וכותבת אותו
+ *                   כ-Note בתא R של השורה הנוכחית — רק אם לא קיים כבר Note.
+ *                   מיועדת להרצה חד-פעמית מהתפריט (Menu_LAB) ואז ניתנת להסרה.
+ *          [v1.5.0] תיקון Task 89: (1) E11 — החלפת return findings ב-if (targetRow >= QA_DATA_START)
  *                   למניעת קטיעת הבדיקות E12-E15 באותה שורה. (2) הוספת trim() לעמודות
  *                   category/status ב-findAnchorRowAndAuditVerified למניעת פספוס שורות עוגן.
  *                   (3) הוספת setNote(File_ID) ב-_qa_applyFixes case write כשcol===18
@@ -367,37 +385,40 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds) {
     });
   }
 
-  // ── E11: R סימטריה — בדיקת הפניה הפוכה ──────────────────────
+  // ── E11 / E12: R — סימטריה + הפניה לשורה שלא קיימת ──────────
+  // [v1.6.2] Task 93 — E12 הורחב לכסות גם targetRow < QA_DATA_START
+  //          (הפניה לשורה מוגנת/מחוקה מתחת לשורת הנתונים הראשונה).
+  //          ה-fix של E12 שונה מ-"flag" (סימון U בלבד) ל-"clear" —
+  //          מנקה את R עצמו דרך כפתור "תקן נבחרים" בדיאלוג הרגיל.
   if (r && r.includes("חשוד ככפול — שורה")) {
     const match = r.match(/שורה\s+(\d+)/);
     if (match) {
-      const targetRow = parseInt(match[1], 10);
-      // [v1.5.0] תיקון E11: שורות מוגנות 1-4 — דלג בלבד, לא קטע את כל _qa_checkRow
-      if (targetRow >= QA_DATA_START) {
-        const targetIdx = targetRow - QA_DATA_START;
-        if (targetIdx >= 0 && targetIdx < allData.length) {
-          const targetR = (allData[targetIdx][17] || "").toString().trim();
-          if (!targetR) {
-            findings.push({
-              row:   targetRow,
-              code:  "E11",
-              col:   18,
-              desc:  "שורה " + targetRow + " חסרה הפניה חזרה לשורה " + row,
-              fix:   "write",
-              value: "חשוד ככפול — שורה " + row
-            });
-          }
-        } else {
-          // E12 — שורת הכפול לא קיימת
+      const targetRow    = parseInt(match[1], 10);
+      const targetIdx    = targetRow - QA_DATA_START;
+      const targetExists = (targetRow >= QA_DATA_START) && (targetIdx >= 0) && (targetIdx < allData.length);
+
+      if (targetExists) {
+        const targetR = (allData[targetIdx][17] || "").toString().trim();
+        if (!targetR) {
           findings.push({
-            row:   row,
-            code:  "E12",
-            col:   21,
-            desc:  "R מצביע על שורה " + targetRow + " שלא קיימת",
-            fix:   "flag",
-            value: "⚠️ כפול מצביע לשורה שנמחקה: " + targetRow
+            row:   targetRow,
+            code:  "E11",
+            col:   18,
+            desc:  "שורה " + targetRow + " חסרה הפניה חזרה לשורה " + row,
+            fix:   "write",
+            value: "חשוד ככפול — שורה " + row
           });
         }
+      } else {
+        // [v1.6.2] E12 — שורת הכפול לא קיימת בטווח הנתונים (נמחקה / מתחת ל-QA_DATA_START)
+        findings.push({
+          row:   row,
+          code:  "E12",
+          col:   18,
+          desc:  "R מצביע על שורה " + targetRow + " שלא קיימת בטווח הנתונים — יש לנקות",
+          fix:   "clear",
+          value: ""
+        });
       }
     }
   }
@@ -620,4 +641,166 @@ function findAnchorRowAndAuditVerified() {
     fullReport.length > 4000 ? fullReport.substring(0, 4000) + "\n\n... (ראה Logger.log לתוכן מלא)" : fullReport,
     ui.ButtonSet.OK
   );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v1.6.0] Task 93 — מיגרציה חד-פעמית: File_ID מעמודה A → Note בעמודה R
+// ══════════════════════════════════════════════════════════════════
+
+function qa_migrateNotesFromR_Task93() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(QA_SHEET_NAME);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert("שגיאה", "גליון '" + QA_SHEET_NAME + "' לא נמצא.", SpreadsheetApp.getUi().ButtonSet.OK);
+    return;
+  }
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < QA_DATA_START) {
+    ss.toast("אין נתונים למיגרציה", "S11 QA — Task 93", 3);
+    return;
+  }
+
+  const numRows      = lastRow - QA_DATA_START + 1;
+  const fileIdRange  = sheet.getRange(QA_DATA_START, 1, numRows, 1);
+  const rRange       = sheet.getRange(QA_DATA_START, 18, numRows, 1);
+
+  const fileIdVals = fileIdRange.getValues();
+  const rVals       = rRange.getValues();
+  const rNotes       = rRange.getNotes();
+
+  let migrated   = 0;
+  let alreadySet = 0;
+  let notFound   = 0;
+  let skipped    = 0;
+
+  for (let i = 0; i < numRows; i++) {
+    const rVal = (rVals[i][0] || "").toString().trim();
+    if (!rVal) { skipped++; continue; }
+
+    const existingNote = (rNotes[i][0] || "").toString().trim();
+    if (existingNote) { alreadySet++; continue; }
+
+    const match = rVal.match(/שורה\s+(\d+)/);
+    if (!match) { skipped++; continue; }
+
+    const targetRow = parseInt(match[1], 10);
+    if (targetRow < QA_DATA_START) { skipped++; continue; }
+
+    const targetIdx = targetRow - QA_DATA_START;
+    if (targetIdx < 0 || targetIdx >= numRows) { notFound++; continue; }
+
+    const targetFileId = (fileIdVals[targetIdx][0] || "").toString().trim();
+    if (!targetFileId) { notFound++; continue; }
+
+    sheet.getRange(QA_DATA_START + i, 18).setNote(targetFileId);
+    migrated++;
+  }
+
+  const msg =
+    "מיגרציית Notes הושלמה:\n\n" +
+    "✅ הושלמה כתיבת Note: " + migrated + "\n" +
+    "⏭️ כבר היה Note קיים: " + alreadySet + "\n" +
+    "⚠️ לא נמצא File_ID יעד: " + notFound + "\n" +
+    "➖ דולגו (R ריק / לא בתבנית 'שורה X'): " + skipped;
+
+  Logger.log("[S11 QA Task93] " + msg.replace(/\n/g, " | "));
+  SpreadsheetApp.getUi().alert("מיגרציה חד-פעמית — Task 93", msg, SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v1.6.1] Task 93 — אבחון: איתור שורה יתומה שהמיגרציה לא הצליחה למלא
+// ══════════════════════════════════════════════════════════════════
+
+function qa_findOrphanDuplicateRef_Task93() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(QA_SHEET_NAME);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert("שגיאה", "גליון '" + QA_SHEET_NAME + "' לא נמצא.", SpreadsheetApp.getUi().ButtonSet.OK);
+    return;
+  }
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < QA_DATA_START) {
+    ss.toast("אין נתונים לאבחון", "S11 QA — אבחון Task 93", 3);
+    return;
+  }
+
+  const numRows      = lastRow - QA_DATA_START + 1;
+  const fileIdRange  = sheet.getRange(QA_DATA_START, 1, numRows, 1);
+  const rRange       = sheet.getRange(QA_DATA_START, 18, numRows, 1);
+  const titleRange   = sheet.getRange(QA_DATA_START, 9, numRows, 1);
+
+  const fileIdVals = fileIdRange.getValues();
+  const rVals       = rRange.getValues();
+  const rNotes       = rRange.getNotes();
+  const titleVals   = titleRange.getValues();
+
+  const orphans = [];
+
+  for (let i = 0; i < numRows; i++) {
+    const rVal = (rVals[i][0] || "").toString().trim();
+    if (!rVal) continue;
+
+    const existingNote = (rNotes[i][0] || "").toString().trim();
+    if (existingNote) continue; // כבר תוקן במיגרציה — לא רלוונטי לאבחון
+
+    const match = rVal.match(/שורה\s+(\d+)/);
+    if (!match) continue; // אין תבנית "שורה X" — לא רלוונטי (לוגו/ריק וכו')
+
+    const currentRow = QA_DATA_START + i;
+    const targetRow   = parseInt(match[1], 10);
+    const currentFileId = (fileIdVals[i][0] || "").toString().trim();
+    const currentTitle  = (titleVals[i][0]  || "").toString().trim();
+
+    let targetStatus;
+    let targetFileId = "";
+    let targetTitle  = "";
+
+    if (targetRow < QA_DATA_START || (targetRow - QA_DATA_START) >= numRows) {
+      targetStatus = "שורה " + targetRow + " מחוץ לטווח הנתונים (מחוקה / לא קיימת)";
+    } else {
+      const targetIdx = targetRow - QA_DATA_START;
+      targetFileId = (fileIdVals[targetIdx][0] || "").toString().trim();
+      targetTitle  = (titleVals[targetIdx][0]  || "").toString().trim();
+      targetStatus = targetFileId
+        ? "שורה קיימת אך File_ID לא זוהה כתקין (בדוק תוכן תא A" + targetRow + ")"
+        : "שורה קיימת אך עמודה A (File_ID) ריקה בה";
+    }
+
+    orphans.push({
+      row:         currentRow,
+      fileId:      currentFileId,
+      title:       currentTitle,
+      rText:       rVal,
+      targetRow:   targetRow,
+      targetFileId: targetFileId,
+      targetTitle: targetTitle,
+      status:      targetStatus
+    });
+  }
+
+  if (orphans.length === 0) {
+    SpreadsheetApp.getUi().alert(
+      "אבחון Task 93",
+      "✅ לא נמצאו שורות יתומות — כל ההפניות תקינות.",
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+    return;
+  }
+
+  let msg = "נמצאו " + orphans.length + " שורות יתומות:\n\n";
+  orphans.forEach(function(o) {
+    msg += "── שורה " + o.row + " ──\n";
+    msg += "File_ID: " + (o.fileId || "—") + "\n";
+    msg += "כותרת: " + (o.title || "—") + "\n";
+    msg += "R (Duplicate_Flag): " + o.rText + "\n";
+    msg += "מצביע לשורה: " + o.targetRow + "\n";
+    msg += "מצב שורת היעד: " + o.status + "\n";
+    if (o.targetTitle) msg += "כותרת שורת היעד: " + o.targetTitle + "\n";
+    msg += "\n";
+  });
+
+  Logger.log("[S11 QA Task93 אבחון] " + msg.replace(/\n/g, " | "));
+  SpreadsheetApp.getUi().alert("אבחון שורות יתומות — Task 93", msg, SpreadsheetApp.getUi().ButtonSet.OK);
 }
