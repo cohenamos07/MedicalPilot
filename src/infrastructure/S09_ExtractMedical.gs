@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S09_ExtractMedical.gs
- * @version 1.2.4 | @updated 28/06/2026 19:30 | @service S09
+ * @version 1.2.5 | @updated 04/07/2026 21:26 | @service S09
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S09_ExtractMedical.gs
  * @impacts חילוץ אירועים רפואיים ממסמכים מאומתים לגליונות יעד — מנגנון דואלי (שורה בודדת / אצווה).
  *          תנאי סף: עמודה M = "אומת ידנית" + עמודה L = רפואי + עמודה X לא ריקה.
@@ -137,7 +137,7 @@ function _s09_checkRow(sheet, row) {
   const txtUrl   = (sheet.getRange(row, 24).getValue() || "").toString().trim();
 
   if (status !== S09_STATUS_TRIGGER)
-    return { valid: false, reason: "עמודה M אינה 'אומת ידנית' (ערך: " + status + ")" };
+    return { valid: false, reason: "עמודה M אינה '" + S09_STATUS_TRIGGER + "' (ערך: " + status + ")" };
   if (!S09_CATEGORIES.includes(category))
     return { valid: false, reason: "עמודה L אינה רפואי (ערך: " + category + ")" };
   if (!txtUrl)
