@@ -1,13 +1,14 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.6.3 | @updated 04/07/2026 21:57 | @service S11
+ * @version 1.8.0 | @updated 05/07/2026 19:26 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
- * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי 15 חוקי QA.
+ * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי 22 חוקי QA.
  * @impacts בודק עקביות עמודות L, M, N, Q, R, S, T, U לפי ציר התקדמות S03→S09.
  *          שורה בודדת: סריקת השורה הנבחרת בלבד.
  *          כל הגליון: סריקה מלאה + Dialog HTML + תיקון נבחר באישור.
  *          כותב לעמודות: M (תיקון סטטוס), N (תיקון Extraction), Q (ניקוי),
- *          R (השלמת סימטריה כפולים / ניקוי הפניות יתומות), S+T (ניקוי שגיאות ישנות), U (דגל/ניקוי).
+ *          R (השלמת סימטריה כפולים / אימות Note מול המציאות / ניקוי הפניות יתומות),
+ *          S+T (ניקוי שגיאות ישנות), U (דגל/ניקוי). [v1.7.0] גם מחיקת שורה מלאה (E16).
  *          תלויות: COLUMN_MAP.gs (SHEET_CONFIG), S11_QADialog.html, גליון ניהול_מיילים.
  *          שורות 1-4 מוגנות — הלולאה מתחילה תמיד מ-SHEET_CONFIG.FIRST_DATA_ROW (5).
  * @callers ViewEngine.gs (runQAView), Menu_PROD.gs, Menu_LAB.gs
@@ -17,12 +18,64 @@
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol,
  *            _qa_loadEventsFileIds, findAnchorRowAndAuditVerified,
  *            qa_migrateNotesFromR_Task93, qa_findOrphanDuplicateRef_Task93
- * @changes [v1.6.2] Task 93 — הרחבת כלל E12 הקיים בתוך _qa_checkRow: כעת מזהה גם R
+ * @changes [v1.8.0] Task 100 — הרחבת בלוק E17 (Task 99) הקיים ב-_qa_checkRow:
+ *                   כאשר DriveApp.getFileById נכשל (המקור לא נגיש), נבדק כעת
+ *                   תנאי כפול נוסף: Pipeline_Status === "ממתין להמרה ל-TXT"
+ *                   וגם TXT_URL ריק — כלומר אין שום עותק שמור של הנתונים באף
+ *                   שלב בצנרת (לא הקובץ המקורי, לא TXT). רק כששלושת התנאים
+ *                   מתקיימים יחד נוצר ממצא חדש E22 (SOURCE_GONE_UNRECOVERABLE)
+ *                   עם fix="delete_row" (הרסני, מוצג לאישור ידני בדיאלוג, לא
+ *                   מסומן כברירת מחדל — כמו E16). בכל שאר המקרים (כולל שורות
+ *                   שכבר הומרו ל-TXT כמו 107-112) ממשיך להיווצר E17 הרגיל
+ *                   (fix="flag") כפי שהיה. אומת ידנית מול 10 שורות אמיתיות
+ *                   (113-122) שנבדקו ידנית ואושרו כאבודות לצמיתות מ-Drive.
+ *          [v1.7.0] Tasks 94+98 (פעימת קוד משולבת — אותם 2 קבצים, פעם אחת):
+ *                   (1) Task 94 — הוספת כלל E16 ב-_qa_checkRow: File_ID המתחיל
+ *                       ב-"OCR_" (שורות ארכיון ישנות ממקור Mod_Brain_OCR).
+ *                       DriveApp.getFileById נבדק לתצוגה בלבד (לא כתנאי לזיהוי
+ *                       הממצא) — רק כדי להציג לעמוס אם הקובץ עדיין קיים ב-Drive.
+ *                       fix חדש "delete_row" — הרסני, מוצג לאישור ידני בדיאלוג,
+ *                       לא מופעל אוטומטית.
+ *                   (2) Task 98 — אימות אמיתי (לא מיגרציה עיוורת) של עמודה R
+ *                       מול המציאות בפועל: ב-runQAViewMain נבנתה מפת
+ *                       File_ID→שורה נוכחית (fileIdRowMap) מתוך allData, ונטענו
+ *                       כל ה-Notes של עמודה R בבאץ' אחד (rNotesAll). שתי אלו
+ *                       מוזרמות כעת דרך _qa_scanRow/_qa_scanAll אל _qa_checkRow.
+ *                       הבלוק המשולב של E11/E12 הוחלף בבלוק מורחב שממשיך
+ *                       להריץ את E11 (סימטריה) ללא שינוי, ומוסיף לוגיקת החלטה
+ *                       חדשה על סמך ה-Note בפועל של השורה הנוכחית:
+ *                       • E12 (ללא שינוי בתנאי) — אין Note, והשורה שהטקסט מצביע
+ *                         עליה לא קיימת בטווח הנתונים כלל → "clear".
+ *                       • E18 (חדש) — אין Note, אך השורה שהטקסט מצביע עליה כן
+ *                         קיימת וניתן לשלוף ממנה File_ID → "set_note" (כתיבת
+ *                         Note בלבד, לא נוגע בטקסט התא).
+ *                       • E19 (חדש) — אין Note, השורה קיימת אך עמודה A ריקה בה
+ *                         → אי אפשר לשחזר בביטחון → "clear".
+ *                       • E20 (חדש) — יש Note, אך ה-File_ID השמור בו לא נמצא
+ *                         יותר בשום שורה בגליון (נמחק/הועבר) → "clear".
+ *                       • E21 (חדש) — יש Note תקין, אבל מספר השורה הכתוב בטקסט
+ *                         התיישן (עקב מחיקת שורה שהזיזה הכול) — ה-File_ID באמת
+ *                         נמצא היום בשורה אחרת → "write" מתקן את הטקסט לשורה
+ *                         הנוכחית האמיתית (ה-Note עצמו כבר תקין ולא משתנה).
+ *                   (3) תוקן באג קיים ב-_qa_applyFixes case "write" על עמודה 18:
+ *                       הקוד הקודם קבע את ה-Note תמיד לפי File_ID של השורה
+ *                       הנכתבת עצמה (f.row) — שגוי במקרים כמו E11/E21 שבהם
+ *                       הטקסט הנכתב מפנה לשורה אחרת (הצד השני של הכפילות).
+ *                       כעת נפרש הטקסט (value) בעזרת regex "שורה X" ונשלף
+ *                       ה-File_ID של אותה שורה ממש לצורך ה-Note.
+ *                   (4) case "clear" על עמודה 18 מנקה כעת גם את ה-Note עצמו
+ *                       (setNote("")) — מונע השארת רפרנס יתום אחרי ניקוי טקסט.
+ *                   (5) case חדש "set_note" — כתיבת Note בלבד ללא נגיעה בערך התא.
+ *                   (6) _qa_applyFixes: ממצאי "delete_row" נאספים בנפרד לאורך
+ *                       הלולאה, ומבוצעים רק בסוף, ממוינים יורד לפי מספר שורה —
+ *                       כדי שמחיקת שורה לא תשבש את מספרי השורות של שאר התיקונים
+ *                       שמבוצעים באותה אצווה.
+ *          [v1.6.2] Task 93 — הרחבת כלל E12 הקיים בתוך _qa_checkRow: כעת מזהה גם R
  *                   המצביע לשורה מתחת ל-QA_DATA_START (שורה מוגנת/לא קיימת), לא רק
  *                   הפניות מעבר לטווח הנתונים. שונה ה-fix של E12 מ-"flag" (סימון U
- *                   בלבד) ל-"clear" על עמודה 18 — מנקה את R עצמו דרך הדיאלוג הרגיל
- *                   (S11 QA), ללא צורך בכלי חד-פעמי נפרד. מייתר את הצורך בהרצת
- *                   qa_clearOrphanDuplicateFlags_Task93 שהוצע ולא הוחל.
+ *                   בלבד) ל-"clear" על עמודה 18 — מנקה את R עצמו דרך כפתור "תקן נבחרים"
+ *                   בדיאלוג הרגיל (S11 QA), ללא צורך בכלי חד-פעמי נפרד. מייתר את הצורך
+ *                   בהרצת qa_clearOrphanDuplicateFlags_Task93 שהוצע ולא הוחל.
  *          [v1.6.3] Task 99 — הוספת כלל E17: SOURCE_GONE ב-_qa_checkRow — דגל U לא הרסני
  *                   כאשר DriveApp.getFileById(File_ID) נכשל (קובץ לא נגיש/נמחק). אין מחיקה,
  *                   תצוגה בלבד, שמרני.
@@ -137,13 +190,23 @@ function runQAViewMain() {
   // [v1.3.0] טעינת File_IDs מגליון יומן_אירועים_רפואי — לשימוש ב-E15
   const eventsFileIds = _qa_loadEventsFileIds(ss);
 
+  // [v1.7.0] Task 98 — מפת File_ID → שורה נוכחית, לאימות עמודה R מול המציאות
+  const fileIdRowMap = {};
+  allData.forEach(function(rd, idx) {
+    const fid = (rd[0] || "").toString().trim();
+    if (fid) fileIdRowMap[fid] = idx + QA_DATA_START;
+  });
+
+  // [v1.7.0] Task 98 — Notes של עמודה R לכל טווח הנתונים, קריאה אחת (batch)
+  const rNotesAll = sheet.getRange(QA_DATA_START, 18, lastRow - QA_DATA_START + 1, 1).getNotes();
+
   const activeRow   = sheet.getActiveCell().getRow();
   const activeRange = sheet.getActiveRange();
   const isSingleRow = activeRange.getNumColumns() >= sheet.getMaxColumns();
 
   const findings = isSingleRow && activeRow >= QA_DATA_START
-    ? _qa_scanRow(allData, activeRow, lastRow, eventsFileIds)
-    : _qa_scanAll(allData, lastRow, eventsFileIds);
+    ? _qa_scanRow(allData, activeRow, lastRow, eventsFileIds, fileIdRowMap, rNotesAll)
+    : _qa_scanAll(allData, lastRow, eventsFileIds, fileIdRowMap, rNotesAll);
 
   if (findings.length === 0) {
     ss.toast("✅ הכול תקין — אין ממצאים", "S11 QA", 4);
@@ -226,24 +289,26 @@ function qa_applySelectedFixes(findingsJson) {
 // סריקת שורה בודדת
 // ══════════════════════════════════════════════════════════════════
 
-function _qa_scanRow(allData, activeRow, lastRow, eventsFileIds) {
+function _qa_scanRow(allData, activeRow, lastRow, eventsFileIds, fileIdRowMap, rNotesAll) {
   const i       = activeRow - QA_DATA_START;
   const rowData = allData[i];
   if (!rowData) return [];
-  return _qa_checkRow(rowData, activeRow, allData, lastRow, eventsFileIds);
+  const myNote = (rNotesAll[i] && rNotesAll[i][0]) || "";
+  return _qa_checkRow(rowData, activeRow, allData, lastRow, eventsFileIds, fileIdRowMap, myNote);
 }
 
 // ══════════════════════════════════════════════════════════════════
 // סריקת כל הגליון
 // ══════════════════════════════════════════════════════════════════
 
-function _qa_scanAll(allData, lastRow, eventsFileIds) {
+function _qa_scanAll(allData, lastRow, eventsFileIds, fileIdRowMap, rNotesAll) {
   const findings = [];
   for (let i = 0; i < allData.length; i++) {
     const row     = i + QA_DATA_START;
     const rowData = allData[i];
     if (!rowData[0]) continue; // דלג שורות ריקות (אין File_ID)
-    const rowFindings = _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds);
+    const myNote = (rNotesAll[i] && rNotesAll[i][0]) || "";
+    const rowFindings = _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds, fileIdRowMap, myNote);
     rowFindings.forEach(function(f) { findings.push(f); });
   }
   return findings;
@@ -253,7 +318,7 @@ function _qa_scanAll(allData, lastRow, eventsFileIds) {
 // בדיקת שורה אחת — מחזיר מערך ממצאים
 // ══════════════════════════════════════════════════════════════════
 
-function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds) {
+function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds, fileIdRowMap, myNote) {
   const findings = [];
 
   // קריאת עמודות (0-based)
@@ -388,11 +453,12 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds) {
     });
   }
 
-  // ── E11 / E12: R — סימטריה + הפניה לשורה שלא קיימת ──────────
-  // [v1.6.2] Task 93 — E12 הורחב לכסות גם targetRow < QA_DATA_START
-  //          (הפניה לשורה מוגנת/מחוקה מתחת לשורת הנתונים הראשונה).
-  //          ה-fix של E12 שונה מ-"flag" (סימון U בלבד) ל-"clear" —
-  //          מנקה את R עצמו דרך כפתור "תקן נבחרים" בדיאלוג הרגיל.
+  // ── E11 / E12 / E18 / E19 / E20 / E21 — עמודה R: סימטריה + אימות Note מול המציאות ──
+  // [v1.6.2] Task 93 — E12: הפניה לשורה שלא קיימת בטווח הנתונים כלל (ללא שינוי).
+  // [v1.7.0] Task 98 — E11 נשאר ללא שינוי לוגי (סימטריה בין שתי שורות כפולות).
+  //          נוסף בלוק החלטה חדש, בלתי-תלוי ב-E11, שבודק את ה-Note בפועל של
+  //          השורה הנוכחית (myNote) מול המפה fileIdRowMap (המציאות העדכנית),
+  //          ולא סומך על מספר השורה הכתוב בטקסט כאמת מוחלטת.
   if (r && r.includes("חשוד ככפול — שורה")) {
     const match = r.match(/שורה\s+(\d+)/);
     if (match) {
@@ -400,6 +466,7 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds) {
       const targetIdx    = targetRow - QA_DATA_START;
       const targetExists = (targetRow >= QA_DATA_START) && (targetIdx >= 0) && (targetIdx < allData.length);
 
+      // E11 — סימטריה: לשורת היעד חסרה הפניה חזרה (ללא שינוי מ-v1.5.0)
       if (targetExists) {
         const targetR = (allData[targetIdx][17] || "").toString().trim();
         if (!targetR) {
@@ -412,8 +479,63 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds) {
             value: "חשוד ככפול — שורה " + row
           });
         }
+      }
+
+      // [v1.7.0] Task 98 — אימות אמיתי של הטקסט מול ה-Note מול המציאות בפועל
+      const noteFileId = (myNote || "").toString().trim();
+
+      if (noteFileId) {
+        const actualRow = fileIdRowMap[noteFileId];
+
+        if (!actualRow) {
+          // E20 — יש Note, אך ה-File_ID השמור בו לא נמצא יותר בשום שורה בגליון
+          findings.push({
+            row:   row,
+            code:  "E20",
+            col:   18,
+            desc:  "Note מצביע ל-File_ID שלא קיים יותר בגליון — יש לנקות",
+            fix:   "clear",
+            value: ""
+          });
+        } else if (actualRow !== targetRow) {
+          // E21 — יש Note תקין, אבל מספר השורה בטקסט התיישן (הזזת שורות)
+          findings.push({
+            row:   row,
+            code:  "E21",
+            col:   18,
+            desc:  "R כתוב 'שורה " + targetRow + "' אך ה-File_ID (מה-Note) יושב כיום בשורה " + actualRow,
+            fix:   "write",
+            value: "חשוד ככפול — שורה " + actualRow
+          });
+        }
+        // actualRow === targetRow → תקין לחלוטין, אין ממצא.
+
+      } else if (targetExists) {
+        // אין Note, אך אפשר לנסות לשחזר מהטקסט הקיים (כמו qa_migrateNotesFromR_Task93)
+        const claimedFileId = (allData[targetIdx][0] || "").toString().trim();
+        if (claimedFileId) {
+          // E18 — ניתן לשחזר בביטחון
+          findings.push({
+            row:   row,
+            code:  "E18",
+            col:   18,
+            desc:  "R ללא Note — ניתן לשחזר מהטקסט הקיים (שורה " + targetRow + ")",
+            fix:   "set_note",
+            value: claimedFileId
+          });
+        } else {
+          // E19 — השורה קיימת אך עמודה A ריקה בה, אי אפשר לשחזר בביטחון
+          findings.push({
+            row:   row,
+            code:  "E19",
+            col:   18,
+            desc:  "R ללא Note, ושורה " + targetRow + " קיימת אך עמודה A (File_ID) ריקה בה — לא ניתן לשחזר",
+            fix:   "clear",
+            value: ""
+          });
+        }
       } else {
-        // [v1.6.2] E12 — שורת הכפול לא קיימת בטווח הנתונים (נמחקה / מתחת ל-QA_DATA_START)
+        // E12 — אין Note, והשורה שהטקסט מצביע עליה לא קיימת בטווח הנתונים כלל
         findings.push({
           row:   row,
           code:  "E12",
@@ -463,22 +585,63 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds) {
     });
   }
 
-  // ── [Task 99] E17: SOURCE_GONE — File_ID מצביע לקובץ שאינו נגיש/נמחק ב-Drive ─
-  // שמרני: בדיקת קיום/גישה ל-File_ID בלבד; ללא מחיקה, דגל לא הרסני בעמודה U
+  // ── [v1.7.0] Task 94 — E16: OCR_ — שורת ארכיון ישנה ממקור Mod_Brain_OCR ───
+  // תנאי צר בכוונה (גישה שמרנית שאושרה): רק File_ID המתחיל ב-"OCR_".
+  // DriveApp.getFileById נבדק לתצוגה בלבד — לא כתנאי לזיהוי הממצא.
+  // fix הרסני ("delete_row") — מוצג לאישור ידני בדיאלוג, אינו אוטומטי.
+  if (fileId.indexOf("OCR_") === 0) {
+    let driveState = "";
+    try {
+      DriveApp.getFileById(fileId);
+      driveState = "(הקובץ עדיין קיים ב-Drive)";
+    } catch (e) {
+      driveState = "(הקובץ לא נגיש/נמחק ב-Drive)";
+    }
+    findings.push({
+      row:   row,
+      code:  "E16",
+      col:   1,
+      desc:  "File_ID מתחיל ב-'OCR_' — שורת ארכיון ישנה " + driveState,
+      fix:   "delete_row",
+      value: ""
+    });
+  }
+
+  // ── [Task 99] E17 / [v1.8.0] Task 100 E22 — SOURCE_GONE ─────────────────
+  // שמרני: בדיקת קיום/גישה ל-File_ID בלבד.
+  // [v1.8.0] Task 100 — כאשר בנוסף לכך אין שום עותק שמור של הנתונים באף שלב
+  // (M=ממתין להמרה + X ריק) — במקום דגל בלבד (E17) נוצר ממצא הרסני (E22)
+  // שמאפשר מחיקת שורה מלאה, באישור ידני. בכל שאר המקרים (למשל שורות שכבר
+  // הומרו ל-TXT) ממשיך להיווצר E17 הרגיל, ללא שינוי בהתנהגות הקיימת.
   if (fileId) {
     try {
       // תצוגה בלבד — אימות זמינות המקור. אין שימוש באובייקט המוחזר.
       DriveApp.getFileById(fileId);
     } catch (e) {
       var shortId = fileId.length > 10 ? (fileId.substring(0, 6) + "..." + fileId.substring(fileId.length - 4)) : fileId;
-      findings.push({
-        row:   row,
-        code:  "E17",
-        col:   21, // QA_Status (U)
-        desc:  "מקור חסר/לא נגיש — File_ID אינו זמין ב-Drive (" + shortId + ")",
-        fix:   "flag",
-        value: "⚠️ מקור חסר (Drive)"
-      });
+
+      // [v1.8.0] Task 100 — תנאי כפול: אין המרה ל-TXT וגם אין TXT_URL בכלל
+      var isUnrecoverable = (m === "ממתין להמרה ל-TXT") && !txtUrl;
+
+      if (isUnrecoverable) {
+        findings.push({
+          row:   row,
+          code:  "E22",
+          col:   1,
+          desc:  "מקור חסר לצמיתות מ-Drive (" + shortId + ") + אין TXT — אין עותק נתונים באף שלב, אומת ידנית ב-Task 101",
+          fix:   "delete_row",
+          value: ""
+        });
+      } else {
+        findings.push({
+          row:   row,
+          code:  "E17",
+          col:   21, // QA_Status (U)
+          desc:  "מקור חסר/לא נגיש — File_ID אינו זמין ב-Drive (" + shortId + ")",
+          fix:   "flag",
+          value: "⚠️ מקור חסר (Drive)"
+        });
+      }
     }
   }
 
@@ -496,11 +659,13 @@ function _qa_buildSummary(findings) {
   const displayed = findings.slice(0, MAX_DISPLAY);
   displayed.forEach(function(f) {
     const fixLabel =
-      f.fix === "write"    ? "→ תיקון אוטומטי" :
-      f.fix === "clear"    ? "→ ניקוי עמודה"   :
-      f.fix === "clear_st" ? "→ ניקוי S+T"      :
-      f.fix === "flag"     ? "→ דגל U"          :
-      f.fix === "clear_u"  ? "→ ניקוי U"        : "";
+      f.fix === "write"      ? "→ תיקון אוטומטי" :
+      f.fix === "clear"      ? "→ ניקוי עמודה"   :
+      f.fix === "clear_st"   ? "→ ניקוי S+T"      :
+      f.fix === "flag"       ? "→ דגל U"          :
+      f.fix === "clear_u"    ? "→ ניקוי U"        :
+      f.fix === "set_note"   ? "→ עדכון Note"     :
+      f.fix === "delete_row" ? "→ מחיקת שורה"     : "";
     lines.push("שורה " + f.row + " | " + f.code + " | " + f.desc + " " + fixLabel);
   });
 
@@ -534,7 +699,17 @@ function _qa_validateCol(sheet, col, expectedName) {
 // ══════════════════════════════════════════════════════════════════
 
 function _qa_applyFixes(sheet, findings) {
+  // [v1.7.0] Task 94 — מחיקות שורה נאספות בנפרד ומבוצעות רק בסוף
+  const deleteRows = [];
+
   findings.forEach(function(f) {
+
+    // [v1.7.0] Task 94 — E16: לא לכתוב לתא, רק לאסוף למחיקה מאוחרת
+    if (f.fix === "delete_row") {
+      deleteRows.push(f.row);
+      return;
+    }
+
     try {
 
       // בדיקת עמודה לפני כל כתיבה
@@ -550,14 +725,32 @@ function _qa_applyFixes(sheet, findings) {
         case "write":
           sheet.getRange(f.row, f.col).setValue(f.value);
           // [v1.5.0] Task 91 — שמירת File_ID ב-Note של עמודה R לרפרנס יציב
+          // [v1.7.0] Task 98 — תיקון: ה-Note חייב לשקף את ה-File_ID של השורה
+          // שהטקסט הנכתב מפנה אליה בפועל (הצד השני), ולא את ה-File_ID של
+          // השורה הנכתבת עצמה כפי שהיה עד כה.
           if (f.col === 18) {
-            const _srcId = sheet.getRange(f.row, 1).getValue().toString().trim();
-            if (_srcId) { sheet.getRange(f.row, 18).setNote(_srcId); }
+            const _refMatch = (f.value || "").match(/שורה\s+(\d+)/);
+            let _noteId = "";
+            if (_refMatch) {
+              const _refRow = parseInt(_refMatch[1], 10);
+              _noteId = sheet.getRange(_refRow, 1).getValue().toString().trim();
+            } else {
+              _noteId = sheet.getRange(f.row, 1).getValue().toString().trim();
+            }
+            if (_noteId) { sheet.getRange(f.row, 18).setNote(_noteId); }
           }
+          break;
+
+        case "set_note":
+          // [v1.7.0] Task 98 — כתיבת Note בלבד, ללא שינוי ערך התא עצמו
+          sheet.getRange(f.row, f.col).setNote(f.value);
           break;
 
         case "clear":
           sheet.getRange(f.row, f.col).clearContent();
+          // [v1.7.0] Task 98 — ניקוי R חייב לנקות גם את ה-Note, אחרת נשאר
+          // רפרנס יתום שאינו נראה בתא אך עדיין קיים.
+          if (f.col === 18) { sheet.getRange(f.row, 18).setNote(""); }
           break;
 
         case "clear_st":
@@ -578,6 +771,21 @@ function _qa_applyFixes(sheet, findings) {
       Logger.log("[S11 QA] שגיאה בתיקון שורה " + f.row + ": " + e.message);
     }
   });
+
+  // [v1.7.0] Task 94 — מחיקת השורות שנאספו, תמיד אחרונה, ממוינת יורד לפי
+  // מספר שורה — כדי שמחיקה לא תשבש את מספרי השורות של תיקונים אחרים
+  // שכבר בוצעו למעלה באותה אצווה.
+  if (deleteRows.length) {
+    deleteRows.sort(function(a, b) { return b - a; });
+    deleteRows.forEach(function(r) {
+      try {
+        sheet.deleteRow(r);
+        Logger.log("[S11 QA] נמחקה שורה " + r + " (E16 delete_row)");
+      } catch (e) {
+        Logger.log("[S11 QA] שגיאה במחיקת שורה " + r + ": " + e.message);
+      }
+    });
+  }
 
   SpreadsheetApp.flush();
 }
