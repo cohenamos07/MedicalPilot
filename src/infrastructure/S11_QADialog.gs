@@ -1,15 +1,30 @@
 <!--
   MedicalPilot — S11_QADialog.html
-  @version 1.1.0 | @updated 01/07/2026 13:05 | @service S11
+  @version 1.3.0 | @updated 05/07/2026 19:26 | @service S11
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QADialog.html
   @description ממשק HTML לדוח ממצאי QA — טבלת ממצאים עם צ'קבוקסים,
                סינון לפי קוד שגיאה, קיבוץ E11 לפי הפניה, כפתור תקן נבחרים.
   @impacts נקרא מ-S11_QArun.gs דרך HtmlService — מציג ממצאים ומאשר תיקונים.
            שולח תיקונים חזרה ל-S11_QArun.gs דרך google.script.run.
+           [v1.2.0] תומך כעת גם בממצאי מחיקת שורה מלאה (E16) ובממצאי
+           עדכון Note בלבד (E18) — ללא שינוי בזרימת האישור הידני.
   @callers S11_QArun.gs (runQAViewMain)
   @functions initFindings, buildFilterButtons, filterBy, renderTable,
              toggleSelectAll, updateSelectedCount, applySelected
-  @changes [v1.1.0] Task 89 — הוספת ענף clear_u (תווית + class fix-clear) עבור חוק E15
+  @changes [v1.3.0] Task 100 — הוספת badge-E22 (מקור חסר לצמיתות + delete_row).
+           checkbox של E22 אינו מסומן כברירת מחדל (אותה לוגיקה קיימת לפי
+           fix==='delete_row', לא נדרש שינוי קוד — רק CSS חדש לצבע התג).
+           [v1.2.0] Tasks 94+98 (פעימת קוד משולבת עם S11_QArun.gs):
+           (1) הוספת badges צבעוניים לקודים E16, E18, E19, E20, E21
+               (וגם E14/E15/E17 שהיו חסרים עיצוב עד כה — תוקן תוך כדי).
+           (2) הוספת תווית תיקון חדשה "→ עדכון Note" (class fix-note)
+               עבור fix === 'set_note' (Task 98, E18).
+           (3) הוספת תווית תיקון חדשה, בולטת ומזהירה יותר, "🗑 מחיקת שורה"
+               (class fix-delete, אדום כהה) עבור fix === 'delete_row' (Task 94, E16).
+           (4) [שמרנות] שורת E16 (מחיקת שורה) נטענת כברירת מחדל **לא מסומנת**
+               ב-checkbox — בניגוד לכל שאר הכללים שמסומנים כברירת מחדל —
+               מכיוון שמדובר בפעולה הרסנית ובלתי הפיכה על הגליון.
+           [v1.1.0] Task 89 — הוספת ענף clear_u (תווית + class fix-clear) עבור חוק E15
            [v1.0.0] גרסה ראשונה — Dialog HTML במקום ui.alert
 
 -->
@@ -134,11 +149,23 @@
   .badge-E11 { background: #E2D9F3; color: #4A1C8C; }
   .badge-E12 { background: #F8D7DA; color: #721C24; }
   .badge-E13 { background: #F8D7DA; color: #721C24; }
+  /* [v1.2.0] Tasks 94+98 — השלמת badges שהיו חסרים + קודים חדשים */
+  .badge-E14 { background: #FFF3CD; color: #856404; }
+  .badge-E15 { background: #F8D7DA; color: #721C24; }
+  .badge-E16 { background: #F5C2C7; color: #58151C; }
+  .badge-E17 { background: #E2E3E5; color: #41464B; }
+  .badge-E18 { background: #D1ECF1; color: #0C5460; }
+  .badge-E19 { background: #F8D7DA; color: #721C24; }
+  .badge-E20 { background: #F8D7DA; color: #721C24; }
+  .badge-E21 { background: #D1ECF1; color: #0C5460; }
+  .badge-E22 { background: #F5C2C7; color: #58151C; }
 
-  .fix-label { font-size: 11px; color: #666; }
-  .fix-auto  { color: #1a7a3c; font-weight: 600; }
-  .fix-clear { color: #c06000; font-weight: 600; }
-  .fix-flag  { color: #c00000; font-weight: 600; }
+  .fix-label  { font-size: 11px; color: #666; }
+  .fix-auto   { color: #1a7a3c; font-weight: 600; }
+  .fix-clear  { color: #c06000; font-weight: 600; }
+  .fix-flag   { color: #c00000; font-weight: 600; }
+  .fix-note   { color: #0C5460; font-weight: 600; }
+  .fix-delete { color: #8b0000; font-weight: 700; }
 
   .footer {
     position: sticky;
@@ -256,14 +283,21 @@
 
       var fixLabel = '';
       var fixClass = '';
-      if (f.fix === 'write')    { fixLabel = '→ כתיבה אוטומטית'; fixClass = 'fix-auto';  }
-     if (f.fix === 'clear_u')  { fixLabel = '→ ניקוי U';         fixClass = 'fix-clear'; } 
-      if (f.fix === 'clear')    { fixLabel = '→ ניקוי עמודה';    fixClass = 'fix-clear'; }
-      if (f.fix === 'clear_st') { fixLabel = '→ ניקוי S+T';      fixClass = 'fix-clear'; }
-      if (f.fix === 'flag')     { fixLabel = '→ דגל U';           fixClass = 'fix-flag';  }
+      if (f.fix === 'write')      { fixLabel = '→ כתיבה אוטומטית'; fixClass = 'fix-auto';   }
+      if (f.fix === 'clear_u')    { fixLabel = '→ ניקוי U';         fixClass = 'fix-clear';  }
+      if (f.fix === 'clear')      { fixLabel = '→ ניקוי עמודה';    fixClass = 'fix-clear';  }
+      if (f.fix === 'clear_st')   { fixLabel = '→ ניקוי S+T';      fixClass = 'fix-clear';  }
+      if (f.fix === 'flag')       { fixLabel = '→ דגל U';           fixClass = 'fix-flag';   }
+      // [v1.2.0] Task 98 — עדכון Note בלבד (E18)
+      if (f.fix === 'set_note')   { fixLabel = '→ עדכון Note';      fixClass = 'fix-note';   }
+      // [v1.2.0] Task 94 — מחיקת שורה מלאה (E16), תווית מזהירה
+      if (f.fix === 'delete_row') { fixLabel = '🗑 מחיקת שורה';     fixClass = 'fix-delete'; }
+
+      // [v1.2.0] Task 94 — שמרנות: E16 (מחיקה הרסנית) לא מסומן כברירת מחדל
+      var checkedAttr = (f.fix === 'delete_row') ? '' : 'checked';
 
       tr.innerHTML =
-        '<td><input type="checkbox" class="row-cb" data-idx="' + f.origIdx + '" checked></td>' +
+        '<td><input type="checkbox" class="row-cb" data-idx="' + f.origIdx + '" ' + checkedAttr + '></td>' +
         '<td>' + (isE11Sub ? '↳' : f.row) + (isE11Sub ? ' שורה ' + f.row : '') + '</td>' +
         '<td><span class="code-badge badge-' + f.code + '">' + f.code + '</span></td>' +
         '<td>' + f.desc + '</td>' +
