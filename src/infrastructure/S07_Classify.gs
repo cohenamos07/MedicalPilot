@@ -1,6 +1,6 @@
 /**
  * @file        S07_Classify.gs
- * @version     2.6.1 | @updated 01/07/2026 21:25 | @service S07
+ * @version     2.8.0 | @updated 09/07/2026 15:47 | @service S07
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S07_Classify.gs
  * @description סיווג מסמכים רפואיים בעזרת Gemini API.
  *              קורא טקסט מ-TXT_URL (X) או Raw_Text (Z).
@@ -24,7 +24,31 @@
  *              _validateAiResult_S07 | _isFilled_S07 | _countFilledFields_S07
  *              _fetchTextFromUrl_S07 | _getLearningExamples_S07
  *              _calculateDuplicates_S07 | _extractTxtHeader_S07
+ *              _guardAlreadyClassified_S07
  *              S07_ValidateWritePermissions
+ * @changes     [v2.8.0] Task 120 (השלמה) — התיקון ב-v2.7.0 חסם רק את
+ *              הכתיבה ל-R+Note כש-R כבר "מאושר למחיקה", אך _calculateDuplicates_S07
+ *              (עד 500 שורות + קריאות Drive בפועל לכל מועמד — הרצה יקרה)
+ *              עדיין רצה בכל פעם ללא תנאי, וללא הגנה על "כפול מאושר" (רק
+ *              על "מאושר למחיקה"). כעת: בדיקת כניסה מוקדמת (isAlreadySettled)
+ *              — לפני הקריאה ל-_calculateDuplicates_S07 בכלל — בודקת אם R
+ *              של השורה הנוכחית מתחיל ב"כפול מאושר" (כבר טופלה ע"י S07
+ *              בעבר) או "מאושר למחיקה" (החלטת QA סופית מ-S11). אם כן —
+ *              מדלגים לגמרי על החישוב היקר (לא רק על הכתיבה), עם רישום
+ *              ל-Logger. אין כרגע דגל מפורש לבקשת "בדיקה חוזרת" (Task 120
+ *              מציין זאת כתנאי עתידי) — כשיתווסף כזה, יש לשלב אותו כאן.
+ *              בנוסף: הגנת שורת ה"תאום" (v2.7.0) הורחבה לבדוק גם "כפול
+ *              מאושר" ולא רק "מאושר למחיקה", לעקביות עם הבדיקה הראשית.
+ * @changes     [v2.7.0] Tasks 107+120:
+ *              (1) Task 107 — נוספה _guardAlreadyClassified_S07: בודקת אם
+ *                  Doc_Title מלא או Pipeline_Status="עבר סיווג " לפני הרצה בודדת
+ *                  (classifyDocument במסלול תא-בודד + run_S07_ActiveRow).
+ *                  אם כן — דיאלוג אישור (YES_NO) לפני המשך; ביטול = יציאה
+ *                  שקטה עם toast. _processS07Batch לא שונה (כבר מוגן).
+ *              (2) Task 120 — ב-executeS07Classification, לפני כתיבת
+ *                  Duplicate_Flag+Note (גם בשורה הנוכחית וגם בשורת ה"תאום"),
+ *                  נבדק אם R הקיים כבר מתחיל ב-"מאושר למחיקה" (החלטת QA
+ *                  סופית מ-S11) — אם כן, לא נדרס; רק רישום ל-Logger.
  * @changes     [v2.6.1] Task 91 fix — תיקון Note: שורה Y מקבלת File_ID של X,
  *                       שורה X מקבלת File_ID של Y (כיוונים מתוקנים).
  *              [v2.6.0] Task 91 — הוספת setNote(File_ID) לתא R בכתיבת Duplicate_Flag.
@@ -52,6 +76,11 @@ function classifyDocument() {
       SpreadsheetApp.getUi().alert("⚠️ שורה מוגנת (1-" + (firstRow - 1) + ") — לא ניתן לסווג.");
       return;
     }
+    // [v2.7.0] Task 107 — הגנת re-extraction בהרצה בודדת
+    if (!_guardAlreadyClassified_S07(sheet, activeRow)) {
+      SpreadsheetApp.getActiveSpreadsheet().toast("הופסק — השורה כבר מסווגת", "S07", 3);
+      return;
+    }
     executeS07Classification(activeRow);
     return;
   }
@@ -65,7 +94,35 @@ function classifyDocument() {
     SpreadsheetApp.getUi().alert("⚠️ שורה מוגנת (1-" + (firstRow - 1) + ") — לא ניתן לסווג.");
     return;
   }
+  // [v2.7.0] Task 107 — הגנת re-extraction בהרצה בודדת
+  if (!_guardAlreadyClassified_S07(sheet, activeRow)) {
+    SpreadsheetApp.getActiveSpreadsheet().toast("הופסק — השורה כבר מסווגת", "S07", 3);
+    return;
+  }
   executeS07Classification(activeRow);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v2.7.0] Task 107 — הגנה מפני re-extraction בהרצה בודדת
+// אם L (Doc_Title, אינדיקטור סיווג) כבר מלא — מציג דיאלוג אישור לפני
+// הרצה חוזרת, כדי למנוע דריסה בטעות של סיווג קיים (ובעקיפין, גם R+Note
+// אם יימצא כפול מחדש — ראה גם Task 120 ב-executeS07Classification).
+// ══════════════════════════════════════════════════════════════════
+function _guardAlreadyClassified_S07(sheet, row) {
+  const docTitle = sheet.getRange(row, 9).getValue();   // I = Doc_Title
+  const pipeline = sheet.getRange(row, 13).getValue();  // M = Pipeline_Status
+
+  if (!docTitle && pipeline !== "עבר סיווג") return true; // עדיין לא סווג — אפשר להמשיך
+
+  const ui       = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    "⚠️ שורה " + row + " כבר סווגה",
+    "השורה כבר עברה סיווג (Doc_Title/Pipeline_Status מלאים).\n" +
+    "הרצה חוזרת תדרוס I/J/K/L/N/Q, ואם יימצא כפול חדש — גם R+Note.\n\n" +
+    "להריץ בכל זאת?",
+    ui.ButtonSet.YES_NO
+  );
+  return response === ui.Button.YES;
 }
 // ══════════════════════════════════════════════════════════════════
 // עיבוד אצווה
@@ -82,7 +139,7 @@ function _processS07Batch(sheet, batchSize) {
     if (!fileId) continue;
 
     const pipeline = sheet.getRange(i, 13).getValue();
-    if (pipeline === "מחולץ") continue;
+    if (pipeline === "עבר סיווג") continue;
 
     const docTitle = sheet.getRange(i, 9).getValue();
     if (docTitle) continue;
@@ -127,6 +184,11 @@ function _processS07Batch(sheet, batchSize) {
 function run_S07_ActiveRow() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ניהול_מיילים");
   const row   = sheet.getActiveCell().getRow();
+  // [v2.7.0] Task 107 — הגנת re-extraction בהרצה בודדת
+  if (!_guardAlreadyClassified_S07(sheet, row)) {
+    SpreadsheetApp.getActiveSpreadsheet().toast("הופסק — השורה כבר מסווגת", "S07", 3);
+    return;
+  }
   executeS07Classification(row);
 }
 
@@ -190,23 +252,47 @@ function executeS07Classification(row) {
     if (!fullText || fullText.trim() === "")
       throw new Error("NO_TEXT_FOUND: הטקסט שהתקבל ריק");
 
-    // [v2.5.0] כפולים — { sheetRow, score } + סימטריה
-    // [v2.6.1] Task 91 fix — Note מכיל File_ID של שורת המטרה (לא השורה הנוכחית)
-    const fileIdForNote = (data[0] || "").toString().trim(); // File_ID של שורה Y הנוכחית
-    const dupResult = _calculateDuplicates_S07(row, sheet, fullText);
-    if (dupResult) {
-      const dupFlag = "כפול מאושר — שורה " + dupResult.sheetRow + " | ניקוד " + dupResult.score + "/5";
-      _safeWrite(sheet, row, "Duplicate_Flag", dupFlag);
-      // Note של שורה Y = File_ID של שורת המטרה X
-      const dupTargetFileId = (sheet.getRange(dupResult.sheetRow, 1).getValue() || "").toString().trim();
-      if (dupTargetFileId) { sheet.getRange(row, 18).setNote(dupTargetFileId); }
-      try {
-        const mirrorFlag = "כפול מאושר — שורה " + row + " | ניקוד " + dupResult.score + "/5";
-        _safeWrite(sheet, dupResult.sheetRow, "Duplicate_Flag", mirrorFlag);
-        // Note של שורה X = File_ID של שורה Y (fileIdForNote)
-        if (fileIdForNote) { sheet.getRange(dupResult.sheetRow, 18).setNote(fileIdForNote); }
-      } catch (mirrorErr) {
-        Logger.log("[S07] סימטריה — לא הצליח לכתוב לשורה " + dupResult.sheetRow + ": " + mirrorErr.message);
+    // [v2.8.0] Task 120 (השלמה) — בדיקת כניסה *לפני* הקריאה היקרה ל-
+    // _calculateDuplicates_S07 (עד 500 שורות + קריאות Drive). אם R של
+    // השורה הנוכחית כבר במצב סופי — מדלגים על החישוב כולו, לא רק על הכתיבה.
+    const fileIdForNote   = (data[0] || "").toString().trim(); // File_ID של שורה Y הנוכחית
+    const currentRFlagPre = (data[17] || "").toString().trim(); // R = col 18
+    const isAlreadySettled =
+      currentRFlagPre.indexOf("כפול מאושר")   === 0 ||
+      currentRFlagPre.indexOf("מאושר למחיקה") === 0;
+
+    if (isAlreadySettled) {
+      Logger.log("[S07] Task 120 — דילוג מלא על _calculateDuplicates_S07 בשורה " + row +
+                  ": R כבר במצב סופי ('" + currentRFlagPre + "') — אין חישוב מחדש.");
+    } else {
+      const dupResult = _calculateDuplicates_S07(row, sheet, fullText);
+      if (dupResult) {
+        const dupFlag = "כפול מאושר — שורה " + dupResult.sheetRow + " | ניקוד " + dupResult.score + "/5";
+        _safeWrite(sheet, row, "Duplicate_Flag", dupFlag);
+        // Note של שורה Y = File_ID של שורת המטרה X
+        const dupTargetFileId = (sheet.getRange(dupResult.sheetRow, 1).getValue() || "").toString().trim();
+        if (dupTargetFileId) { sheet.getRange(row, 18).setNote(dupTargetFileId); }
+
+        // [v2.8.0] הגנת שורת ה"תאום" — הורחבה לבדוק גם "כפול מאושר" (לא
+        // רק "מאושר למחיקה" כמו ב-v2.7.0), לעקביות עם הבדיקה הראשית למעלה.
+        try {
+          const mirrorRFlag = (sheet.getRange(dupResult.sheetRow, 18).getValue() || "").toString().trim();
+          const isMirrorSettled =
+            mirrorRFlag.indexOf("כפול מאושר")   === 0 ||
+            mirrorRFlag.indexOf("מאושר למחיקה") === 0;
+
+          if (isMirrorSettled) {
+            Logger.log("[S07] Task 120 — דילוג על עדכון R+Note בשורה " + dupResult.sheetRow +
+                        ": R כבר במצב סופי ('" + mirrorRFlag + "') — לא נדרס.");
+          } else {
+            const mirrorFlag = "כפול מאושר — שורה " + row + " | ניקוד " + dupResult.score + "/5";
+            _safeWrite(sheet, dupResult.sheetRow, "Duplicate_Flag", mirrorFlag);
+            // Note של שורה X = File_ID של שורה Y (fileIdForNote)
+            if (fileIdForNote) { sheet.getRange(dupResult.sheetRow, 18).setNote(fileIdForNote); }
+          }
+        } catch (mirrorErr) {
+          Logger.log("[S07] סימטריה — לא הצליח לכתוב לשורה " + dupResult.sheetRow + ": " + mirrorErr.message);
+        }
       }
     }
 
@@ -237,7 +323,7 @@ function executeS07Classification(row) {
 
     const extractionStatus = filled === 4 ? "חולץ מלא" : "חולץ חלקי";
     _safeWrite(sheet, row, "Extraction_Status", extractionStatus);
-    _safeWrite(sheet, row, "Pipeline_Status",   "מחולץ");
+    _safeWrite(sheet, row, "Pipeline_Status",   "עבר סיווג");
 
     updateExtractorUsage(extractor.id);
 
