@@ -1,22 +1,128 @@
 <!--
   MedicalPilot — S08_Sidebar.html
-  @version 1.0.8 | @updated 14/06/2026 22:07 | @service S08
+  @version 1.0.16 | @updated 09/07/2026 20:53 | @service S08
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Sidebar.html
   @description ממשק Dialog לאימות ידני ולמידה — S08.
                מציג מסמך מקורי + טקסט TXT + שדות עריכה לכותרת/מנפיק/תאריך/קטגוריה.
                כפתורים: אישור, עדכון ולמידה, למידה יזומה, מחיקה.
+               [v1.0.15] כשיש חשד כפילות (R מכיל "כפול מאושר") — עמודת
+               שמאל מציגה שני מסמכי מקור (נוכחי+תאום) זה מעל זה, ללא ניווט,
+               עם כפתור טוגל עצמאי מסמך↔TXT לכל אחד. ראה @changes v1.0.15.
+               [v1.0.9] Task 111 — prevRow/nextRow מעבירים כיוון (1/-1) ל-
+               navigateTo, שמעביר אותו הלאה ל-s08_loadRowByNumber ב-
+               S08_Validate.gs — מדלג אוטומטית על שורות "כפול מאושר" בניווט.
+               קפיצה ידנית (jumpToRow) לא מעבירה כיוון ואינה מדלגת.
                תלוי ב: S08_Validate.gs — כל הלוגיקה מתבצעת שם.
   @impacts     נקרא מ-S08_Validate.gs דרך HtmlService.
                כל פעולות הכתיבה לגליון מתבצעות ב-S08_Validate.gs בלבד.
   @callers     S08_Validate.gs (showMainSidebar)
-  @changes     [v1.0.8] תיקון Tasks 12,13 — עדכון @git ל-GitHub API URL + @changes מלא
+  @functions   loadInitial, renderRow, showError, prevRow, nextRow, jumpToRow,
+               navigateTo, loadTxtContent, showTxtContent, loadDuplicateData,
+               renderDupCard, jumpToDupRow, checkLearningDuplicate,
+               renderLearnDupCard, approveRow, updateAndLearn, learnOnly,
+               confirmDelete, deleteRow, closeDialog, setBusy, setButtonsEnabled,
+               buildNormalColHtml, buildCompareColHtml, toggleDocView,
+               renderCompareTxt, cancelDuplicateFlag, closeCancelDupModal,
+               confirmCancelDuplicateFlag
+  @changes     [v1.0.15] Task 125 — עמודת שמאל מפוצלת לשני מצבים לפי קיום
+               חשד כפילות (data.duplicateFlag), נבחר ב-buildBodyHtml:
+               (1) אין חשד — buildNormalColHtml: זהה לגמרי להתנהגות הקיימת
+                   (מסמך מקור + TXT, של השורה הנוכחית בלבד) — ללא שינוי.
+               (2) יש חשד — buildCompareColHtml: שני בלוקים עצמאיים
+                   ("doc-compare-block") זה מעל זה — הראשון של השורה
+                   הנוכחית (iframe נטען מיד ב-renderRow, כמו במצב הרגיל),
+                   השני של שורת התאום (נטען ב-renderDupCard ברגע שמגיע
+                   sourceUrl מ-s08_getDuplicateRowData v1.0.16 — ריק/"טוען"
+                   עד אז). לכל בלוק כפתור toggleDocView('current'/'dup')
+                   עצמאי, מחליף בין iframe למסמך לבין תצוגת TXT (עם lazy-
+                   load + cache ב-compareTxtCache, נטען פעם אחת דרך
+                   s08_fetchTxtContent הקיימת). ה-currentRow לא משתנה בשום
+                   שלב — אין ניווט, בהתאם לדרישה המפורשת.
+               נוסף כפתור "🚫 בטל חשד כפילות" בתוך dupCard (סטטי, disabled
+               עד ש-renderDupCard מאשרת dup.row) — פותח מודל אישור (לא
+               window.confirm, לעקביות עם confirmDelete הקיים) וקורא
+               ל-s08_cancelDuplicateFlag(currentRow, dup.row) (S08_Validate.gs
+               v1.0.16) — מנקה R בשתי השורות סימטרית, ואז טוען מחדש את
+               השורה הנוכחית (navigateTo(currentRow)) כדי לשקף את הניקוי.
+  @changes     [v1.0.16] Task 123 (המשך) — "לא נמצאו נתוני שורה" עדיין
+               הופיע, בעקביות מיד אחרי מחיקה מוצלחת + קפיצה אוטומטית
+               ל-nextRow (900ms אחר כך). קריאה חוזרת אישרה: s08_loadRowByNumber
+               מבנית לא יכולה להחזיר null בשום נתיב — כל branch מחזיר
+               אובייקט. במקביל לתיקון בצד השרת (S08_Validate.gs v1.0.17 —
+               SpreadsheetApp.flush() אחרי מחיקה), נוספה כאן הגנה זהה בצד
+               הלקוח: handleNavResult, אם מקבלת falsy result (מצב שלא אמור
+               לקרות אך נצפה בפועל), מנסה שוב אוטומטית פעם אחת (800ms) את
+               אותה קריאת navigateTo בדיוק (row+skipDirection נשמרים ב-
+               _lastNavRow/_lastNavSkip) — במקום לדדוק-אנד מיד. רק אם גם
+               הניסיון החוזר נכשל, מוצגת שגיאה (עם ציון "נכשל גם בניסיון
+               חוזר" לצורך אבחון עתידי). בנוסף: setTimeout אחרי מחיקה
+               (deleteRow) הוארך מ-900ms ל-1500ms — שולי בטיחות נוסף.
+  @changes     [v1.0.14] Task 123 — אבחון: כפתור "קפוץ לשורה" בכרטיס כפילות
+               הציג "לא נמצאו נתוני שורה" (הודעת renderRow's !result, מגיעה
+               רק מ-loadInitial()→s08_loadRowData()). קריאה בקוד החי אישרה
+               ש-s08_loadRowByNumber (המסלול של navigateTo/jumpToDupRow)
+               תמיד מחזירה אובייקט — לא null — כך שאין הסבר קוד ודאי לתרחיש
+               שדווח; ייתכן תקלה חד-פעמית/רשתית שלא שוחזרה. במקום להמשיך
+               לנחש, נוספה הקשחה דו-כיוונית: (1) לוגי console.log/console.error
+               בכל שלב של jumpToDupRow/navigateTo/handleNavResult/renderRow
+               — אבחון מיידי דרך F12 אם התקלה תחזור. (2) dupJumpBtn מוצג
+               כעת במצב "טוען..." (disabled) עד ש-renderDupCard מאשרת בפועל
+               dup.row תקין — מבטל כל אפשרות תיאורטית ללחיצה לפני שהיעד
+               מוכן, גם אם לא הוכח כסיבה בפועל במקרה הזה.
+  @changes     [v1.0.13] Task 122 — תיקון קריטי: שורת התיעוד של v1.0.12 (למטה)
+               הכילה בטעות את התבנית הליטרלית עצמה (תג-פתיחת-scriptlet + שווה
+               + row + תג-סגירה) בתוך ההערה. מנוע ה-templating של Apps Script
+               (HtmlService.createTemplateFromFile(...).evaluate()) סורק את
+               כל הטקסט הגולמי של הקובץ אחר תבניות scriptlet — כולל בתוך
+               הערות HTML, ללא הבנת הקשר. זה גרם ל-ReferenceError: row is
+               not defined בזמן evaluate() בתוך showMainSidebar(), הנקראת
+               מתוך try/catch שקט ב-runS08ViewIcon (ViewEngine.gs) שרק כותב
+               ל-Logger.log בלי ui.alert — ומכאן "מסך הבקרה" לא נפתח בכלל
+               אחרי לחיצה על "כן" בדיאלוג האישור, ללא הודעת שגיאה גלויה.
+               התיקון: שורת התיעוד ב-v1.0.12 שונתה (למטה) כדי להציג את
+               התבנית באמצעות תיאור מילולי במקום התו הליטרלי — אין עוד שום
+               מופע של "&lt;?" בקובץ. אומת: node -c על ה-JS + grep שלילי.
+  @changes     [v1.0.12] Task 122 המשך — הוסרה התלות ב-scriptlet-tag+שווה+row+scriptlet-close-tag
+               (שהיה קיים בשורה הראשונה של ה-script). scriptlet מסוג זה
+               מתמלא בערך אמיתי רק כש-HtmlService.createTemplateFromFile
+               (...).evaluate() מריץ אותו בפועל (showMainSidebar) — אך כפתור
+               Preview (עין) בעורך Apps Script אינו מריץ את מנוע ה-templating,
+               ומציג את הקובץ הגולמי. זה גרם ל-"Uncaught SyntaxError:
+               Unexpected token '<'" בבדיקת Preview בלבד (לא באג אמיתי,
+               אומת ע"י עמוס בצילום מסך). התיקון: currentRow מאותחל כעת
+               ל-null, והשורה הראשונה נטענת אך ורק דרך google.script.run
+               (s08_loadRowData) ב-loadInitial() — בדיוק כמו כל ניווט אחר.
+               מסיר את התלות ב-scriptlet לחלוטין ומונע את השגיאה גם ב-Preview.
+  @changes     [v1.0.11] Task 122 (תיקון חירום) — הקובץ בעורך נמצא קטוע: נחתך
+               באמצע בלוק ה-<style>, ללא <body> וללא <script> בכלל. זה גרם
+               לחלון האימות להיפתח ריק לגמרי (Task 122 QA report). שוחזרו
+               במלואם: מבנה ה-body (עמודות col-right/col-left), כל ה-script
+               (טעינת שורה, ניווט, טעינת TXT, בדיקת כפילות, שמירת/אישור/
+               מחיקת שורה), וכל ה-CSS החסר (שדות עריכה, כפתורי פעולה, תצוגת
+               TXT, תצוגת מסמך מקור). כלל תוכן v1.0.10 (כותרת/@changes) נשמר
+               במלואו ולא נמחק — רק הושלם. כולל את תוספת מספר המילים
+               (currentWordCount / wordCount) שתועדה ב-v1.0.10 אך מעולם לא
+               הייתה קיימת בפועל בקובץ הקטוע — כעת ממומשת ב-renderDupCard.
+  @changes     [v1.0.10] Task (בקשת עמוס) — הוספת "מספר מילים" לבאדג' הזיהוי
+               (השורה הנוכחית) ולכרטיס חשד הכפילות (שורת התאום) — שדה
+               currentWordCount + wordCount חדשים ב-loadDuplicateData,
+               מוזנים מ-s08_getDuplicateRowData המעודכן (S08_Validate.gs
+               v1.0.15). מטרה: לחזק חשד כפילות ע"י הצגת הקריטריון החמישי
+               מתוך 5 שS07 משתמש בו (הפרש מספר מילים ≤10%).
+  @changes     [v1.0.9] Task 111 — prevRow(): navigateTo(ROW-1, -1).
+                        nextRow(): navigateTo(ROW+1, 1).
+                        navigateTo(row, skipDirection): מקבלת פרמטר שני
+                        ומעבירה אותו כארגומנט נוסף ל-s08_loadRowByNumber
+                        בקריאת google.script.run. jumpToRow() לא השתנה —
+                        ממשיך לקרוא navigateTo(val) בלי ארגומנט שני.
+               [v1.0.8] תיקון Tasks 12,13 — עדכון @git ל-GitHub API URL + @changes מלא
                [v1.0.7] הוספת @impacts וכותרת מלאה לפי סטנדרט
                [v1.0.6-ד] Dialog מוגדל ל-1100×750
                [v1.0.6-ג] ?rm=minimal בpreview URL
                [v1.0.6-ב] עמודה R מוצגת מתחת לזיהוי + כפתור קפיצה
                [v1.0.6-א] TXT מוצג כטקסט בתוך pre — עוקף הרשאת iframe
 -->
--->
+
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
@@ -193,6 +299,46 @@
   }
   .dup-jump-btn.visible { display: inline-flex; align-items: center; }
   .dup-jump-btn:hover { opacity: 0.85; }
+  .dup-jump-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* [v1.0.15] Task 125 — כפתור ביטול חשד כפילות */
+  .dup-cancel-btn {
+    background: #e65100; color: #fff; border: none; border-radius: 4px;
+    padding: 6px 10px; font-size: 11px; font-weight: 700; cursor: pointer;
+    transition: opacity 0.15s; margin-top: 4px; width: 100%;
+  }
+  .dup-cancel-btn:hover { opacity: 0.85; }
+  .dup-cancel-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* [v1.0.15] Task 125 — בלוקי השוואת מסמכים (מצב חשד כפילות) */
+  .doc-compare-block {
+    display: flex; flex-direction: column; gap: 4px;
+    border: 1px solid #e0e0e0; border-radius: 6px; padding: 6px;
+    flex: 1; min-height: 150px;
+  }
+  .doc-compare-header {
+    display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+  }
+  .doc-compare-title { font-size: 11px; font-weight: 700; color: #1a237e; }
+  .doc-toggle-btn {
+    background: #e8eaf6; border: 1px solid #c5cae9; color: #1a237e;
+    border-radius: 4px; padding: 3px 9px; font-size: 10px; font-weight: 700;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .doc-toggle-btn:hover:not(:disabled) { background: #c5cae9; }
+  .doc-toggle-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .doc-preview-frame-compare {
+    flex: 1; min-height: 120px; border: 1px solid #e0e0e0; border-radius: 4px; width: 100%;
+  }
+  .txt-box-compare {
+    flex: 1; min-height: 120px; overflow: auto; background: #fafafa;
+    border: 1px solid #e0e0e0; border-radius: 4px; padding: 6px;
+  }
+  .txt-box-compare pre {
+    white-space: pre-wrap; word-break: break-word;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 11px; line-height: 1.4; color: #333; direction: rtl; text-align: right;
+  }
 
   .dup-details-grid {
     display: none;
@@ -202,6 +348,18 @@
   .dup-details-grid.visible { display: grid; }
   .dup-key  { color: #795548; font-weight: 600; }
   .dup-val  { color: #333; }
+
+  /* [v1.0.10] מספר מילים בכרטיס כפילות — הדגשת ההשוואה */
+  .dup-wordcount-row {
+    display: flex; gap: 10px; align-items: center;
+    font-size: 11px; margin-top: 2px;
+  }
+  .dup-wordcount-badge {
+    background: #fff; border: 1px solid #ffb74d;
+    border-radius: 4px; padding: 2px 7px;
+    color: #e65100; font-weight: 700;
+  }
+  .dup-wordcount-badge.match { border-color: #c62828; color: #c62828; }
 
   /* [v1.0.9] כרטיס כפול מגיליון למידה */
   .learn-dup-card {
@@ -217,742 +375,797 @@
   }
   .learn-dup-card.visible { display: flex; }
   .learn-dup-title { font-size: 11px; font-weight: 700; color: #4a148c; }
-  .learn-dup-grid  { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 11px; }
 
-  /* ════ שדות ════ */
-  .field-group { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
-
-  .field-label-row {
-    display: flex; align-items: center;
-    justify-content: space-between; gap: 4px;
+  .learn-dup-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
   }
+  .learn-dup-text { font-size: 11px; color: #4a148c; flex: 1; }
 
-  .field-label { font-size: 10px; color: #666; font-weight: 600; }
-
-  .paste-btn {
-    background: #e8eaf6;
-    border: 1px solid #9fa8da;
-    color: #1a237e; border-radius: 3px;
-    padding: 0 5px; height: 18px;
-    font-size: 10px; font-weight: 700;
-    cursor: pointer;
-    display: inline-flex; align-items: center; gap: 2px;
-    transition: background 0.12s; flex-shrink: 0;
+  /* ════ שדות עריכה ════ */
+  .field-group {
+    display: flex; flex-direction: column; gap: 3px; flex-shrink: 0;
   }
-  .paste-btn:hover { background: #c5cae9; }
-
-  .field-input, .field-select {
-    padding: 4px 8px;
-    border: 1px solid #c5cae9;
-    border-radius: 4px;
-    font-size: 13px; background: #fff;
-    height: 32px; width: 100%;
-    transition: border-color 0.15s, background 0.15s;
+  .field-label {
+    font-size: 10px; font-weight: 700; color: #555;
   }
-  .field-input:focus, .field-select:focus {
-    outline: none; border-color: #1a237e; background: #f5f8ff;
-  }
-  .field-input.drag-over {
-    border-color: #43a047; background: #f1f8e9; border-style: dashed;
-  }
-  .field-input.flash-ok { border-color: #43a047; }
-
-  /* ════ הערת למידה ════ */
-  .note-input {
-    padding: 4px 8px;
-    border: 1px solid #c5cae9;
-    border-radius: 4px;
-    font-size: 12px; background: #fffde7;
-    height: 30px; width: 100%;
-  }
-
-  /* ════ עמודה שמאלית ════ */
-  .preview-header {
-    display: flex; justify-content: space-between;
-    align-items: center; flex-shrink: 0; gap: 6px;
-  }
-
-  .preview-left-title {
-    display: flex; flex-direction: column; gap: 1px;
-  }
-
-  .preview-mode-label { font-size: 10px; color: #888; font-style: italic; }
-
-  .preview-btn-group { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
-
-  .toggle-btn {
-    border: 1px solid #1a237e; border-radius: 4px;
-    padding: 0 8px; height: 26px;
-    font-size: 11px; font-weight: 700;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-    background: #fff; color: #1a237e;
-  }
-  .toggle-btn.active  { background: #1a237e; color: #fff; }
-  .toggle-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  .open-btn {
-    background: #fff; border: 1px solid #1a237e;
-    color: #1a237e; padding: 0 8px;
-    border-radius: 4px; font-size: 11px;
-    cursor: pointer; display: inline-flex;
-    align-items: center; gap: 4px;
-    height: 26px; flex-shrink: 0; text-decoration: none;
-  }
-
-  /* iframe מקורי */
-  .file-preview {
-    flex: 1; min-height: 0;
-    border: 1px solid #c5cae9;
-    border-radius: 4px; background: #f5f5f5; width: 100%;
-  }
-
-  /* [v1.0.6-א] תצוגת TXT כטקסט */
-  .txt-content-box {
-    flex: 1; min-height: 0;
-    border: 1px solid #c5cae9;
-    border-radius: 4px; background: #fafafa;
-    overflow-y: auto; display: none;
-    padding: 10px 12px;
-  }
-  .txt-content-box.visible { display: block; }
-
-  .txt-content-box pre {
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 12px; color: #333;
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.6;
-    direction: ltr;
-    text-align: left;
-  }
-
-  .txt-loading {
-    display: flex; align-items: center;
-    justify-content: center;
-    height: 100%; color: #888; font-size: 12px; gap: 8px;
-  }
-
-  .preview-fallback {
-    flex: 1; min-height: 0;
+  .field-input, .field-select, .field-textarea {
     border: 1px solid #c5cae9; border-radius: 4px;
-    background: #f5f5f5; display: none;
-    align-items: center; justify-content: center;
-    flex-direction: column; gap: 10px;
-    color: #666; font-size: 12px;
-    text-align: center; padding: 20px;
+    padding: 6px 8px; font-size: 13px;
+    font-family: inherit; color: #222; background: #fff;
+    direction: rtl;
   }
-  .preview-fallback.visible { display: flex; }
-
-  .fallback-open-btn {
-    background: #1a237e; color: #fff;
-    border: none; border-radius: 6px;
-    padding: 10px 20px; font-size: 13px; font-weight: 700;
-    cursor: pointer; text-decoration: none;
-    display: inline-block; min-height: 40px; line-height: 20px;
+  .field-input:focus, .field-select:focus, .field-textarea:focus {
+    outline: none; border-color: #1a237e; background: #f5f6fb;
   }
+  .field-textarea { resize: vertical; min-height: 50px; }
 
-  /* ════ פוטר ════ */
-  .dialog-footer { flex-shrink: 0; background: #f5f5f5; border-top: 1px solid #e0e0e0; }
-
-  .btn-row {
-    display: grid; grid-template-columns: 1fr 1fr 1fr 1fr;
-    gap: 6px; padding: 7px 12px;
+  /* ════ תצוגת TXT ════ */
+  .txt-box {
+    flex: 1; min-height: 120px;
+    border: 1px solid #e0e0e0; border-radius: 6px;
+    background: #fafafa; overflow: auto;
+    padding: 8px;
   }
-
-  .action-btn {
-    padding: 6px 4px; border: none;
-    border-radius: 5px; font-size: 12px; font-weight: 700;
-    cursor: pointer; min-height: 34px; transition: opacity 0.15s;
+  .txt-box pre {
+    white-space: pre-wrap; word-break: break-word;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px; line-height: 1.5; color: #333;
+    direction: rtl; text-align: right;
   }
-  .action-btn:hover    { opacity: 0.85; }
-  .action-btn:active   { transform: scale(0.98); }
-  .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .btn-approve { background: #2e7d32; color: #fff; }
-  .btn-update  { background: #1565c0; color: #fff; }
-  .btn-learn   { background: #6a1b9a; color: #fff; }
-  .btn-delete  { background: #c62828; color: #fff; }
-
-  .status-bar {
-    padding: 5px 12px; font-size: 12px; font-weight: 600;
-    border-top: 1px solid #e0e0e0; min-height: 28px;
-    display: flex; align-items: center; gap: 8px;
-    transition: background 0.3s;
+  .txt-box.loading, .txt-box.error {
+    display: flex; align-items: center; justify-content: center;
+    color: #999; font-size: 12px;
   }
-  .status-bar.idle    { background: #f9f9f9; color: #888; }
-  .status-bar.success { background: #e8f5e9; color: #2e7d32; }
-  .status-bar.error   { background: #ffebee; color: #c62828; }
-  .status-bar.info    { background: #e3f2fd; color: #1565c0; }
+  .txt-box.error { color: #c62828; }
 
-  .spinner {
-    display: none; width: 13px; height: 13px;
-    border: 2px solid rgba(0,0,0,0.15);
-    border-top-color: #1a237e; border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+  /* ════ תצוגת מסמך מקור ════ */
+  .doc-preview-frame {
+    flex: 1; min-height: 200px;
+    border: 1px solid #e0e0e0; border-radius: 6px;
+    width: 100%;
   }
-  .spinner.visible { display: inline-block; }
+  .doc-link {
+    font-size: 11px; color: #1a237e; text-decoration: none;
+    flex-shrink: 0;
+  }
+  .doc-link:hover { text-decoration: underline; }
 
-  @keyframes spin { to { transform: rotate(360deg); } }
+  /* ════ כפתורי פעולה ════ */
+  .action-bar {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    padding-top: 8px; border-top: 1px solid #e0e0e0;
+    flex-shrink: 0;
+  }
+  .btn {
+    flex: 1; min-width: 110px;
+    border: none; border-radius: 5px;
+    padding: 9px 6px; font-size: 12px; font-weight: 700;
+    cursor: pointer; color: #fff; transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-approve { background: #2e7d32; }
+  .btn-update  { background: #1565c0; }
+  .btn-learn   { background: #6a1b9a; }
+  .btn-delete  { background: #c62828; }
+
+  /* ════ מודל מחיקה ════ */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45);
+    align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal-overlay.visible { display: flex; }
+  .modal-box {
+    background: #fff; border-radius: 8px; padding: 18px;
+    width: 320px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .modal-title { font-size: 13px; font-weight: 700; color: #c62828; }
+  .modal-text  { font-size: 12px; color: #444; line-height: 1.5; }
+  .modal-actions { display: flex; gap: 6px; }
+
+  /* ════ הודעות סטטוס ════ */
+  .status-msg {
+    font-size: 12px; padding: 6px 8px; border-radius: 4px;
+    display: none; flex-shrink: 0;
+  }
+  .status-msg.visible { display: block; }
+  .status-msg.ok   { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+  .status-msg.err  { background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+
+  .center-loading {
+    display: flex; align-items: center; justify-content: center;
+    height: 100%; color: #999; font-size: 13px;
+  }
 </style>
 </head>
 <body>
 
-<!-- ════ כותרת ════ -->
-<div class="dialog-header">
-  <span class="header-title">🔍 S08 — אימות ידני</span>
-
-  <div class="header-nav">
-    <button class="nav-btn" id="btnPrev" title="שורה קודמת" onclick="prevRow()">▲</button>
-    <input class="row-jump-input" id="rowJump" type="number" min="2"
-      title="מספר שורה" onkeydown="if(event.key==='Enter') jumpToRow()">
-    <button class="nav-btn" id="btnNext" title="שורה הבאה" onclick="nextRow()">▼</button>
-    <button class="nav-go-btn" onclick="jumpToRow()">עבור</button>
+  <div class="dialog-header">
+    <div class="header-title">🔍 אימות ידני — S08</div>
+    <div class="header-nav">
+      <button class="nav-btn" id="btnNext" onclick="nextRow()" title="הבא">▶</button>
+      <input type="number" class="row-jump-input" id="rowJumpInput" min="2">
+      <button class="nav-go-btn" onclick="jumpToRow()">קפוץ</button>
+      <button class="nav-btn" id="btnPrev" onclick="prevRow()" title="הקודם">◀</button>
+    </div>
+    <div class="header-meta" id="headerMeta"></div>
+    <button class="close-btn" onclick="closeDialog()">✕ סגור</button>
   </div>
 
-  <small class="header-meta" id="headerMeta">טוען...</small>
-  <button class="close-btn" onclick="closeDialog()">✖ סגור</button>
-</div>
-
-<!-- ════ גוף ════ -->
-<div class="dialog-body">
-
-  <!-- עמודה ימנית — נתונים ועריכה -->
-  <div class="col col-right">
-
-    <div class="section-title">זיהוי</div>
-    <div class="meta-row">
-      <div class="meta-badge"><span>ID:</span> <span id="fileId">—</span></div>
-      <div class="meta-badge"><span>גודל:</span> <span id="fileSize">—</span></div>
-      <div class="status-badge" id="pipelineStatus" style="display:none;"></div>
-    </div>
-
-    <!-- [v1.0.6-ב] כרטיס כפול/לוגו מתחת לזיהוי -->
-    <div class="dup-inline-card" id="dupCard">
-      <div class="dup-flag-row">
-        <span class="dup-flag-text" id="dupFlagText">—</span>
-        <button class="dup-jump-btn" id="dupJumpBtn" onclick="goToDupRow()">
-          🔗 קפוץ לשורה <span id="dupRowNum">—</span>
-        </button>
-      </div>
-      <div class="dup-details-grid" id="dupDetailsGrid">
-        <span class="dup-key">גודל:</span>  <span class="dup-val" id="dupSize">—</span>
-        <span class="dup-key">כותרת:</span> <span class="dup-val" id="dupTitle">—</span>
-        <span class="dup-key">מנפיק:</span> <span class="dup-val" id="dupIssuer">—</span>
-      </div>
-    </div>
-
-    <!-- [v1.0.9] כרטיס כפול מגיליון דוגמאות_למידה -->
-    <div class="learn-dup-card" id="learnDupCard">
-      <div class="learn-dup-title">⚠️ כפל חשוד — גיליון דוגמאות_למידה</div>
-      <div class="learn-dup-grid">
-        <span class="dup-key">שורה בגיליון:</span>   <span class="dup-val" id="learnDupRow">—</span>
-        <span class="dup-key">מנפיק זוהה:</span>     <span class="dup-val" id="learnDupIssuer">—</span>
-        <span class="dup-key">קטגוריה זוהתה:</span>  <span class="dup-val" id="learnDupCategory">—</span>
-        <span class="dup-key">סיבת חשד:</span>       <span class="dup-val">מנפיק + קטגוריה זהים לשורה קיימת</span>
-      </div>
-    </div>
-
-    <div class="section-title">נתוני AI — לאימות ועריכה</div>
-
-    <div class="field-group">
-      <div class="field-label-row">
-        <label class="field-label">כותרת המסמך</label>
-        <button class="paste-btn" onclick="pasteToField('docTitle')">📋 הדבק</button>
-      </div>
-      <input class="field-input" id="docTitle" type="text" placeholder="כותרת...">
-    </div>
-
-    <div class="field-group">
-      <div class="field-label-row">
-        <label class="field-label">מנפיק</label>
-        <button class="paste-btn" onclick="pasteToField('docIssuer')">📋 הדבק</button>
-      </div>
-      <input class="field-input" id="docIssuer" type="text" placeholder="מנפיק...">
-    </div>
-
-    <div class="field-group">
-      <div class="field-label-row">
-        <label class="field-label">תאריך</label>
-        <button class="paste-btn" onclick="pasteToField('docDate')">📋 הדבק</button>
-      </div>
-      <input class="field-input" id="docDate" type="text" placeholder="DD/MM/YYYY">
-    </div>
-
-    <div class="field-group">
-      <div class="field-label-row">
-        <label class="field-label">קטגוריה</label>
-      </div>
-      <select class="field-select" id="docCategory">
-        <option value="רפואי">רפואי</option>
-        <option value="חשבונאי">חשבונאי</option>
-        <option value="משפטי">משפטי</option>
-        <option value="ביטוחי">ביטוחי</option>
-        <option value="אחר">אחר</option>
-      </select>
-    </div>
-
-    <div class="section-title">הערת למידה (Notes)</div>
-    <input class="note-input" id="noteInput" type="text" placeholder="סיבת התיקון — אופציונלי">
-
+  <div class="dialog-body" id="dialogBody">
+    <div class="center-loading" id="initialLoading">⏳ טוען נתוני שורה...</div>
   </div>
 
-  <!-- עמודה שמאלית — תצוגת קובץ -->
-  <div class="col-left">
+  <!-- ════ מודל אישור מחיקה ════ -->
+  <div class="modal-overlay" id="deleteModal">
+    <div class="modal-box">
+      <div class="modal-title">⚠️ אישור מחיקה</div>
+      <div class="modal-text" id="deleteModalText">האם למחוק את השורה הנוכחית?</div>
+      <div class="modal-actions" id="deleteModalActions"></div>
+    </div>
+  </div>
 
-    <div class="preview-header">
-      <div class="preview-left-title">
-        <div class="section-title" style="border:none; padding:0;">📄 תצוגת קובץ</div>
-        <span class="preview-mode-label" id="previewModeLabel">מקורי</span>
-      </div>
-      <div class="preview-btn-group">
-        <!-- [v1.0.5] טוגל מקורי/TXT -->
-        <button class="toggle-btn active" id="btnViewSource" onclick="switchView('source')">📄 מקורי</button>
-        <button class="toggle-btn" id="btnViewTxt" onclick="switchView('txt')" disabled>📝 טקסט</button>
-        <a class="open-btn" id="openSourceBtn" href="#" target="_blank" title="פתח בלשונית חדשה">↗</a>
+  <!-- ════ [v1.0.15] Task 125 — מודל אישור ביטול חשד כפילות ════ -->
+  <div class="modal-overlay" id="cancelDupModal">
+    <div class="modal-box">
+      <div class="modal-title">⚠️ ביטול חשד כפילות</div>
+      <div class="modal-text" id="cancelDupModalText"></div>
+      <div class="modal-actions">
+        <button class="btn" style="background:#e65100" onclick="confirmCancelDuplicateFlag()">כן, בטל חשד</button>
+        <button class="btn" style="background:#999" onclick="closeCancelDupModal()">ביטול</button>
       </div>
     </div>
-
-    <!-- iframe — מסמך מקורי -->
-    <iframe class="file-preview" id="filePreviewFrame"
-      src="about:blank" frameborder="0" allowfullscreen></iframe>
-
-    <!-- [v1.0.6-א] תצוגת TXT כטקסט -->
-    <div class="txt-content-box" id="txtContentBox">
-      <div class="txt-loading" id="txtLoading">
-        <span>⏳ טוען תוכן טקסט...</span>
-      </div>
-      <pre id="txtContentPre" style="display:none;"></pre>
-    </div>
-
-    <!-- Fallback -->
-    <div class="preview-fallback" id="previewFallback">
-      <span>⚠️ לא ניתן להציג את הקובץ ישירות</span>
-      <span style="font-size:11px; color:#999">(הדפדפן חסם את התצוגה המוטמעת)</span>
-      <a class="fallback-open-btn" id="fallbackOpenBtn" href="#" target="_blank">
-        📄 פתח בלשונית חדשה
-      </a>
-    </div>
-
   </div>
-</div>
-
-<!-- ════ פוטר ════ -->
-<div class="dialog-footer">
-  <div class="btn-row">
-    <button class="action-btn btn-approve" onclick="doApprove()">✅ אישור</button>
-    <button class="action-btn btn-update"  onclick="doUpdate()">✏️ עדכון ולמידה</button>
-    <button class="action-btn btn-learn"   onclick="doLearn()">🧠 למידה יזומה</button>
-    <button class="action-btn btn-delete"  onclick="doDelete()">🗑️ מחיקה</button>
-  </div>
-  <div class="status-bar idle" id="statusBar">
-    <span class="spinner" id="spinner"></span>
-    <span id="statusText">טוען נתונים...</span>
-  </div>
-</div>
 
 <script>
-  var ROW        = 0;
-  var MAX_ROW    = 9999;
-  var DUPROW     = 0;
-  var SOURCE_URL = '';
-  var TXT_URL    = '';
-  var VIEW_MODE  = 'source';
-  var TXT_LOADED = false;
+  var currentRow  = null;
+  var currentData = null;
+  var lastRow     = null;
+  var dupData          = null;
+  var compareTxtCache  = {};
+  var _lastNavRow  = null; // [v1.0.16] Task 123 — retry
+  var _lastNavSkip = undefined;
+  var _navRetried  = false;
 
-  // ════ טעינה ראשונית ════
-  window.onload = function() {
-    initDragDrop();
+  window.addEventListener('DOMContentLoaded', function () {
+    loadInitial();
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // טעינת נתוני שורה
+  // ══════════════════════════════════════════════════════════════
+
+  function loadInitial() {
     google.script.run
-      .withSuccessHandler(initUI)
-      .withFailureHandler(function(e) {
-        setStatus('error', 'שגיאת טעינה: ' + e.message);
-      })
+      .withSuccessHandler(renderRow)
+      .withFailureHandler(showError)
       .s08_loadRowData();
-  };
+  }
 
-  // ════ אתחול ממשק ════
-  function initUI(payload) {
-    if (!payload) { setStatus('error', 'לא ניתן לטעון נתוני שורה'); return; }
-
-    var d   = payload.data;
-    ROW     = payload.row;
-    TXT_URL = d.txtUrl || '';
-    TXT_LOADED = false;
-
-    if (payload.lastRow) MAX_ROW = payload.lastRow;
-
-    document.getElementById('rowJump').value    = ROW;
-    document.getElementById('btnPrev').disabled = (ROW <= 2);
-    document.getElementById('btnNext').disabled = (ROW >= MAX_ROW);
-    document.getElementById('headerMeta').textContent = 'שורה ' + ROW + ' / ' + MAX_ROW;
-
-    document.getElementById('fileId').textContent   = d.fileId   || '';
-    document.getElementById('fileSize').textContent = d.fileSize || '';
-
-    // סטטוס Pipeline
-    var psBadge = document.getElementById('pipelineStatus');
-    if (d.pipelineStatus) {
-      psBadge.textContent    = d.pipelineStatus;
-      psBadge.style.display  = '';
-    } else {
-      psBadge.style.display  = 'none';
+  function renderRow(result) {
+    if (!result) {
+      console.error('[S08] renderRow קיבל result=null/undefined — מקור אפשרי: s08_loadRowData() (טעינה ראשונית, property ריק) — לא אמור לקרות אחרי ניווט/קפיצה תקין.');
+      showError('לא נמצאו נתוני שורה — נסה לפתוח מחדש מהגליון.');
+      return;
     }
 
-    // [v1.0.6-ב] כרטיס כפול
-    DUPROW = 0;
-    document.getElementById('dupCard').classList.remove('visible');
-    document.getElementById('dupJumpBtn').classList.remove('visible');
-    document.getElementById('dupDetailsGrid').classList.remove('visible');
-    // [v1.0.9] איפוס כרטיס כפול למידה
-    document.getElementById('learnDupCard').classList.remove('visible');
-    if (d.duplicateFlag) { loadDuplicateData(d.duplicateFlag); }
+    currentRow  = result.row;
+    currentData = result.data;
+    lastRow     = result.lastRow;
 
-    document.getElementById('docTitle').value  = d.docTitle  || '';
-    document.getElementById('docIssuer').value = d.docIssuer || '';
-    document.getElementById('docDate').value   = d.docDate   || '';
-    document.getElementById('noteInput').value = '';
-    setSelectValue('docCategory', d.docCategory);
+    document.getElementById('rowJumpInput').value = currentRow;
+    document.getElementById('headerMeta').textContent = 'שורה ' + currentRow + ' מתוך ' + lastRow;
+    document.getElementById('btnPrev').disabled = (currentRow <= 2);
+    document.getElementById('btnNext').disabled = (currentRow >= lastRow);
 
-    // טוגל TXT
-    document.getElementById('btnViewTxt').disabled = !TXT_URL;
+    var body = document.getElementById('dialogBody');
+    body.innerHTML = buildBodyHtml(currentData);
 
-    SOURCE_URL = d.sourceUrl || '';
-    VIEW_MODE  = 'source';
-    showSourceView();
+    // מילוי שדות עריכה
+    document.getElementById('fTitle').value    = currentData.docTitle    || '';
+    document.getElementById('fIssuer').value   = currentData.docIssuer   || '';
+    document.getElementById('fDate').value     = currentData.docDate     || '';
+    document.getElementById('fCategory').value = currentData.docCategory || '';
 
-    if (payload.noTxt) {
-      setStatus('info', 'שורה ' + ROW + ' — אין TXT_URL');
+    dupData = null; // [v1.0.15] Task 125 — מאופס בכל renderRow, מתמלא מחדש ב-renderDupCard אם רלוונטי
+
+    if (currentData.duplicateFlag) {
+      // [v1.0.15] Task 125 — מצב השוואה: בלוק המסמך הנוכחי נטען מיד;
+      // בלוק שורת התאום נטען ב-renderDupCard כשהנתונים מגיעים.
+      var frameCur = document.getElementById('docFrameCurrent');
+      if (frameCur && currentData.sourceUrl) {
+        frameCur.src = currentData.sourceUrl.replace('/view', '/preview') + '?rm=minimal';
+      }
+      loadDuplicateData(currentData.duplicateFlag, currentRow);
     } else {
-      setStatus('idle', 'שורה ' + ROW + ' — מוכן לאימות');
+      // מצב רגיל — ללא שינוי מהתנהגות קודמת
+      var frame = document.getElementById('docPreviewFrame');
+      if (frame && currentData.sourceUrl) {
+        frame.src = currentData.sourceUrl.replace('/view', '/preview') + '?rm=minimal';
+      }
+      var link = document.getElementById('docLink');
+      if (link) link.href = currentData.sourceUrl || '#';
+
+      if (result.noTxt) {
+        showTxtContent({ success: false, msg: 'אין קובץ TXT לשורה זו.' });
+      } else {
+        loadTxtContent(currentData.txtUrl);
+      }
     }
 
-    disableBtns(false);
+    hideStatus();
   }
 
-  // ════ [v1.0.6-א+ג] החלפת תצוגה מקורי/TXT ════
-  function switchView(mode) {
-    if (mode === 'txt' && !TXT_URL) return;
-    if (mode === 'source' && !SOURCE_URL) return;
-    VIEW_MODE = mode;
-
-    if (mode === 'source') {
-      showSourceView();
-    } else {
-      showTxtView();
-    }
-
-    document.getElementById('btnViewSource').classList.toggle('active', mode === 'source');
-    document.getElementById('btnViewTxt').classList.toggle('active',    mode === 'txt');
-    document.getElementById('previewModeLabel').textContent =
-      (mode === 'txt') ? 'טקסט (TXT)' : 'מקורי';
+  function showError(err) {
+    var msg = (err && err.message) ? err.message : (err.msg || err || 'שגיאה לא ידועה');
+    var body = document.getElementById('dialogBody');
+    body.innerHTML = '<div class="center-loading" style="color:#c62828;">❌ ' + escapeHtml(msg) + '</div>';
   }
 
-  function showSourceView() {
-    var frame    = document.getElementById('filePreviewFrame');
-    var txtBox   = document.getElementById('txtContentBox');
-    var fallback = document.getElementById('previewFallback');
+  // ══════════════════════════════════════════════════════════════
+  // בניית ה-HTML של הגוף (שתי עמודות)
+  // ══════════════════════════════════════════════════════════════
 
-    txtBox.classList.remove('visible');
-    fallback.classList.remove('visible');
-    frame.style.display = '';
+  function buildBodyHtml(data) {
+    return '' +
+      '<div class="col col-right">' +
+        '<div class="section-title">זיהוי</div>' +
+        '<div class="meta-row">' +
+          '<div class="meta-badge">שורה <span>' + currentRow + '</span></div>' +
+          '<div class="meta-badge">גודל <span>' + escapeHtml(String(data.fileSize || '—')) + '</span></div>' +
+          '<div class="meta-badge">מורכבות <span>' + escapeHtml(String(data.complexity || '—')) + '</span></div>' +
+          '<div class="status-badge" title="' + escapeHtml(String(data.pipelineStatus || '')) + '">' +
+            escapeHtml(String(data.pipelineStatus || '—')) +
+          '</div>' +
+        '</div>' +
 
-    if (SOURCE_URL) {
-      // [v1.0.6-ג] ?rm=minimal להקטנת סרגל Google Drive
-      frame.src = buildPreviewUrl(SOURCE_URL);
-      document.getElementById('openSourceBtn').href   = SOURCE_URL;
-      document.getElementById('fallbackOpenBtn').href = SOURCE_URL;
-      setTimeout(checkIframeLoaded, 4000);
-    } else {
-      frame.style.display = 'none';
-      fallback.classList.add('visible');
-    }
+        '<div class="dup-inline-card" id="dupCard">' +
+          '<div class="dup-flag-row">' +
+            '<div class="dup-flag-text" id="dupFlagText"></div>' +
+            '<button class="dup-jump-btn" id="dupJumpBtn" onclick="jumpToDupRow()">קפוץ לשורה ⇦</button>' +
+          '</div>' +
+          '<div class="dup-details-grid" id="dupDetailsGrid"></div>' +
+          '<button class="dup-cancel-btn" id="dupCancelBtn" onclick="cancelDuplicateFlag()" disabled>🚫 בטל חשד כפילות (לא אותו מסמך)</button>' +
+        '</div>' +
+
+        '<div class="learn-dup-card" id="learnDupCard">' +
+          '<div class="learn-dup-title">⚠️ קיים כבר בגיליון הלמידה</div>' +
+          '<div class="learn-dup-row">' +
+            '<div class="learn-dup-text" id="learnDupText"></div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="field-group">' +
+          '<div class="field-label">כותרת מסמך</div>' +
+          '<input type="text" class="field-input" id="fTitle">' +
+        '</div>' +
+        '<div class="field-group">' +
+          '<div class="field-label">מנפיק</div>' +
+          '<input type="text" class="field-input" id="fIssuer" onblur="checkLearningDuplicate()">' +
+        '</div>' +
+        '<div class="field-group">' +
+          '<div class="field-label">תאריך מסמך</div>' +
+          '<input type="text" class="field-input" id="fDate" placeholder="DD/MM/YYYY">' +
+        '</div>' +
+        '<div class="field-group">' +
+          '<div class="field-label">קטגוריה</div>' +
+          '<select class="field-select" id="fCategory" onchange="checkLearningDuplicate()">' +
+            '<option value="רפואי">רפואי</option>' +
+            '<option value="חשבונאי">חשבונאי</option>' +
+            '<option value="משפטי">משפטי</option>' +
+            '<option value="ביטוחי">ביטוחי</option>' +
+            '<option value="אחר">אחר</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="field-group">' +
+          '<div class="field-label">הערה ללמידה (אופציונלי)</div>' +
+          '<textarea class="field-textarea" id="fNote"></textarea>' +
+        '</div>' +
+
+        '<div class="status-msg" id="statusMsg"></div>' +
+
+        '<div class="action-bar">' +
+          '<button class="btn btn-approve" onclick="approveRow()">✅ אישור</button>' +
+          '<button class="btn btn-update" onclick="updateAndLearn()">💾 עדכון + למידה</button>' +
+          '<button class="btn btn-learn" onclick="learnOnly()">🧠 למידה יזומה</button>' +
+          '<button class="btn btn-delete" onclick="confirmDelete()">🗑️ מחיקה</button>' +
+        '</div>' +
+      '</div>' +
+
+      (data.duplicateFlag ? buildCompareColHtml() : buildNormalColHtml());
   }
 
-  function showTxtView() {
-    var frame  = document.getElementById('filePreviewFrame');
-    var txtBox = document.getElementById('txtContentBox');
+  // [v1.0.15] Task 125 — מצב רגיל (אין חשד כפילות) — זהה במדויק להתנהגות
+  // הקודמת, הועברה לפונקציה נפרדת בלבד.
+  function buildNormalColHtml() {
+    return '' +
+      '<div class="col col-left">' +
+        '<div class="section-title">מסמך מקור</div>' +
+        '<a class="doc-link" id="docLink" href="#" target="_blank">פתח בכרטיסייה חדשה ↗</a>' +
+        '<iframe class="doc-preview-frame" id="docPreviewFrame"></iframe>' +
 
-    frame.style.display = 'none';
-    document.getElementById('previewFallback').classList.remove('visible');
-    txtBox.classList.add('visible');
-
-    document.getElementById('openSourceBtn').href = TXT_URL || '#';
-
-    if (TXT_LOADED) return;
-
-    // הצגת מחוון טעינה
-    document.getElementById('txtLoading').style.display = 'flex';
-    document.getElementById('txtContentPre').style.display = 'none';
-
-    // שליפת תוכן דרך GAS
-    google.script.run
-      .withSuccessHandler(function(res) {
-        document.getElementById('txtLoading').style.display = 'none';
-        var pre = document.getElementById('txtContentPre');
-        if (res && res.success) {
-          pre.textContent    = res.content;
-          pre.style.display  = '';
-          TXT_LOADED = true;
-        } else {
-          pre.textContent    = '⚠️ לא ניתן לטעון את הטקסט: ' + (res ? res.msg : 'שגיאה לא ידועה');
-          pre.style.display  = '';
-          pre.style.color    = '#c62828';
-        }
-      })
-      .withFailureHandler(function(e) {
-        document.getElementById('txtLoading').style.display = 'none';
-        var pre = document.getElementById('txtContentPre');
-        pre.textContent   = '❌ שגיאה: ' + (e.message || e);
-        pre.style.display = '';
-        pre.style.color   = '#c62828';
-      })
-      .s08_fetchTxtContent(TXT_URL);
+        '<div class="section-title">תוכן TXT</div>' +
+        '<div class="txt-box loading" id="txtBox">⏳ טוען...</div>' +
+      '</div>';
   }
 
-  // ════ [v1.0.6-ב] כרטיס כפול ════
-  function loadDuplicateData(flag) {
-    if (!flag) return;
+  // [v1.0.15] Task 125 — מצב השוואה (יש חשד כפילות) — שני מסמכי מקור זה
+  // מעל זה, ללא ניווט. הבלוק השני ("dup") נשאר ריק/"טוען" עד ש-renderDupCard
+  // ממלא אותו עם sourceUrl של שורת התאום (מגיע אסינכרונית מהשרת).
+  function buildCompareColHtml() {
+    return '' +
+      '<div class="col col-left">' +
+        '<div class="section-title">השוואת מסמכים — חשד כפילות</div>' +
 
-    var card = document.getElementById('dupCard');
-    document.getElementById('dupFlagText').textContent = '⚠️ ' + flag;
-    card.classList.add('visible');
+        '<div class="doc-compare-block">' +
+          '<div class="doc-compare-header">' +
+            '<span class="doc-compare-title">שורה ' + currentRow + ' (נוכחית)</span>' +
+            '<button class="doc-toggle-btn" id="toggleBtnCurrent" onclick="toggleDocView(\'current\')">הצג TXT</button>' +
+          '</div>' +
+          '<iframe class="doc-preview-frame-compare" id="docFrameCurrent"></iframe>' +
+          '<div class="txt-box-compare" id="txtBoxCurrent" style="display:none;"></div>' +
+        '</div>' +
 
-    google.script.run
-      .withSuccessHandler(function(dupData) {
-        if (!dupData) {
-          // לוגו/ריק — ללא ניווט
-          document.getElementById('dupJumpBtn').classList.remove('visible');
-          document.getElementById('dupDetailsGrid').classList.remove('visible');
-          return;
-        }
-        // כפול עם שורה — מציג ניווט ופרטים
-        DUPROW = dupData.row;
-        document.getElementById('dupRowNum').textContent      = dupData.row;
-        document.getElementById('dupJumpBtn').classList.add('visible');
-        document.getElementById('dupDetailsGrid').classList.add('visible');
-        document.getElementById('dupSize').textContent   = dupData.fileSize || '—';
-        document.getElementById('dupTitle').textContent  = dupData.title    || '—';
-        document.getElementById('dupIssuer').textContent = dupData.issuer   || '—';
-      })
-      .s08_getDuplicateRowData(flag);
+        '<div class="doc-compare-block">' +
+          '<div class="doc-compare-header">' +
+            '<span class="doc-compare-title" id="docBlockDupTitle">שורת תאום — טוען...</span>' +
+            '<button class="doc-toggle-btn" id="toggleBtnDup" onclick="toggleDocView(\'dup\')" disabled>הצג TXT</button>' +
+          '</div>' +
+          '<iframe class="doc-preview-frame-compare" id="docFrameDup"></iframe>' +
+          '<div class="txt-box-compare" id="txtBoxDup" style="display:none;"></div>' +
+        '</div>' +
+      '</div>';
   }
 
-  // ════ [v1.0.5] הדבקה מהלוח ════
-  function pasteToField(fieldId) {
-    var el = document.getElementById(fieldId);
-    if (!el) return;
-    if (navigator.clipboard && navigator.clipboard.readText) {
-      navigator.clipboard.readText()
-        .then(function(text) {
-          if (text) { el.value = text.trim(); el.focus(); flashField(el); }
-        })
-        .catch(function() { el.focus(); el.select(); setStatus('info', 'לחץ Ctrl+V להדבקה ידנית'); });
-    } else {
-      el.focus(); el.select(); setStatus('info', 'לחץ Ctrl+V להדבקה ידנית');
-    }
-  }
+  // ══════════════════════════════════════════════════════════════
+  // ניווט
+  // ══════════════════════════════════════════════════════════════
 
-  function flashField(el) {
-    el.classList.add('flash-ok');
-    setTimeout(function() { el.classList.remove('flash-ok'); }, 900);
-  }
-
-  // ════ [v1.0.5] Drag & Drop ════
-  function initDragDrop() {
-    ['docTitle', 'docIssuer', 'docDate'].forEach(function(id) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      el.addEventListener('dragover', function(e) {
-        e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
-        el.classList.add('drag-over');
-      });
-      el.addEventListener('dragleave', function() { el.classList.remove('drag-over'); });
-      el.addEventListener('drop', function(e) {
-        e.preventDefault(); el.classList.remove('drag-over');
-        var text = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
-        if (text) { el.value = text.trim(); el.focus(); flashField(el); }
-      });
-    });
-  }
-
-  // ════ ניווט בין שורות ════
-  function goToDupRow() { if (DUPROW >= 2) navigateTo(DUPROW); }
-  function prevRow()    { if (ROW > 2)       navigateTo(ROW - 1); }
-  function nextRow()    { if (ROW < MAX_ROW) navigateTo(ROW + 1); }
+  function prevRow() { navigateTo(currentRow - 1, -1); }
+  function nextRow() { navigateTo(currentRow + 1, 1); }
 
   function jumpToRow() {
-    var val = parseInt(document.getElementById('rowJump').value, 10);
-    if (isNaN(val) || val < 2) { setStatus('error', 'מספר שורה לא תקין (מינימום 2)'); return; }
+    var val = parseInt(document.getElementById('rowJumpInput').value, 10);
+    if (!val || val < 2) return;
     navigateTo(val);
   }
 
-  function navigateTo(row) {
-    setStatus('info', 'טוען שורה ' + row + '...');
-    disableBtns(true);
-    google.script.run
-      .withSuccessHandler(function(payload) {
-        disableBtns(false);
-        if (!payload || payload.error) {
-          setStatus('error', (payload && payload.msg) || 'שגיאה בטעינת שורה');
-          return;
-        }
-        initUI(payload);
-      })
-      .withFailureHandler(function(e) {
-        disableBtns(false);
-        setStatus('error', 'שגיאה: ' + (e.message || e));
-      })
-      .s08_loadRowByNumber(row);
-  }
+  function navigateTo(row, skipDirection) {
+    _lastNavRow  = row;          // [v1.0.16] Task 123 — נשמר לצורך retry
+    _lastNavSkip = skipDirection;
 
-  // ════ כפתורי פעולה ════
-  function closeDialog() { google.script.host.close(); }
+    document.getElementById('dialogBody').innerHTML =
+      '<div class="center-loading">⏳ טוען שורה ' + row + '...</div>';
 
-  function doApprove() {
-    setStatus('info', 'מבצע אישור...');
-    disableBtns(true);
-    google.script.run
-      .withSuccessHandler(handleResult)
-      .withFailureHandler(handleError)
-      .s08_approve(ROW);
-  }
-
-  // [v1.0.9] כרטיס כפול מגיליון למידה
-  function showLearnDup(res) {
-    disableBtns(false);
-    document.getElementById('learnDupRow').textContent      = res.dupRow          || '—';
-    document.getElementById('learnDupIssuer').textContent   = res.matchedIssuer   || '—';
-    document.getElementById('learnDupCategory').textContent = res.matchedCategory || '—';
-    document.getElementById('learnDupCard').classList.add('visible');
-    setStatus('info', res.msg);
-  }
-
-  function doUpdate() {
-    setStatus('info', 'שומר ושולח ללמידה...');
-    disableBtns(true);
-    google.script.run
-      .withSuccessHandler(function(res) {
-        disableBtns(false);
-        if (res && res.isDuplicate) { showLearnDup(res); }
-        else { handleResult(res); }
-      })
-      .withFailureHandler(handleError)
-      .s08_updateAndLearn(ROW,
-        document.getElementById('docTitle').value,
-        document.getElementById('docIssuer').value,
-        document.getElementById('docDate').value,
-        document.getElementById('docCategory').value,
-        document.getElementById('noteInput').value);
-  }
-
-  function doLearn() {
-    setStatus('info', 'יוצר דוגמת למידה...');
-    disableBtns(true);
-    google.script.run
-      .withSuccessHandler(function(res) {
-        disableBtns(false);
-        if (res && res.isDuplicate) { showLearnDup(res); }
-        else { handleResult(res); }
-      })
-      .withFailureHandler(handleError)
-      .s08_learnOnly(ROW,
-        document.getElementById('docTitle').value,
-        document.getElementById('docIssuer').value,
-        document.getElementById('docDate').value,
-        document.getElementById('docCategory').value,
-        document.getElementById('noteInput').value);
-  }
-
-  function doDelete() {
-    var msg = 'האם למחוק את השורה הנוכחית (שורה ' + ROW + ') ואת קבציה מ-Drive?\n\nפעולה זו בלתי הפיכה.';
-    if (DUPROW) {
-      msg += '\n\nזוהה כפול בשורה ' + DUPROW + '.';
-      if (!window.confirm(msg)) return;
-      var which = window.confirm('OK = מחק נוכחית (שורה ' + ROW + ')\nביטול = מחק מקורית (שורה ' + DUPROW + ')');
-      runDelete(which ? 'current' : 'original');
+    if (typeof skipDirection === 'number') {
+      google.script.run
+        .withSuccessHandler(handleNavResult)
+        .withFailureHandler(showError)
+        .s08_loadRowByNumber(row, skipDirection);
     } else {
-      if (!window.confirm(msg)) return;
-      runDelete('current');
+      google.script.run
+        .withSuccessHandler(handleNavResult)
+        .withFailureHandler(showError)
+        .s08_loadRowByNumber(row);
     }
   }
 
-  function runDelete(which) {
-    setStatus('info', 'מוחק...');
-    disableBtns(true);
+  function handleNavResult(result) {
+    console.log('[S08] handleNavResult התקבל:', result);
+    if (result && result.error) { showError(result.msg); return; }
+
+    if (!result) {
+      // [v1.0.16] Task 123 — s08_loadRowByNumber מוכחת (בקריאת קוד) שלא
+      // אמורה להחזיר falsy בשום נתיב. אם זה בכל זאת קורה — ניסיון חוזר
+      // אוטומטי יחיד לפני שמציגים שגיאה, במקום דד-אנד מיידי.
+      console.error('[S08] handleNavResult קיבל falsy result עבור row=' + _lastNavRow + ' skip=' + _lastNavSkip + (_navRetried ? ' — כשל גם בניסיון החוזר' : ' — מנסה שוב אוטומטית...'));
+      if (!_navRetried) {
+        _navRetried = true;
+        setTimeout(function () { navigateTo(_lastNavRow, _lastNavSkip); }, 800);
+        return;
+      }
+      _navRetried = false;
+      showError('לא נמצאו נתוני שורה — נכשל גם בניסיון חוזר. נסה לפתוח מחדש מהגליון.');
+      return;
+    }
+
+    _navRetried = false;
+    renderRow(result);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // תוכן TXT
+  // ══════════════════════════════════════════════════════════════
+
+  function loadTxtContent(txtUrl) {
+    var box = document.getElementById('txtBox');
+    if (!box) return;
+    box.className = 'txt-box loading';
+    box.textContent = '⏳ טוען...';
     google.script.run
-      .withSuccessHandler(function(res) {
-        if (res && res.success) {
-          setStatus('success', res.msg);
-          setTimeout(function() { google.script.host.close(); }, 1500);
-        } else { handleResult(res); }
+      .withSuccessHandler(showTxtContent)
+      .withFailureHandler(function (err) {
+        showTxtContent({ success: false, msg: (err && err.message) || 'שגיאה בטעינת TXT' });
       })
-      .withFailureHandler(handleError)
-      .s08_delete(ROW, which);
+      .s08_fetchTxtContent(txtUrl);
   }
 
-  function handleResult(res) {
-    if (!res) return;
-    disableBtns(false);
-    if (res.success) { setStatus('success', res.msg); }
-    else             { setStatus('error',   res.msg); }
+  function showTxtContent(result) {
+    var box = document.getElementById('txtBox');
+    if (!box) return;
+    if (!result || !result.success) {
+      box.className = 'txt-box error';
+      box.textContent = '❌ ' + ((result && result.msg) || 'שגיאה בטעינת התוכן');
+      return;
+    }
+    box.className = 'txt-box';
+    var pre = document.createElement('pre');
+    pre.textContent = result.content;
+    box.innerHTML = '';
+    box.appendChild(pre);
   }
 
-  function handleError(e) {
-    setStatus('error', 'שגיאה: ' + (e.message || e));
-    disableBtns(false);
+  // ══════════════════════════════════════════════════════════════
+  // כרטיס חשד כפילות — כולל מספר מילים [v1.0.10/v1.0.15]
+  // ══════════════════════════════════════════════════════════════
+
+  function loadDuplicateData(duplicateFlag, row) {
+    var card = document.getElementById('dupCard');
+    if (!card) return;
+    document.getElementById('dupFlagText').textContent = duplicateFlag;
+    card.classList.add('visible');
+
+    // [v1.0.14] Task 123 — הכפתור לא נעשה "visible"/לחיץ כאן. הוא נשאר
+    // disabled+"טוען..." עד ש-renderDupCard מאשרת בפועל dup.row תקין —
+    // מונע כל אפשרות תיאורטית של לחיצה לפני שהיעד מוכן.
+    var jumpBtnEarly = document.getElementById('dupJumpBtn');
+    if (jumpBtnEarly) {
+      jumpBtnEarly.textContent = 'טוען יעד...';
+      jumpBtnEarly.disabled = true;
+      jumpBtnEarly.classList.add('visible');
+    }
+
+    google.script.run
+      .withSuccessHandler(renderDupCard)
+      .withFailureHandler(function (err) {
+        console.error('[S08] s08_getDuplicateRowData נכשלה:', err);
+        var jumpBtnFail = document.getElementById('dupJumpBtn');
+        if (jumpBtnFail) {
+          jumpBtnFail.textContent = 'שגיאה בטעינת יעד';
+          jumpBtnFail.disabled = true;
+        }
+      })
+      .s08_getDuplicateRowData(duplicateFlag, row);
   }
 
-  // ════ פונקציות עזר ════
-  // [v1.0.6-ג] ?rm=minimal להקטנת סרגל Google Drive
-  function buildPreviewUrl(url) {
-    var id = extractDriveId(url);
-    if (id) return 'https://drive.google.com/file/d/' + id + '/preview?rm=minimal';
-    return url;
+  function renderDupCard(dup) {
+    var jumpBtn   = document.getElementById('dupJumpBtn');
+    var cancelBtn = document.getElementById('dupCancelBtn');
+
+    if (!dup) {
+      console.warn('[S08] renderDupCard קיבל dup=null — לא נמצאה שורת תאום תקפה (ייתכן File_ID לא נמצא בעמודה A, או Note ריק).');
+      if (jumpBtn) {
+        jumpBtn.textContent = 'לא נמצא יעד';
+        jumpBtn.disabled = true;
+      }
+      if (cancelBtn) cancelBtn.disabled = true;
+      var titleElNone = document.getElementById('docBlockDupTitle');
+      if (titleElNone) titleElNone.textContent = 'לא נמצא מסמך תאום';
+      return;
+    }
+
+    dupData = dup; // [v1.0.15] Task 125 — נשמר גלובלית לשימוש ב-toggleDocView/cancelDuplicateFlag
+
+    jumpBtn.dataset.targetRow = dup.row;
+    jumpBtn.textContent = 'קפוץ לשורה ⇦';
+    jumpBtn.disabled = false;
+    jumpBtn.classList.add('visible');
+
+    if (cancelBtn) cancelBtn.disabled = false;
+
+    var grid = document.getElementById('dupDetailsGrid');
+    var wcMatch = (dup.wordCount !== '—' && dup.currentWordCount !== '—' &&
+                   Math.abs(dup.wordCount - dup.currentWordCount) / Math.max(dup.currentWordCount, 1) <= 0.10);
+
+    grid.innerHTML =
+      '<div class="dup-key">שורת תאום</div><div class="dup-val">' + dup.row + '</div>' +
+      '<div class="dup-key">כותרת</div><div class="dup-val">' + escapeHtml(String(dup.title)) + '</div>' +
+      '<div class="dup-key">מנפיק</div><div class="dup-val">' + escapeHtml(String(dup.issuer)) + '</div>' +
+      '<div class="dup-key">גודל קובץ</div><div class="dup-val">' + escapeHtml(String(dup.fileSize)) + '</div>';
+    grid.classList.add('visible');
+
+    var wcRow = document.createElement('div');
+    wcRow.className = 'dup-wordcount-row';
+    wcRow.innerHTML =
+      '<span>מספר מילים — נוכחית: <span class="dup-wordcount-badge' + (wcMatch ? ' match' : '') + '">' +
+      escapeHtml(String(dup.currentWordCount)) + '</span></span>' +
+      '<span>תאום: <span class="dup-wordcount-badge' + (wcMatch ? ' match' : '') + '">' +
+      escapeHtml(String(dup.wordCount)) + '</span></span>';
+    document.getElementById('dupCard').appendChild(wcRow);
+
+    // [v1.0.15] Task 125 — מילוי בלוק ההשוואה השני (מסמך שורת התאום)
+    var titleEl = document.getElementById('docBlockDupTitle');
+    if (titleEl) titleEl.textContent = 'שורה ' + dup.row + ' (חשד)';
+    var frameDup = document.getElementById('docFrameDup');
+    if (frameDup && dup.sourceUrl) {
+      frameDup.src = dup.sourceUrl.replace('/view', '/preview') + '?rm=minimal';
+    }
+    var toggleBtnDup = document.getElementById('toggleBtnDup');
+    if (toggleBtnDup) toggleBtnDup.disabled = false;
   }
 
-  function extractDriveId(url) {
-    if (!url) return null;
-    var m1 = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-    if (m1) return m1[1];
-    var m2 = url.match(/id=([a-zA-Z0-9_-]+)/);
-    if (m2) return m2[1];
-    return null;
-  }
-
-  function checkIframeLoaded() {
-    var frame = document.getElementById('filePreviewFrame');
-    try {
-      if (!frame.contentDocument && !frame.contentWindow) { showFallback(); }
-    } catch (e) {}
-  }
-
-  function showFallback() {
-    document.getElementById('filePreviewFrame').style.display = 'none';
-    document.getElementById('txtContentBox').classList.remove('visible');
-    document.getElementById('previewFallback').classList.add('visible');
-  }
-
-  function setSelectValue(id, val) {
-    var sel = document.getElementById(id);
-    for (var i = 0; i < sel.options.length; i++) {
-      if (sel.options[i].value === val) { sel.selectedIndex = i; break; }
+  function jumpToDupRow() {
+    var btn = document.getElementById('dupJumpBtn');
+    var row = parseInt(btn.dataset.targetRow, 10);
+    console.log('[S08] jumpToDupRow נלחץ — targetRow raw:', btn.dataset.targetRow, '| parsed:', row);
+    if (row) {
+      navigateTo(row);
+    } else {
+      console.error('[S08] jumpToDupRow — אין targetRow תקף, הקפיצה בוטלה.');
     }
   }
 
-  function setStatus(type, text) {
-    var bar = document.getElementById('statusBar');
-    bar.className = 'status-bar ' + type;
-    document.getElementById('statusText').textContent = text;
-    document.getElementById('spinner').className =
-      'spinner' + (type === 'info' ? ' visible' : '');
+  // ══════════════════════════════════════════════════════════════
+  // בדיקת כפילות מול גיליון הלמידה — בעת שינוי מנפיק/קטגוריה
+  // ══════════════════════════════════════════════════════════════
+
+  function checkLearningDuplicate() {
+    var issuer   = document.getElementById('fIssuer').value;
+    var category = document.getElementById('fCategory').value;
+    if (!issuer || !category) return;
+
+    google.script.run
+      .withSuccessHandler(renderLearnDupCard)
+      .withFailureHandler(function () {})
+      .s08_findLearningDuplicate(issuer, category);
   }
 
-  function disableBtns(state) {
-    document.querySelectorAll('.action-btn').forEach(function(b) { b.disabled = state; });
-    document.getElementById('btnPrev').disabled = state || (ROW <= 2);
-    document.getElementById('btnNext').disabled = state || (ROW >= MAX_ROW);
+  function renderLearnDupCard(dup) {
+    var card = document.getElementById('learnDupCard');
+    if (!card) return;
+    if (!dup) { card.classList.remove('visible'); return; }
+    document.getElementById('learnDupText').textContent =
+      'שורה ' + dup.dupRow + ' | מנפיק: "' + dup.matchedIssuer + '" | קטגוריה: "' + dup.matchedCategory + '"';
+    card.classList.add('visible');
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // כפתורי פעולה
+  // ══════════════════════════════════════════════════════════════
+
+  function setButtonsEnabled(enabled) {
+    document.querySelectorAll('.btn').forEach(function (b) { b.disabled = !enabled; });
+  }
+
+  function showStatus(msg, ok) {
+    var el = document.getElementById('statusMsg');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'status-msg visible ' + (ok ? 'ok' : 'err');
+  }
+
+  function hideStatus() {
+    var el = document.getElementById('statusMsg');
+    if (el) el.className = 'status-msg';
+  }
+
+  function approveRow() {
+    setButtonsEnabled(false);
+    google.script.run
+      .withSuccessHandler(function (res) {
+        setButtonsEnabled(true);
+        showStatus(res.msg, res.success);
+        if (res.success) setTimeout(nextRow, 900);
+      })
+      .withFailureHandler(function (err) {
+        setButtonsEnabled(true);
+        showStatus('❌ ' + ((err && err.message) || err), false);
+      })
+      .s08_approve(currentRow);
+  }
+
+  function updateAndLearn() {
+    setButtonsEnabled(false);
+    var title    = document.getElementById('fTitle').value;
+    var issuer   = document.getElementById('fIssuer').value;
+    var date     = document.getElementById('fDate').value;
+    var category = document.getElementById('fCategory').value;
+    var note     = document.getElementById('fNote').value;
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        setButtonsEnabled(true);
+        showStatus(res.msg, res.success && !res.isDuplicate);
+        if (res.success && !res.isDuplicate) setTimeout(nextRow, 900);
+      })
+      .withFailureHandler(function (err) {
+        setButtonsEnabled(true);
+        showStatus('❌ ' + ((err && err.message) || err), false);
+      })
+      .s08_updateAndLearn(currentRow, title, issuer, date, category, note);
+  }
+
+  function learnOnly() {
+    setButtonsEnabled(false);
+    var title    = document.getElementById('fTitle').value;
+    var issuer   = document.getElementById('fIssuer').value;
+    var date     = document.getElementById('fDate').value;
+    var category = document.getElementById('fCategory').value;
+    var note     = document.getElementById('fNote').value;
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        setButtonsEnabled(true);
+        showStatus(res.msg, res.success && !res.isDuplicate);
+      })
+      .withFailureHandler(function (err) {
+        setButtonsEnabled(true);
+        showStatus('❌ ' + ((err && err.message) || err), false);
+      })
+      .s08_learnOnly(currentRow, title, issuer, date, category, note);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // מחיקה
+  // ══════════════════════════════════════════════════════════════
+
+  function confirmDelete() {
+    var modal    = document.getElementById('deleteModal');
+    var text     = document.getElementById('deleteModalText');
+    var actions  = document.getElementById('deleteModalActions');
+
+    var hasDup = currentData && currentData.duplicateFlag;
+    text.textContent = hasDup ?
+      'לשורה זו יש חשד כפילות. איזו שורה למחוק?' :
+      'האם למחוק את השורה הנוכחית (שורה ' + currentRow + ') לצמיתות? הפעולה כוללת מחיקת קבצי המקור וה-TXT מ-Drive.';
+
+    actions.innerHTML =
+      '<button class="btn btn-delete" onclick="deleteRow(\'current\')">מחק שורה נוכחית</button>' +
+      (hasDup ? '<button class="btn btn-delete" onclick="deleteRow(\'original\')">מחק שורת תאום</button>' : '') +
+      '<button class="btn" style="background:#999" onclick="closeDeleteModal()">ביטול</button>';
+
+    modal.classList.add('visible');
+  }
+
+  function closeDeleteModal() {
+    document.getElementById('deleteModal').classList.remove('visible');
+  }
+
+  function deleteRow(which) {
+    closeDeleteModal();
+    setButtonsEnabled(false);
+    google.script.run
+      .withSuccessHandler(function (res) {
+        setButtonsEnabled(true);
+        showStatus(res.msg, res.success);
+        // [v1.0.16] Task 123 — הוארך מ-900 ל-1500ms: שולי בטיחות נוסף אחרי
+        // מחיקה (deleteRow+fixReferencesAfterDelete+flush בצד השרת)
+        if (res.success) setTimeout(nextRow, 1500);
+      })
+      .withFailureHandler(function (err) {
+        setButtonsEnabled(true);
+        showStatus('❌ ' + ((err && err.message) || err), false);
+      })
+      .s08_delete(currentRow, which);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // [v1.0.15] Task 125 — טוגל מסמך↔TXT בבלוקי השוואה (עצמאי לכל בלוק)
+  // ══════════════════════════════════════════════════════════════
+
+  function toggleDocView(which) {
+    var frameId = which === 'current' ? 'docFrameCurrent' : 'docFrameDup';
+    var txtId   = which === 'current' ? 'txtBoxCurrent'   : 'txtBoxDup';
+    var btnId   = which === 'current' ? 'toggleBtnCurrent' : 'toggleBtnDup';
+
+    var frame = document.getElementById(frameId);
+    var txtBoxEl = document.getElementById(txtId);
+    var btn = document.getElementById(btnId);
+    if (!frame || !txtBoxEl || !btn) return;
+
+    var showingTxt = txtBoxEl.style.display !== 'none';
+
+    if (showingTxt) {
+      // חזרה לתצוגת מסמך המקור
+      txtBoxEl.style.display = 'none';
+      frame.style.display = '';
+      btn.textContent = 'הצג TXT';
+      return;
+    }
+
+    // מעבר לתצוגת TXT
+    frame.style.display = 'none';
+    txtBoxEl.style.display = '';
+    btn.textContent = 'הצג מסמך מקור';
+
+    var row    = which === 'current' ? currentRow : (dupData ? dupData.row : null);
+    var txtUrl = which === 'current' ? currentData.txtUrl : (dupData ? dupData.txtUrl : null);
+
+    if (row && compareTxtCache[row] !== undefined) {
+      renderCompareTxt(txtBoxEl, compareTxtCache[row]);
+      return;
+    }
+    if (!txtUrl) {
+      txtBoxEl.innerHTML = '<div style="color:#999;font-size:11px;">אין קובץ TXT זמין לשורה זו.</div>';
+      return;
+    }
+
+    txtBoxEl.innerHTML = '<div style="color:#999;font-size:11px;">⏳ טוען...</div>';
+    google.script.run
+      .withSuccessHandler(function (result) {
+        if (result && result.success) {
+          if (row) compareTxtCache[row] = result.content;
+          renderCompareTxt(txtBoxEl, result.content);
+        } else {
+          txtBoxEl.innerHTML = '<div style="color:#c62828;font-size:11px;">❌ ' + escapeHtml((result && result.msg) || 'שגיאה בטעינת התוכן') + '</div>';
+        }
+      })
+      .withFailureHandler(function (err) {
+        txtBoxEl.innerHTML = '<div style="color:#c62828;font-size:11px;">❌ ' + escapeHtml((err && err.message) || 'שגיאה בטעינת TXT') + '</div>';
+      })
+      .s08_fetchTxtContent(txtUrl);
+  }
+
+  function renderCompareTxt(box, content) {
+    var pre = document.createElement('pre');
+    pre.textContent = content;
+    box.innerHTML = '';
+    box.appendChild(pre);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // [v1.0.15] Task 125 — ביטול חשד כפילות (סימטרי, דרך S08_Validate.gs v1.0.16)
+  // ══════════════════════════════════════════════════════════════
+
+  function cancelDuplicateFlag() {
+    if (!dupData || !dupData.row) return;
+    document.getElementById('cancelDupModalText').textContent =
+      'לבטל את חשד הכפילות בין שורה ' + currentRow + ' לשורה ' + dupData.row +
+      '? עמודה R (Duplicate_Flag) תנוקה בשתי השורות. הפעולה אינה מוחקת אף נתון אחר ואינה הפיכה.';
+    document.getElementById('cancelDupModal').classList.add('visible');
+  }
+
+  function closeCancelDupModal() {
+    document.getElementById('cancelDupModal').classList.remove('visible');
+  }
+
+  function confirmCancelDuplicateFlag() {
+    closeCancelDupModal();
+    if (!dupData || !dupData.row) return;
+    var btn = document.getElementById('dupCancelBtn');
+    if (btn) btn.disabled = true;
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        showStatus(res.msg, res.success);
+        if (res.success) {
+          setTimeout(function () { navigateTo(currentRow); }, 900);
+        } else if (btn) {
+          btn.disabled = false;
+        }
+      })
+      .withFailureHandler(function (err) {
+        if (btn) btn.disabled = false;
+        showStatus('❌ ' + ((err && err.message) || err), false);
+      })
+      .s08_cancelDuplicateFlag(currentRow, dupData.row);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // כלליים
+  // ══════════════════════════════════════════════════════════════
+
+  function closeDialog() {
+    google.script.host.close();
+  }
+
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
   }
 </script>
+
 </body>
 </html>
