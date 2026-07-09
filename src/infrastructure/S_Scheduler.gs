@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S_Scheduler.gs
- * @version 1.0.3 | @updated 20/06/2026 | @service SCHEDULER
+ * @version 1.0.4 | @updated 09/07/2026 16:19 | @service SCHEDULER
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S_Scheduler.gs
  * @description ניהול גובים מתוזמנים — הפעלה ועצירה מהתפריט.
  * מנהל טריגר לילי להמרת קבצים ל-TXT (nightlyConvertBatch).
@@ -10,6 +10,12 @@
  * @callers     Menu_LAB.gs | Menu_PROD.gs
  * @functions   startJob, stopJob, showActiveJobs,
  * _getActiveJobIds, _deleteTriggerByFunc, _fmtTime
+ * @changes     [v1.0.4] תיקון ReferenceError ב-startJob(): שורת ה-ui.alert
+ *              הסופית (הצלחה) השתמשה במשתנה j.endMin — j לא קיים בהיקף הזה
+ *              (הלולאה משתמשת ב-job; j היה פרמטר של .filter() נפרד, מחוץ
+ *              לתחום). זה גרם לקריסת ReferenceError בכל הפעלת גוב מוצלחת —
+ *              הטריגר עצמו נוצר תקין, אבל הודעת האישור למשתמש קרסה. תוקן:
+ *              j.endMin → job.endMin.
  * @changes     [v1.0.3] הוספת דגל isActive ל-JOB_REGISTRY למניעת הפעלה והשהיית ריצות
  */
 // ══════════════════════════════════════════════════════════════════
@@ -25,7 +31,7 @@ const JOB_REGISTRY = [
     endHour:     7,  endMin:    30,   // 07:30
     interval:    30,                  // כל 30 דקות
     batchSize:   2,                   // 2 שורות לריצה
-    isActive:    false                // 🛑 שנה ל-true כדי לאפשר הפעלה, השאר false כדי לעצור/להשהות
+    isActive:    true                // 🛑 שנה ל-true כדי לאפשר הפעלה, השאר false כדי לעצור/להשהות
   }
 ];
 
@@ -90,7 +96,7 @@ function startJob() {
     "שם: "    + job.name + "\n" +
     "מרווח: כל " + job.interval + " דקות\n" +
     "שורות: " + job.batchSize + " לריצה\n" +
-    "חלון: "  + _fmtTime(job.startHour, job.startMin) + " עד " + _fmtTime(job.endHour, j.endMin),
+    "חלון: "  + _fmtTime(job.startHour, job.startMin) + " עד " + _fmtTime(job.endHour, job.endMin),
     ui.ButtonSet.OK
   );
 }
