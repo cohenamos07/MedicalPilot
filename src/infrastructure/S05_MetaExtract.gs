@@ -1,15 +1,27 @@
 /**
  * MedicalPilot — S05_MetaExtract.gs
- * @version 2.4.1 | @updated 01/07/2026 21:25 | @service S05
+ * @version 2.5.0 | @updated 06/07/2026 20:15 | @service S05
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S05_MetaExtract.gs
- * @description חילוץ מטא-דאטה מקבצי Drive — סוג, גודל, זיהוי כפולים וסטטוס pipeline.
- * @impacts כותב לעמודות M(13), O(15), P(16), R(18), S(19), T(20).
+ * @description חילוץ מטא-דאטה מקבצי Drive — סוג, גודל וסטטוס pipeline.
+ * @impacts כותב לעמודות M(13), O(15), P(16), S(19), T(20).
  *          דולג על שורות שכבר הומרו ויש להן TXT_URL (עמודה X).
+ *          [v2.5.0] אינו כותב יותר לעמודה R (Duplicate_Flag) — ראה @changes.
  *          תלויות: Drive API, גליון ניהול_מיילים, COLUMN_MAP.gs.
  *          מופעל מהתפריט — אינו חלק מזרימת עיבוד אוטומטי.
  * @callers Menu_PROD.gs, Menu_LAB.gs
  * @functions extractMetaData, extractMetaData_LAB, clearMetaData_LAB
- * @changes [v2.4.1] Task 91 fix — תיקון Note: עכשיו מכיל File_ID של שורת המטרה (לא השורה הנוכחית).
+ * @changes [v2.5.0] הוסרה לגמרי כתיבת עמודה R (Duplicate_Flag) מ-S05:
+ *                   (1) הוסרה בדיקת "חשוד כלוגו/ריק" (sizeKB<10) — בדיקה גסה
+ *                       שלא הביאה בחשבון סוג קובץ (false positive על TXT קטן
+ *                       אך תקין). הוחלפה ע"י כלל E25 ב-S11_QArun.gs, שרץ אחרי
+ *                       S07 ומשתמש בתוכן אמיתי (מספר מילים + I/J) במקום גודל בלבד.
+ *                   (2) הוסרה בדיקת "חשוד ככפול — שורה X" (sizeKB+systemType)
+ *                       ומנגנון sizeTypeMap הנלווה — זיהוי כפילות מוקדם מדי
+ *                       (לפני שיש תוכן אמיתי לבדיקה), וגרם לכתיבה כפולה/מתנגשת
+ *                       על אותה עמודה R מול S07 שכבר מבצע זיהוי כפילות מבוסס
+ *                       תוכן (ניקוד 5/5). זיהוי כפילות נשאר אחריות S07 בלבד.
+ *                   (3) הוסרה כתיבת setValue/setNote לעמודה 18 (R) בכללותה.
+ *          [v2.4.1] Task 91 fix — תיקון Note: עכשיו מכיל File_ID של שורת המטרה (לא השורה הנוכחית).
  *          [v2.4.0] Task 91 — הוספת setNote(File_ID) לתא R בכל כתיבת Duplicate_Flag
  *                   לשמירת רפרנס יציב שאינו תלוי במספר שורה.
  *          [v2.3.2] תיקון קריטי — לולאה התחילה משורה 2 (כותרת ישנה), עכשיו
@@ -27,7 +39,6 @@ function extractMetaData() {
   if (lastRow < firstRow) return;
 
   const allData = sheet.getRange(firstRow, 1, lastRow - firstRow + 1, 26).getValues();
-  const sizeTypeMap = {};
   let processed = 0;
   let skipped = 0;
   let errors = 0;
@@ -84,27 +95,9 @@ function extractMetaData() {
         statusM = "ממתין להמרה ל-TXT";
       }
 
-      let alertR = "";
-      let alertRTargetFileId = ""; // [v2.4.1] File_ID של שורת המטרה לNote
-      if (sizeKB < 10) {
-        alertR = "חשוד כלוגו/ריק";
-      } else {
-        const dupKey = sizeKB + "_" + systemType;
-        if (sizeTypeMap[dupKey] !== undefined) {
-          alertR = "חשוד ככפול — שורה " + sizeTypeMap[dupKey];
-          // [v2.4.1] Task 91 fix — Note מכיל File_ID של שורת המטרה, לא השורה הנוכחית
-          const targetIdx = sizeTypeMap[dupKey] - firstRow;
-          alertRTargetFileId = String(allData[targetIdx] && allData[targetIdx][0] ? allData[targetIdx][0] : "");
-        } else {
-          sizeTypeMap[dupKey] = rowNum;
-        }
-      }
-
       sheet.getRange(rowNum, 15).setValue(systemType);
       sheet.getRange(rowNum, 16).setValue(sizeFormatted);
       sheet.getRange(rowNum, 13).setValue(statusM);
-      sheet.getRange(rowNum, 18).setValue(alertR);
-      if (alertR && alertRTargetFileId) { sheet.getRange(rowNum, 18).setNote(alertRTargetFileId); } // [v2.4.1] Task 91 fix
       sheet.getRange(rowNum, 19).clearContent();
       sheet.getRange(rowNum, 20).clearContent();
       processed++;
@@ -119,7 +112,7 @@ function extractMetaData() {
   sheet.getRange(2, 13).activate();
   ss.toast(
     "עובדו: " + processed + " | דולגו: " + skipped + " | שגיאות: " + errors,
-    "S05 MetaExtract v2.4", 5
+    "S05 MetaExtract v2.5", 5
   );
 }
 
