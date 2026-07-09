@@ -1,22 +1,123 @@
 /**
  * MedicalPilot — S08_Validate.gs
- * @version 1.0.11 | @updated 02/07/2026 19:05 | @service S08
+ * @version 1.0.19 | @updated 09/07/2026 21:29 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
+ * @changes     [v1.0.19] Task 109 (המשך) — s08_fixReferencesAfterDelete
+ *              טיפלה רק במקרה שה-File_ID שב-Note "זז" למיקום אחר (actualRow
+ *              truthy). לא טופל בכלל המקרה שה-File_ID נמחק *לגמרי* מהגליון
+ *              (actualRow === undefined) — ה-if נכשל בשקט, והטקסט הישן
+ *              ("כפול מאושר — שורה X") נשאר תקוע לצמיתות בעמודה R, גם
+ *              כשהמסמך שהוא מצביע עליו כבר לא קיים. אומת בנתוני הגליון
+ *              בפועל (עמוס, שורה 12 מול File_ID מחוק). התיקון: branch נוסף
+ *              — אם noteId לא נמצא בכלל ב-fileIdRowMap, מנקים R+Note לגמרי
+ *              (כמו s08_cancelDuplicateFlag) במקום להשאיר טקסט תקוע.
+ *              בסיסי (Range.createFilter, ב-switchView/ViewEngine.gs) קשור
+ *              לטווח שורות קבוע שנקבע פעם אחת בפתיחת מבט S08. מחיקת שורה
+ *              בתוך אותו טווח בזמן שהפילטר עדיין פעיל היא תקלה מתועדת של
+ *              Google Sheets — הטווח הפנימי לא מתעדכן, ומשאיר את הגליון
+ *              במצב לא עקבי שגורם לכשלים לא צפויים בקריאות הבאות (בדיוק
+ *              "לא נמצאו נתוני שורה" שתועד ב-v1.0.16/v1.0.17). התיקון:
+ *              existingFilter.remove()+SpreadsheetApp.flush() לפני
+ *              sheet.deleteRow() — הן ב-s08_delete והן ב-s08_deleteApproved
+ *              (Task 114, אותה פגיעות בדיוק, לולאת מחיקה). אותו דפוס הגנה
+ *              בדיוק כמו שכבר קיים ב-switchView וב-_doExpand (ViewEngine.gs)
+ *              — לא מנגנון חדש, רק יישום עקבי שלו כאן.
+ *              מופיע בעקביות בדיוק אחרי מחיקה מוצלחת + קפיצה אוטומטית
+ *              ל-nextRow (900ms אחר כך). קריאה חוזרת של s08_loadRowByNumber
+ *              מוכיחה: הפונקציה מבנית לא יכולה להחזיר null/undefined בשום
+ *              נתיב קוד (כל branch מחזיר אובייקט מפורש). אין הוכחה חד-
+ *              משמעית לסיבת השורש (אין עדיין פלט Console אמיתי מהדפדפן),
+ *              אך s08_delete לא כללה SpreadsheetApp.flush() לפני החזרת
+ *              תשובה ללקוח — אחרי deleteRow()+s08_fixReferencesAfterDelete()
+ *              (עובר על כל עמודה R). זה חשוד כתזמון: קריאת google.script.run
+ *              נפרדת (nextRow) יורה כ-900ms אח"כ לאותו גליון. נוספה
+ *              SpreadsheetApp.flush() בסוף s08_delete — מבטיחה שהמחיקה
+ *              ותיקון הרפרנסים נכתבים במלואם ל-Sheet לפני שהתשובה חוזרת
+ *              ללקוח, ולפני שקריאה נוספת עלולה להיורות. הקשחה הגנתית
+ *              מוצדקת הנדסית (best-practice בכל מקרה), לא ניחוש עיוור.
  * @impacts     קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,P,Q,R,W,X.
  *              כתיבה: ניהול_מיילים עמודות I,J,K,L,M,U + גיליון דוגמאות_למידה (8 עמודות).
  *              4 כפתורים: אישור / עדכון+למידה / למידה יזומה / מחיקה.
  *              בדיקת כפולים אוטומטית מול ניהול_מיילים ומול דוגמאות_למידה.
- *              תלויות: S08_Sidebar.html, COLUMN_MAP.gs, Drive API.
+ *              [v1.0.13] Task 111 — s08_loadRowByNumber מקבלת פרמטר נוסף
+ *              skipDirection (1/-1). כשמופעלת מ-Prev/Next בלבד (לא מקפיצה
+ *              ידנית), מדלגת אוטומטית על שורות "כפול מאושר" בכיוון הניווט,
+ *              כדי לא להציג לאימות ידני זוג כפול. דורש עדכון תואם ב-
+ *              S08_Sidebar.html (prevRow/nextRow/navigateTo מעבירים כיוון).
+ *              [v1.0.12] Task 114 — s08_deleteApproved: סורק את כל עמודה R (18)
+ *              ומוחק (שורה + קבצי Drive) כל שורה שR שלה מתחיל ב"מאושר למחיקה"
+ *              (מכל סיבה — E16/E22/E25 ב-S11). הופך לנקודת המחיקה המרכזית היחידה
+ *              יחד עם s08_delete הקיים — S11 עצמו לא מוחק שורות בשום מקרה.
+ *              [v1.0.12] Task 109 — s08_fixReferencesAfterDelete: לאחר כל מחיקה
+ *              אמיתית (מ-s08_delete או מ-s08_deleteApproved), עובר על כל עמודה R,
+ *              בודק את ה-Note מול מיקום ה-File_ID העדכני, ומתקן "שורה X" שהתיישן
+ *              עקב הזזת שורות — לוגיקה מקבילה ל-E21 ב-S11_QArun.gs, אך מוגבלת
+ *              ומקומית לקובץ זה בלבד (S08 אינו קורא לפונקציה מ-S11).
+ *              תלויות: S08_Sidebar.html, COLUMN_MAP.gs (SHEET_CONFIG), Drive API.
  * @callers     runS08ViewIcon (ViewEngine עמודה N) | Menu_PROD
  * @functions   showMainSidebar, _s08_getRowData, s08_loadRowData,
  *              s08_loadRowByNumber, s08_highlightActiveRow,
  *              s08_findDuplicateInSheet, s08_findLearningDuplicate,
  *              s08_fetchTxtContent, s08_getDuplicateRowData,
+ *              _s08_fetchTxtWordCount, s08_cancelDuplicateFlag,
  *              s08_approve, s08_updateAndLearn, s08_learnOnly,
  *              _s08_saveToLearning, s08_delete,
- *              _s08_trashDriveFile, _s08_getDuplicateRowNumber
- * @changes     [v1.0.11] Task 74+92 — הוספת בדיקת כניסה M=מחולץ ב-showMainSidebar.
+ *              _s08_trashDriveFile, _s08_getDuplicateRowNumber,
+ *              s08_deleteApproved, s08_fixReferencesAfterDelete
+ * @changes     [v1.0.16] Task 124 — תלות עבור Task 125 (תצוגת שני מסמכי
+ *              מקור בכרטיס חשד כפילות, ללא ניווט/קפיצה):
+ *              (1) s08_getDuplicateRowData מחזירה כעת גם sourceUrl ו-txtUrl
+ *                  של שורת התאום (בנוסף לשדות הקיימים) — אותה לוגיקת
+ *                  fallback בדיוק כמו ב-_s08_getRowData (עמודה W, ואם ריקה
+ *                  נבנה URL מ-File_ID בעמודה A).
+ *              (2) פונקציה חדשה s08_cancelDuplicateFlag(currentRow, dupRow) —
+ *                  מנקה R (Duplicate_Flag) + Note בשתי השורות בו-זמנית
+ *                  (סימטריה מלאה, לפי אישור מפורש של עמוס). לא נוגעת בשום
+ *                  עמודה/נתון אחר, לא מוחקת שורות. שימוש: כשההשוואה
+ *                  הוויזואלית מראה שזה *לא* אותו מסמך בפועל — ביטול החשד
+ *                  בלי מחיקת נתונים.
+ * @changes     [v1.0.15] Task (בקשת עמוס) — הוספת מספר מילים לכרטיס חשד
+ *              כפילות: נוספה _s08_fetchTxtWordCount (זהה בשיטה ל-
+ *              _qa_fetchTxtWordCount_E25 ב-S11_QArun.gs). s08_getDuplicateRowData
+ *              מחזירה כעת גם wordCount (שורת התאום) וגם currentWordCount
+ *              (השורה הנוכחית) — מציג את שני הצדדים להשוואה ישירה מול הקריטריון
+ *              החמישי מתוך 5 שS07 משתמש בו לחישוב ניקוד כפילות (הפרש≤10%).
+ * @changes     [v1.0.14] Tasks 105+106:
+ *              (1) Task 106 — showMainSidebar: תנאי הכניסה הורחב לקבל גם
+ *                  Pipeline_Status="חולץ מלא" (ערך ששייך בפועל לעמודה N
+ *                  לפי COLUMN_MAP.gs, אך נמצא בטעות גם ב-M בשורות ישנות) —
+ *                  לא רק "עבר סיווג". מונע חסימה שגויה של שורות מוכנות לאימות.
+ *              (2) Task 105 — s08_highlightActiveRow: נוספה בדיקת
+ *                  sheet.isRowHiddenByFilter(row) לפני setActiveRange —
+ *                  מונע כשל (הודעה גנרית/ריקה בצד הלקוח) כשמנווטים לשורה
+ *                  המוסתרת ע"י מסנן (filter) פעיל. אם מוסתרת — מדלג על
+ *                  ההדגשה החזותית בלבד, הנתונים עצמם עדיין נטענים כרגיל.
+ * @changes     [v1.0.13] Task 111 — s08_loadRowByNumber(rowNum, skipDirection):
+ *                        נוסף פרמטר אופציונלי skipDirection. כשערכו 1 או -1
+ *                        (מגיע רק מ-prevRow/nextRow דרך navigateTo), הפונקציה
+ *                        ממשיכה לזוז בכיוון (targetRow += skipDirection) כל עוד
+ *                        R של השורה מתחיל ב"כפול מאושר", עד שמוצאת שורה שאינה
+ *                        כפולה או יוצאת מטווח הנתונים (ואז מחזירה הודעת שגיאה
+ *                        ברורה). קפיצה ידנית (jumpToRow) לא מעבירה skipDirection
+ *                        וממשיכה לטעון בדיוק את השורה המבוקשת כרגיל.
+ *              [v1.0.12] Task 114 — s08_deleteApproved(): פונקציה חדשה, סורקת
+ *                        עמודה R (18) בכל טווח הנתונים (מ-SHEET_CONFIG.FIRST_DATA_ROW),
+ *                        מאתרת כל שורה שR שלה מתחיל ב"מאושר למחיקה", ממיינת יורד
+ *                        לפי מספר שורה (מוחקת מלמטה למעלה כדי לא לשבש אינדקסים),
+ *                        ולכל שורה: מטרישת (trash) קובץ מקור (W) וקובץ TXT (X)
+ *                        באמצעות _s08_trashDriveFile הקיימת, ואז sheet.deleteRow.
+ *                        בסיום קוראת ל-s08_fixReferencesAfterDelete.
+ *              [v1.0.12] Task 109 — s08_fixReferencesAfterDelete(): פונקציה חדשה,
+ *                        נקראת בסוף s08_delete וגם בסוף s08_deleteApproved. בונה
+ *                        מפת File_ID→שורה נוכחית מעמודה A, עוברת על כל Note בעמודה
+ *                        R, ומשווה את מספר השורה הכתוב בטקסט (regex "שורה \d+") מול
+ *                        המיקום האמיתי של ה-File_ID השמור ב-Note. אם התיישן — מתקנת
+ *                        רק את מספר השורה בטקסט (משאירה שאר הטקסט, כולל "| ניקוד
+ *                        Y/5" אם קיים, ואת ה-Note עצמו ללא שינוי).
+ *              [v1.0.12] s08_delete() — נוספה קריאה ל-s08_fixReferencesAfterDelete()
+ *                        בסוף מחיקה מוצלחת (לפני החזרת התוצאה).
+ *              [v1.0.11] Task 74+92 — הוספת בדיקת כניסה M=עבר סיווג ב-showMainSidebar.
  *                        s08_getDuplicateRowData + _s08_getDuplicateRowNumber:
  *                        מעבר מ-regex על טקסט R → קריאת getNote() + חיפוש File_ID בעמודה A.
  *    
@@ -57,12 +158,16 @@ function showMainSidebar() {
     );
     return;
   }
-  // [v1.0.11] Task 74 — בדיקת תנאי כניסה: Pipeline_Status חייב להיות "מחולץ"
+  // [v1.0.11] Task 74 — בדיקת תנאי כניסה: Pipeline_Status חייב להיות "עבר סיווג"
+  // [v1.0.14] Task 106 — הורחב לקבל גם "חולץ מלא": ערך שבפועל שייך לעמודה N
+  // (Extraction_Status, לפי COLUMN_MAP.gs) אך נמצא בשורות ישנות גם ב-M —
+  // תנאי הכניסה חסם אותן שגוי למרות שהן מוכנות לאימות ידני בפועל.
   const pipelineStatus = sheet.getRange(row, 13).getValue() || "";
-  if (pipelineStatus !== "מחולץ") {
+  const isReadyForS08  = (pipelineStatus === "עבר סיווג" || pipelineStatus === "חולץ מלא");
+  if (!isReadyForS08) {
     SpreadsheetApp.getUi().alert(
       "⛔ שורה זו אינה מוכנה לאימות ידני.\n" +
-      "סטטוס נדרש: מחולץ | סטטוס נוכחי: " + (pipelineStatus || "ריק") + "\n" +
+      "סטטוס נדרש: עבר סיווג | סטטוס נוכחי: " + (pipelineStatus || "ריק") + "\n" +
       "יש להריץ קודם את שירות S07 — סיווג מסמכים."
     );
     return;
@@ -142,7 +247,7 @@ function s08_loadRowData() {
 // ניווט דינמי — טעינת שורה לפי מספר
 // ══════════════════════════════════════════════════════════════════
 
-function s08_loadRowByNumber(rowNum) {
+function s08_loadRowByNumber(rowNum, skipDirection) {
   try {
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName("ניהול_מיילים");
@@ -154,18 +259,35 @@ function s08_loadRowByNumber(rowNum) {
       return { error: true, msg: "שורה " + rowNum + " מחוץ לטווח (2–" + lastRow + ")" };
     }
 
-    const rowData = _s08_getRowData(sheet, rowNum);
+    let targetRow = rowNum;
+
+    // [v1.0.13] Task 111 — בניווט Prev/Next (skipDirection=1 או -1 בלבד)
+    // מדלגים על שורות שR שלהן מתחיל ב"כפול מאושר" (זיהוי S07 מבוסס תוכן) —
+    // אין טעם באימות ידני לזוג כפול. קפיצה ידנית (jumpToRow, ללא skipDirection)
+    // תמיד טוענת את השורה המבוקשת במדויק, בלי דילוג.
+    if (skipDirection === 1 || skipDirection === -1) {
+      while (targetRow >= 2 && targetRow <= lastRow) {
+        const rText = (sheet.getRange(targetRow, 18).getValue() || "").toString().trim();
+        if (rText.indexOf("כפול מאושר") !== 0) break;
+        targetRow += skipDirection;
+      }
+      if (targetRow < 2 || targetRow > lastRow) {
+        return { error: true, msg: "אין עוד שורות זמינות לאימות בכיוון זה (כל השורות הנותרות מסומנות ככפול מאושר)" };
+      }
+    }
+
+    const rowData = _s08_getRowData(sheet, targetRow);
     const noTxt   = !rowData.txtUrl;
 
     PropertiesService.getScriptProperties().setProperty(
       "S08_CURRENT_ROW_DATA",
-      JSON.stringify({ row: rowNum, data: rowData })
+      JSON.stringify({ row: targetRow, data: rowData })
     );
 
-    s08_highlightActiveRow(rowNum);
+    s08_highlightActiveRow(targetRow);
 
     return {
-      row:     rowNum,
+      row:     targetRow,
       data:    rowData,
       lastRow: lastRow,
       noTxt:   noTxt
@@ -190,6 +312,17 @@ function s08_highlightActiveRow(row) {
     if (lastRow >= 2) {
       sheet.getRange(2, 1, lastRow - 1, 1).setBackground(null);
     }
+
+    // [v1.0.14] Task 105 — setActiveRange נכשל (שגיאה גנרית/ריקה בצד
+    // הלקוח) כשהשורה מוסתרת ע"י מסנן (filter) פעיל בגליון — מגבלה ידועה
+    // של Sheets API. בודקים מראש ומדלגים על ההדגשה החזותית אם השורה
+    // מוסתרת — אין אובדן מידע: המשתמש לא רואה אותה בגליון ממילא, וה-
+    // Sidebar עצמו ממשיך להציג את הנתונים כרגיל (row/data כבר הוחזרו).
+    if (sheet.isRowHiddenByFilter(row)) {
+      Logger.log("[S08] s08_highlightActiveRow — שורה " + row + " מוסתרת ע\"י מסנן, מדלג על setActiveRange.");
+      return;
+    }
+
     sheet.getRange(row, 1).setBackground("#bbdefb");
     sheet.setActiveRange(sheet.getRange(row, 1));
   } catch (e) {
@@ -296,6 +429,29 @@ function s08_fetchTxtContent(txtUrl) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// [v1.0.15] Task — שליפת מספר מילים מתוך כותרת קובץ TXT (לחיזוק חשד כפילות)
+// אותה שיטת שליפה כמו _qa_fetchTxtWordCount_E25 ב-S11_QArun.gs, לעקביות
+// ══════════════════════════════════════════════════════════════════
+function _s08_fetchTxtWordCount(txtUrl) {
+  try {
+    if (!txtUrl) return null;
+    let fileId = null;
+    const m1 = txtUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (m1) fileId = m1[1];
+    const m2 = txtUrl.match(/id=([a-zA-Z0-9_-]+)/);
+    if (m2) fileId = m2[1];
+    if (!fileId) return null;
+
+    const content = DriveApp.getFileById(fileId).getBlob().getDataAsString("UTF-8");
+    const match   = content.match(/מספר_מילים:\s*(\d+)/);
+    return match ? parseInt(match[1], 10) : null;
+  } catch (e) {
+    Logger.log("_s08_fetchTxtWordCount: " + e.message);
+    return null;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // שליפת נתוני שורת כפול להשוואה
 // ══════════════════════════════════════════════════════════════════
 
@@ -315,15 +471,55 @@ function s08_getDuplicateRowData(duplicateFlag, currentRow) {
     if (idx === -1) return null;
     const actualRow = idx + 5;  // offset: FIRST_DATA_ROW=5 → index 0
 
+    // [v1.0.15] מספר מילים — משורת ה"תאום" וגם משורה הנוכחית, להשוואה ישירה
+    const dupTxtUrl     = sheet.getRange(actualRow, 24).getValue()  || "";
+    const currentTxtUrl = sheet.getRange(currentRow, 24).getValue() || "";
+    const wordCount        = _s08_fetchTxtWordCount(dupTxtUrl);
+    const currentWordCount = _s08_fetchTxtWordCount(currentTxtUrl);
+
+    // [v1.0.16] Task 124 — sourceUrl של שורת התאום, לתצוגת שני מסמכי מקור
+    // (Task 125). אותה לוגיקת fallback בדיוק כמו ב-_s08_getRowData.
+    const dupFileId    = (sheet.getRange(actualRow, 1).getValue() || "").toString().trim();
+    const dupSourceUrl = (sheet.getRange(actualRow, 23).getValue() || "").toString().trim() ||
+                         (dupFileId ? "https://drive.google.com/file/d/" + dupFileId + "/view" : "");
+
     return {
-      row:      actualRow,
-      title:    sheet.getRange(actualRow, 9).getValue()  || "—",
-      issuer:   sheet.getRange(actualRow, 10).getValue() || "—",
-      fileSize: sheet.getRange(actualRow, 16).getValue() || "—"
+      row:               actualRow,
+      title:             sheet.getRange(actualRow, 9).getValue()  || "—",
+      issuer:            sheet.getRange(actualRow, 10).getValue() || "—",
+      fileSize:          sheet.getRange(actualRow, 16).getValue() || "—",
+      wordCount:         wordCount !== null ? wordCount : "—",
+      currentWordCount:  currentWordCount !== null ? currentWordCount : "—",
+      sourceUrl:         dupSourceUrl,
+      txtUrl:            dupTxtUrl
     };
   } catch (e) {
     Logger.log("s08_getDuplicateRowData: " + e.message);
     return null;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v1.0.16] Task 124 — ביטול חשד כפילות (סימטרי, בלי מחיקת נתונים)
+// ══════════════════════════════════════════════════════════════════
+
+function s08_cancelDuplicateFlag(currentRow, dupRow) {
+  try {
+    if (!currentRow || !dupRow) {
+      return { success: false, msg: "❌ חסרים מספרי שורה" };
+    }
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("ניהול_מיילים");
+
+    // ניקוי R (Duplicate_Flag) + Note — בשתי השורות, סימטרית במלואה
+    sheet.getRange(currentRow, 18).clearContent().clearNote();
+    sheet.getRange(dupRow, 18).clearContent().clearNote();
+
+    Logger.log("[S08] Task 124 — בוטל חשד כפילות בין שורה " + currentRow + " לשורה " + dupRow + " (R+Note נוקו בשתיהן).");
+    return { success: true, msg: "✅ חשד הכפילות בוטל — R נוקה בשתי השורות (" + currentRow + " ו-" + dupRow + ")" };
+  } catch (e) {
+    Logger.log("[S08] שגיאה ב-s08_cancelDuplicateFlag: " + e.message);
+    return { success: false, msg: "❌ שגיאה: " + e.message };
   }
 }
 
@@ -473,7 +669,29 @@ function s08_delete(row, deleteWhich) {
 
     _s08_trashDriveFile(sourceUrl);
     _s08_trashDriveFile(txtUrl);
+
+    // [v1.0.18] Task 123 — סיבת השורש האמיתית (זוהתה ע"י עמוס): פילטר
+    // בסיסי (Range.createFilter, נוצר ב-switchView ב-ViewEngine.gs) קשור
+    // לטווח שורות קבוע שנקבע פעם אחת בפתיחת המבט. מחיקת שורה בתוך הטווח
+    // הזה בזמן שהפילטר עדיין פעיל היא תקלה מתועדת של Google Sheets —
+    // הטווח הפנימי של הפילטר לא מתעדכן, ומשאיר את הגליון במצב לא עקבי
+    // שגורם לקריאות getRange מוזרות/לא צפויות בהמשך (Task 123 — "לא נמצאו
+    // נתוני שורה" אחרי מחיקה+ניווט). אותו דפוס הגנה בדיוק כמו ב-switchView
+    // וב-_doExpand (ViewEngine.gs) — הסרת הפילטר לפני שינוי מבני בגליון.
+    const existingFilter = sheet.getFilter();
+    if (existingFilter) {
+      existingFilter.remove();
+      SpreadsheetApp.flush();
+    }
+
     sheet.deleteRow(targetRow);
+
+    // [v1.0.12] Task 109 — תיקון רפרנסים מיידי אחרי מחיקה אמיתית
+    s08_fixReferencesAfterDelete();
+
+    // [v1.0.17] Task 123 — מבטיח שהמחיקה + תיקון הרפרנסים נכתבים במלואם
+    // ל-Sheet לפני שהתשובה חוזרת ללקוח (שעלול לירות קריאה נוספת תוך כ-900ms)
+    SpreadsheetApp.flush();
 
     Logger.log("[S08] מחיקת שורה " + targetRow);
     return { success: true, msg: "🗑️ השורה והקבצים נמחקו בהצלחה" };
@@ -502,4 +720,134 @@ function _s08_getDuplicateRowNumber(sheet, currentRow) {
   const colA   = sheet.getRange(5, 1, sheet.getLastRow() - 4, 1).getValues();
   const idx    = colA.findIndex(function(r) { return r[0] === fileId; });
   return idx === -1 ? null : idx + 5;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v1.0.12] Task 114 — מחיקה מרוכזת של שורות "מאושר למחיקה"
+// נקודת המחיקה המרכזית היחידה יחד עם s08_delete — S11 עצמו לא מוחק בשום מקרה.
+// ══════════════════════════════════════════════════════════════════
+
+function s08_deleteApproved() {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("ניהול_מיילים");
+    if (!sheet) return { success: false, msg: "❌ גליון 'ניהול_מיילים' לא נמצא" };
+
+    const firstRow = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW;
+    const lastRow  = sheet.getLastRow();
+    if (lastRow < firstRow) return { success: true, msg: "אין נתונים בגליון", deleted: 0 };
+
+    const numRows = lastRow - firstRow + 1;
+    const rValues = sheet.getRange(firstRow, 18, numRows, 1).getValues();
+
+    const rowsToDelete = [];
+    for (let i = 0; i < numRows; i++) {
+      const rText = (rValues[i][0] || "").toString().trim();
+      if (rText.indexOf("מאושר למחיקה") === 0) {
+        rowsToDelete.push(firstRow + i);
+      }
+    }
+
+    if (rowsToDelete.length === 0) {
+      return { success: true, msg: "✅ לא נמצאו שורות מאושרות למחיקה", deleted: 0 };
+    }
+
+    // מיון יורד — מחיקה מלמטה למעלה כדי לא לשבש מספרי שורה באמצע הריצה
+    rowsToDelete.sort(function(a, b) { return b - a; });
+
+    // [v1.0.18] Task 123 — אותה הגנה בדיוק כמו ב-s08_delete: הסרת פילטר
+    // פעיל לפני מחיקות שורה מרובות (ראו הסבר מלא ב-s08_delete למעלה).
+    const existingFilterBulk = sheet.getFilter();
+    if (existingFilterBulk) {
+      existingFilterBulk.remove();
+      SpreadsheetApp.flush();
+    }
+
+    let deletedCount = 0;
+    rowsToDelete.forEach(function(row) {
+      try {
+        const sourceUrl = sheet.getRange(row, 23).getValue();
+        const txtUrl    = sheet.getRange(row, 24).getValue();
+        _s08_trashDriveFile(sourceUrl);
+        _s08_trashDriveFile(txtUrl);
+        sheet.deleteRow(row);
+        deletedCount++;
+        Logger.log("[S08] s08_deleteApproved — נמחקה שורה " + row);
+      } catch (rowErr) {
+        Logger.log("[S08] s08_deleteApproved — שגיאה בשורה " + row + ": " + rowErr.message);
+      }
+    });
+
+    // [Task 109] תיקון רפרנסים מיידי אחרי כל מחיקה אמיתית
+    s08_fixReferencesAfterDelete();
+
+    return { success: true, msg: "🗑️ נמחקו " + deletedCount + " שורות מאושרות", deleted: deletedCount };
+  } catch (e) {
+    Logger.log("[S08] שגיאת s08_deleteApproved: " + e.message);
+    return { success: false, msg: "❌ שגיאה: " + e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v1.0.12] Task 109 — תיקון רפרנסים מיידי אחרי מחיקה אמיתית
+// לוגיקה מקבילה ל-E21 ב-S11_QArun.gs, מקומית לקובץ זה בלבד.
+// ══════════════════════════════════════════════════════════════════
+
+function s08_fixReferencesAfterDelete() {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("ניהול_מיילים");
+    if (!sheet) return;
+
+    const firstRow = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW;
+    const lastRow  = sheet.getLastRow();
+    if (lastRow < firstRow) return;
+
+    const numRows  = lastRow - firstRow + 1;
+    const colAVals = sheet.getRange(firstRow, 1, numRows, 1).getValues();
+    const rRange   = sheet.getRange(firstRow, 18, numRows, 1);
+    const rVals    = rRange.getValues();
+    const rNotes   = rRange.getNotes();
+
+    // מפת File_ID → שורה נוכחית, לפי המצב האמיתי אחרי המחיקה
+    const fileIdRowMap = {};
+    colAVals.forEach(function(r, i) {
+      const fid = (r[0] || "").toString().trim();
+      if (fid) fileIdRowMap[fid] = firstRow + i;
+    });
+
+    let fixedCount = 0;
+
+    for (let i = 0; i < numRows; i++) {
+      const row    = firstRow + i;
+      const rText  = (rVals[i][0]  || "").toString().trim();
+      const noteId = (rNotes[i][0] || "").toString().trim();
+      if (!rText || !noteId) continue;
+
+      const match = rText.match(/שורה\s+(\d+)/);
+      if (!match) continue;
+
+      const writtenRow = parseInt(match[1], 10);
+      const actualRow  = fileIdRowMap[noteId];
+
+      if (actualRow && actualRow !== writtenRow) {
+        const fixedText = rText.replace(/שורה\s+\d+/, "שורה " + actualRow);
+        sheet.getRange(row, 18).setValue(fixedText);
+        fixedCount++;
+        Logger.log("[S08] s08_fixReferencesAfterDelete — שורה " + row + ": " + writtenRow + " → " + actualRow);
+      } else if (!actualRow) {
+        // [v1.0.19] Task 109 — ה-File_ID לא נמצא בכלל בגליון (נמחק לגמרי,
+        // לא רק "זז"). המקרה הזה לא טופל קודם — הטקסט הישן היה נשאר תקוע
+        // לצמיתות. מנקים R+Note במלואם, כמו s08_cancelDuplicateFlag, כי
+        // אין יותר שורת תאום קיימת להצביע עליה.
+        sheet.getRange(row, 18).clearContent().clearNote();
+        fixedCount++;
+        Logger.log("[S08] s08_fixReferencesAfterDelete — שורה " + row + ": File_ID (" + noteId + ") נמחק לגמרי — R+Note נוקו");
+      }
+    }
+
+    Logger.log("[S08] s08_fixReferencesAfterDelete — תוקנו " + fixedCount + " רפרנסים");
+  } catch (e) {
+    Logger.log("[S08] שגיאת s08_fixReferencesAfterDelete: " + e.message);
+  }
 }
