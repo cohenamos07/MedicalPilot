@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 3.3 | @updated 02/07/2026 19:35 | @service DEV_SYNC
+ * @version 3.4 | @updated 09/07/2026 16:29 | @service DEV_SYNC
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/DevSyncInspector.gs
  * @description מנוע סנכרון ודיווח בין עורך GAS לגיטהאב — 15 עמודות + אזור מרחבי.
  * @impacts אחריות: נתוני דוח בלבד (שורות 5+) + כותרות N+ בשורה 4 + גיבוי קוד מקור מלא בשורה 70 (במצב CLIP).
@@ -15,6 +15,23 @@
  *            devSync_getGitFilesMap, devSync_fetchGitFileContent, devSync_extractVersionLine,
  *           devSync_extractImpactsText, devSync_parseVersionParts, devSync_extractDate,
  *             devSync_OpenSheet, onSelectionChange, devSync_BackupCodeToRow70Dynamic
+ * @changes [v3.4] Task 95 (תיקון אמיתי) — v3.3 טענה "אינטגרציה מלאה" אך זו
+ *          הייתה שגויה בשתי נקודות שאומתו בקריאת קוד חי:
+ *          (1) devSync_BackupCodeToRow70Dynamic הוגדרה אך מעולם לא נקראה
+ *              משום מקום — לא מ-devSync_SyncToGit (כפתור "העלה לגיטהאב")
+ *              ולא מכל פונקציה אחרת בקובץ — קוד מת לגמרי.
+ *          (2) גם אילו הייתה נקראת: השתמשה ב-ScriptApp.getResource(fileName)
+ *              — פונקציה שלא קיימת ב-Apps Script API. הייתה נכשלת בשקט
+ *              בכל הרצה (נתפסת ב-try/catch, רק Logger.log, בלי אף כתיבה
+ *              לשורה 70 בפועל).
+ *          התיקון: (א) devSync_SyncToGit קוראת כעת ל-
+ *          devSync_BackupCodeToRow70Dynamic(sheet, fileName) מיד אחרי
+ *          syncEditorFileToGitHub המוצלחת. (ב) devSync_BackupCodeToRow70Dynamic
+ *          הוחלפה לקרוא ל-devSync_getEditorFilesMap() הקיימת (כבר עובדת,
+ *          כבר נקראת ממקומות אחרים בקובץ — אין קריאת API כפולה/חדשה) ולשלוף
+ *          filesMap[fileName].source במקום ScriptApp.getResource. הלוגיקה
+ *          של דרישות (2) כתיבה לעמודה הדינמית ו-(3) CLIP לא שונתה — הייתה
+ *          תקינה מלכתחילה, רק לא הגיעה לשם בגלל (1)+(2) לעיל.
  * @changes [v3.3] משימה 95: אינטגרציה מלאה של פונקציית devSync_BackupCodeToRow70Dynamic לגיבוי קוד מקור מלא בשורה 70 לפי מיפוי דינמי בשורה 4 במצב CLIP.
  *          [v3.2] תיקון Tasks 1,2 — עדכון @git ל-GitHub API URL + הוספת @changes מלא
  *          [v3.1] הוספת שורה 47 באזור המרחבי — רשימת פונקציות חשופות לכל ספרייה.
@@ -240,6 +257,9 @@ function devSync_SyncToGit() {
   Utilities.sleep(1500);
   sheet.getRange(row, 11).setValue("תואם").setBackground(DEV_SYNC_COLOR_GREEN);
   sheet.getRange(row, 12).setValue("");
+
+  // [v3.4] Task 95 — גיבוי קוד מקור מלא לשורה 70 (מצב CLIP), עכשיו מחובר בפועל
+  devSync_BackupCodeToRow70Dynamic(sheet, fileName);
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -747,18 +767,24 @@ function devSync_BackupCodeToRow70Dynamic(sheet, fileName) {
     
     // 2. במידה ונמצאה עמודה מתאימה - שליפת הקוד והזרקתו לשורה 70
     if (targetColumnIndex !== -1) {
-      var scriptResource = ScriptApp.getResource(fileName);
-      if (scriptResource) {
-        var fileContent = scriptResource.asText();
-        if (fileContent && fileContent !== "") {
-          var targetCell = sheet.getRange(70, targetColumnIndex);
-          
-          // כתיבת הקוד והחלת מצב חיתוך (Clip)
-          targetCell.setValue(fileContent);
-          targetCell.setTextWrapStrategy(SpreadsheetApp.TextWrapStrategy.CLIP);
-          
-          Logger.log("משימה 95: קוד מקור מלא עבור " + fileName + " גובה דינמית בעמודה " + targetColumnIndex + " שורה 70.");
-        }
+      // [v3.4] Task 95 — ScriptApp.getResource אינה קיימת ב-Apps Script API
+      // (הייתה נכשלת בשקט תמיד). משתמשים ב-devSync_getEditorFilesMap
+      // הקיימת — כבר קוראת קוד מלא מהעורך דרך Apps Script REST API,
+      // כבר נבדקת ועובדת (נקראת גם ממקומות אחרים בקובץ זה).
+      var filesMap  = devSync_getEditorFilesMap();
+      var fileEntry = filesMap[fileName];
+
+      if (fileEntry && fileEntry.source) {
+        var fileContent = fileEntry.source;
+        var targetCell = sheet.getRange(70, targetColumnIndex);
+
+        // כתיבת הקוד והחלת מצב חיתוך (Clip)
+        targetCell.setValue(fileContent);
+        targetCell.setTextWrapStrategy(SpreadsheetApp.TextWrapStrategy.CLIP);
+
+        Logger.log("משימה 95: קוד מקור מלא עבור " + fileName + " גובה דינמית בעמודה " + targetColumnIndex + " שורה 70.");
+      } else {
+        Logger.log("משימה 95: לא נמצא תוכן קוד עבור " + fileName + " ב-devSync_getEditorFilesMap.");
       }
     } else {
       Logger.log("משימה 95: לא נמצאה עמודה מתאימה בשורה 4 או 5 עבור הקובץ " + fileName);
@@ -768,5 +794,3 @@ function devSync_BackupCodeToRow70Dynamic(sheet, fileName) {
     Logger.log("שגיאה במשימה 95 בגיבוי דינמי עבור " + fileName + ": " + err.message);
   }
 }
-
-
