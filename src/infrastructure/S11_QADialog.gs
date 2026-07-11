@@ -1,16 +1,39 @@
 <!--
   MedicalPilot — S11_QADialog.html
-  @version 1.3.0 | @updated 05/07/2026 19:26 | @service S11
+  @version 1.5.0 | @updated 10/07/2026 17:34 | @service S11
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QADialog.html
   @description ממשק HTML לדוח ממצאי QA — טבלת ממצאים עם צ'קבוקסים,
                סינון לפי קוד שגיאה, קיבוץ E11 לפי הפניה, כפתור תקן נבחרים.
+               [v1.5.0] בקשת עמוס — אחרי "תקן נבחרים", אם היו ממצאי E17
+               שהוסלמו בפועל (fix="write" ל-R, לא "flag" ראשוני) — מוצג
+               מודל אישור נפרד עם רשימת השורות, ורק אישור מפורש שני מוחק
+               אותן (qa_deleteE17Findings → s08_deleteSpecificRows, row-only
+               ללא Drive — E17=מקור ממילא חסר). מוגבל בכוונה ל-E17 בלבד.
   @impacts נקרא מ-S11_QArun.gs דרך HtmlService — מציג ממצאים ומאשר תיקונים.
            שולח תיקונים חזרה ל-S11_QArun.gs דרך google.script.run.
+           [v1.5.0] מחיקת שורות E17 (לאחר אישור) — S11_QArun.gs מבצעת
+           את הקריאה בפועל ל-S08_Validate.gs; הדיאלוג עצמו לא כותב/מוחק דבר.
            [v1.2.0] תומך כעת גם בממצאי מחיקת שורה מלאה (E16) ובממצאי
            עדכון Note בלבד (E18) — ללא שינוי בזרימת האישור הידני.
   @callers S11_QArun.gs (runQAViewMain)
   @functions initFindings, buildFilterButtons, filterBy, renderTable,
-             toggleSelectAll, updateSelectedCount, applySelected
+             toggleSelectAll, updateSelectedCount, applySelected,
+             showDeleteE17Modal, closeDeleteE17Modal, doDeleteE17Rows
+  @changes [v1.5.0] בקשת עמוס — ראה @description לפירוט מלא. נוסף מודל
+           HTML חדש (#deleteE17Modal, לפי אותו דפוס עיצוב מ-S08_Sidebar.html)
+           + CSS ייעודי + 3 פונקציות JS. applySelected() בודקת כעת גם
+           result.e17Rows ומציגה את המודל אם לא ריק — ללא שינוי בהתנהגות
+           הקיימת לשאר סוגי הממצאים.
+  @changes [v1.4.0] תיקון "תקן נבחרים" מציג הצלחה גם כשלא תיקן כלום —
+           applySelected() קיבלה result מ-qa_applySelectedFixes (S11_QArun.gs
+           v1.16.0, עכשיו {success, appliedCount, totalRequested, msg} במקום
+           boolean גס) אך מעולם לא בדקה אותו — תמיד הציגה "✅ תוקנו X
+           ממצאים" (X = כמה שנשלחו, לא כמה שבאמת תוקנו). אומת בפועל ע"י
+           עמוס: לחיצה על 9 ממצאים הציגה הצלחה, אך בדיקה ישירה בגליון
+           הראתה 0 שינויים. התיקון: מציג את result.msg האמיתי (כולל אבחנה
+           בין הצלחה מלאה/חלקית/כישלון), עם console.log בכל שלב לאבחון
+           עתידי אם עדיין לא יתוקן בפועל. גם הוסרה שורת דיבוג ישנה
+           ('RAW: '+findingsJson.substring...) שלא הייתה אמורה להישאר.
   @changes [v1.3.0] Task 100 — הוספת badge-E22 (מקור חסר לצמיתות + delete_row).
            checkbox של E22 אינו מסומן כברירת מחדל (אותה לוגיקה קיימת לפי
            fix==='delete_row', לא נדרש שינוי קוד — רק CSS חדש לצבע התג).
@@ -195,8 +218,30 @@
 
   .selected-count { font-size: 12px; color: #555; margin-right: 8px; }
 
-  .spinner { display: none; font-size: 12px; color: #888; }
+ .spinner { display: none; font-size: 12px; color: #888; }
   .spinner.visible { display: inline; }
+
+  /* [v1.5.0] בקשת עמוס — מודל אישור מחיקת שורות E17 שהוסלמו */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45);
+    align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal-overlay.visible { display: flex; }
+  .modal-box {
+    background: #fff; border-radius: 8px; padding: 18px;
+    width: 420px; max-height: 70vh; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .modal-title { font-size: 14px; font-weight: 700; color: #c62828; }
+  .modal-text  { font-size: 12px; color: #444; line-height: 1.5; white-space: pre-wrap; }
+  .modal-actions { display: flex; gap: 6px; }
+  .modal-btn {
+    border: none; border-radius: 5px; padding: 8px 14px;
+    font-size: 12px; font-weight: 700; cursor: pointer; color: #fff;
+  }
+  .modal-btn-delete { background: #c62828; }
+  .modal-btn-cancel { background: #999; }
 </style>
 </head>
 <body>
@@ -237,6 +282,17 @@
   <span class="spinner" id="spinner">⏳ מתקן...</span>
 </div>
 
+<!-- ════ [v1.5.0] בקשת עמוס — מודל אישור מחיקת שורות E17 שהוסלמו ════ -->
+<div class="modal-overlay" id="deleteE17Modal">
+  <div class="modal-box">
+    <div class="modal-title">⚠️ מחיקת שורות E17 — מקור אבד לצמיתות</div>
+    <div class="modal-text" id="deleteE17ModalText"></div>
+    <div class="modal-actions" id="deleteE17ModalActions">
+      <button class="modal-btn modal-btn-delete" onclick="doDeleteE17Rows()">🗑️ מחק שורות אלה</button>
+      <button class="modal-btn modal-btn-cancel" onclick="closeDeleteE17Modal()">ביטול</button>
+    </div>
+  </div>
+</div>
 <script>
   var allFindings   = [];
   var activeFilter  = 'all';
@@ -325,7 +381,7 @@ function updateSelectedCount() {
   }
 
   // טעינת נתונים מוזרקים ישירות מ-GAS
-  document.getElementById('totalCount').textContent = 'RAW: ' + '<?= findingsJson ?>'.substring(0, 50);
+  // [v1.4.0] הוסרה שורת דיבוג ישנה שהציגה 'RAW: '+findingsJson.substring(0,50)
   try {
     var raw    = '<?= findingsJson ?>';
     var parsed = JSON.parse(raw);
@@ -346,21 +402,97 @@ function applySelected() {
       return checkedIdxs.indexOf(f.origIdx) !== -1;
     });
 
+    // [v1.4.0] אבחון — לוג מלא של מה שבאמת נשלח, לפני השליחה
+    console.log('[S11 QA] checkedIdxs:', checkedIdxs);
+    console.log('[S11 QA] selectedFindings (' + selectedFindings.length + '):', selectedFindings);
+
     document.getElementById('btnFix').disabled = true;
     document.getElementById('spinner').classList.add('visible');
 
     google.script.run
       .withSuccessHandler(function(result) {
+        console.log('[S11 QA] qa_applySelectedFixes result:', result);
         document.getElementById('spinner').classList.remove('visible');
-        document.getElementById('totalCount').textContent = '✅ תוקנו ' + selectedFindings.length + ' ממצאים';
-        document.getElementById('btnFix').textContent = 'הושלם';
+        // [v1.4.0] תיקון קריטי — result נבדק בפועל, לא רק מוצג טקסט קבוע.
+        // qa_applySelectedFixes (S11_QArun.gs v1.16.0) מחזירה כעת
+        // {success, appliedCount, totalRequested, msg} — מציגים msg אמיתי.
+        if (result && typeof result === 'object') {
+          document.getElementById('totalCount').textContent = result.msg;
+          document.getElementById('btnFix').textContent = result.success ? 'הושלם' : 'תקן שוב';
+          document.getElementById('btnFix').disabled = result.success; // נשאר לחיץ אם נכשל חלקית
+
+          // [v1.5.0] בקשת עמוס — אם היו ממצאי E17 שהוסלמו בפועל (fix="write"
+          // ל-R, לא רק "flag" ראשוני) — מציעים מחיקה מיידית, מאחורי מודל
+          // אישור נפרד. לא נוגע בשום ממצא אחר (E16/E22/E25 וכו').
+          if (result.e17Rows && result.e17Rows.length > 0) {
+            showDeleteE17Modal(result.e17Rows);
+          }
+        } else {
+          // תאימות לאחור אם השרת עדיין ישן (boolean) — לא אמור לקרות אחרי ההדבקה
+          console.error('[S11 QA] result אינו אובייקט — יתכן שהשרת לא עודכן ל-v1.16.0');
+          document.getElementById('totalCount').textContent = '⚠️ תשובה לא צפויה מהשרת — בדוק שS11_QArun.gs עודכן';
+          document.getElementById('btnFix').disabled = false;
+        }
       })
       .withFailureHandler(function(err) {
+        console.error('[S11 QA] qa_applySelectedFixes נכשלה:', err);
         document.getElementById('spinner').classList.remove('visible');
         document.getElementById('btnFix').disabled = false;
         alert('שגיאה: ' + err.message);
       })
       .qa_applySelectedFixes(JSON.stringify(selectedFindings));
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // [v1.5.0] בקשת עמוס — מחיקת שורות E17 שהוסלמו, מאחורי אישור נפרד.
+  // קורא ל-qa_deleteE17Findings (S11_QArun.gs) שקוראת בתורה ל-
+  // s08_deleteSpecificRows (S08_Validate.gs) — row-only, ללא Drive.
+  // ══════════════════════════════════════════════════════════════
+
+  var _e17RowsPendingDelete = [];
+
+  function showDeleteE17Modal(e17Rows) {
+    _e17RowsPendingDelete = e17Rows;
+
+    var rowsList = e17Rows.map(function (r) {
+      return 'שורה ' + r.row + ' — ' + r.reason;
+    }).join('\n');
+
+    document.getElementById('deleteE17ModalText').textContent =
+      'הוסלמו כעת ' + e17Rows.length + ' שורות E17 (מקור אבד לצמיתות):\n\n' + rowsList +
+      '\n\n⚠️ מחיקה כאן היא שורה בלבד מהגליון — בלי נגיעה ב-Drive (אין קובץ מקור קיים למחוק ב-E17). ' +
+      'לא ניתן לבטל. האם למחוק את השורות האלה עכשיו?';
+
+    document.getElementById('deleteE17Modal').classList.add('visible');
+  }
+
+  function closeDeleteE17Modal() {
+    document.getElementById('deleteE17Modal').classList.remove('visible');
+    _e17RowsPendingDelete = [];
+  }
+
+  function doDeleteE17Rows() {
+    if (!_e17RowsPendingDelete.length) { closeDeleteE17Modal(); return; }
+
+    var rowNumbers = _e17RowsPendingDelete.map(function (r) { return r.row; });
+    var actions = document.getElementById('deleteE17ModalActions');
+    var text    = document.getElementById('deleteE17ModalText');
+    text.textContent = '⏳ מוחק...';
+    actions.innerHTML = '';
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        text.textContent = res.msg;
+        actions.innerHTML =
+          '<button class="modal-btn modal-btn-cancel" onclick="closeDeleteE17Modal()">סגור</button>';
+        _e17RowsPendingDelete = [];
+      })
+      .withFailureHandler(function (err) {
+        text.textContent = '❌ ' + ((err && err.message) || err);
+        actions.innerHTML =
+          '<button class="modal-btn modal-btn-cancel" onclick="closeDeleteE17Modal()">סגור</button>';
+      })
+      .qa_deleteE17Findings(JSON.stringify(rowNumbers));
   }
 </script>
 </body>
