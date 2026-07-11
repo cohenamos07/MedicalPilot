@@ -1,8 +1,18 @@
 /**
  * MedicalPilot — S08_Validate.gs
- * @version 1.0.19 | @updated 09/07/2026 21:29 | @service S08
+ * @version 1.0.21 | @updated 11/07/2026 22:19 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
+ * @changes     [v1.0.21] Task 133 [שלב 5/8, שרשרת עמודה 27] — מעבר מלא
+ *              מ-Note לעמודה 27 (Duplicate_Target_FileID). שלושה מקומות
+ *              עברו מ-getNote()/clearNote() לקריאה/כתיבה ישירה של עמודה 27:
+ *              s08_getDuplicateRowData, _s08_getDuplicateRowNumber,
+ *              s08_cancelDuplicateFlag. s08_fixReferencesAfterDelete פושטה
+ *              משמעותית (אישור מפורש של עמוס, אפשרות א') — הוסרה לגמרי
+ *              לוגיקת תיקון "שורה X" שהתיישן (regex), כי File_ID בעמודה 27
+ *              לא "זז" יותר גם אחרי מחיקת שורות סביבו. נשאר רק ניקוי מיידי
+ *              של רפרנס יתום (R+עמודה27) כשה-File_ID שהצביע אליו נמחק
+ *              לגמרי מהגליון — ללא המתנה לסריקת S11 (E12) הבאה.
  * @changes     [v1.0.19] Task 109 (המשך) — s08_fixReferencesAfterDelete
  *              טיפלה רק במקרה שה-File_ID שב-Note "זז" למיקום אחר (actualRow
  *              truthy). לא טופל בכלל המקרה שה-File_ID נמחק *לגמרי* מהגליון
@@ -36,8 +46,8 @@
  *              ותיקון הרפרנסים נכתבים במלואם ל-Sheet לפני שהתשובה חוזרת
  *              ללקוח, ולפני שקריאה נוספת עלולה להיורות. הקשחה הגנתית
  *              מוצדקת הנדסית (best-practice בכל מקרה), לא ניחוש עיוור.
- * @impacts     קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,P,Q,R,W,X.
- *              כתיבה: ניהול_מיילים עמודות I,J,K,L,M,U + גיליון דוגמאות_למידה (8 עמודות).
+ * @impacts     קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,P,Q,R,W,X, ועמודה 27.
+ *              כתיבה: ניהול_מיילים עמודות I,J,K,L,M,U,27 + גיליון דוגמאות_למידה (8 עמודות).
  *              4 כפתורים: אישור / עדכון+למידה / למידה יזומה / מחיקה.
  *              בדיקת כפולים אוטומטית מול ניהול_מיילים ומול דוגמאות_למידה.
  *              [v1.0.13] Task 111 — s08_loadRowByNumber מקבלת פרמטר נוסף
@@ -51,9 +61,8 @@
  *              יחד עם s08_delete הקיים — S11 עצמו לא מוחק שורות בשום מקרה.
  *              [v1.0.12] Task 109 — s08_fixReferencesAfterDelete: לאחר כל מחיקה
  *              אמיתית (מ-s08_delete או מ-s08_deleteApproved), עובר על כל עמודה R,
- *              בודק את ה-Note מול מיקום ה-File_ID העדכני, ומתקן "שורה X" שהתיישן
- *              עקב הזזת שורות — לוגיקה מקבילה ל-E21 ב-S11_QArun.gs, אך מוגבלת
- *              ומקומית לקובץ זה בלבד (S08 אינו קורא לפונקציה מ-S11).
+ *              [v1.0.21] כעת בודק מול עמודה 27 (לא Note) אם ה-File_ID עדיין
+ *              קיים בגליון — מנקה רפרנס יתום אם לא. אין יותר תיקון "שורה X".
  *              תלויות: S08_Sidebar.html, COLUMN_MAP.gs (SHEET_CONFIG), Drive API.
  * @callers     runS08ViewIcon (ViewEngine עמודה N) | Menu_PROD
  * @functions   showMainSidebar, _s08_getRowData, s08_loadRowData,
@@ -64,8 +73,18 @@
  *              s08_approve, s08_updateAndLearn, s08_learnOnly,
  *              _s08_saveToLearning, s08_delete,
  *              _s08_trashDriveFile, _s08_getDuplicateRowNumber,
- *              s08_deleteApproved, s08_fixReferencesAfterDelete
- * @changes     [v1.0.16] Task 124 — תלות עבור Task 125 (תצוגת שני מסמכי
+ *              s08_deleteApproved, s08_fixReferencesAfterDelete,
+ *              s08_previewApprovedForDeletion
+ * @changes     [v1.0.20] בקשת עמוס — s08_deleteApproved() הייתה קיימת ומוכנה
+ *              (Task 114, 07/07) אך מעולם לא חוברה לשום כפתור בממשק —
+ *              הופעלה עד כה רק ידנית מהעורך, ללא כל בקשת אישור. נוסף
+ *              s08_previewApprovedForDeletion() — פונקציית תצוגה מקדימה
+ *              קריאה-בלבד (ללא כתיבה), מחזירה את רשימת השורות שיימחקו כדי
+ *              שה-Sidebar יציג אותן במודל אישור מפורש (S08_Sidebar.html
+ *              v1.0.17: כפתור "🗑️ מחק מאושרות" בכותרת) לפני קריאה בפועל
+ *              ל-s08_deleteApproved() הקיימת. לוגיקת s08_deleteApproved
+ *              עצמה לא השתנתה כלל — רק חוברה לראשונה לממשק.
+ *          [v1.0.16] Task 124 — תלות עבור Task 125 (תצוגת שני מסמכי
  *              מקור בכרטיס חשד כפילות, ללא ניווט/קפיצה):
  *              (1) s08_getDuplicateRowData מחזירה כעת גם sourceUrl ו-txtUrl
  *                  של שורת התאום (בנוסף לשדות הקיימים) — אותה לוגיקת
@@ -461,8 +480,9 @@ function s08_getDuplicateRowData(duplicateFlag, currentRow) {
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName("ניהול_מיילים");
 
-    // [v1.0.11] קריאת File_ID מ-Note של תא R בשורה הנוכחית
-    const fileId = sheet.getRange(currentRow, 18).getNote() || "";
+    // [v1.0.21] Task 133 — קריאת File_ID מעמודה 27 (Duplicate_Target_FileID)
+    // במקום Note על תא R
+    const fileId = (sheet.getRange(currentRow, 27).getValue() || "").toString().trim();
     if (!fileId) return null;
 
     // חיפוש File_ID בעמודה A לקבלת מספר שורה עדכני
@@ -498,7 +518,6 @@ function s08_getDuplicateRowData(duplicateFlag, currentRow) {
     return null;
   }
 }
-
 // ══════════════════════════════════════════════════════════════════
 // [v1.0.16] Task 124 — ביטול חשד כפילות (סימטרי, בלי מחיקת נתונים)
 // ══════════════════════════════════════════════════════════════════
@@ -511,11 +530,14 @@ function s08_cancelDuplicateFlag(currentRow, dupRow) {
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName("ניהול_מיילים");
 
-    // ניקוי R (Duplicate_Flag) + Note — בשתי השורות, סימטרית במלואה
-    sheet.getRange(currentRow, 18).clearContent().clearNote();
-    sheet.getRange(dupRow, 18).clearContent().clearNote();
+    // [v1.0.21] Task 133 — ניקוי R (Duplicate_Flag) + עמודה 27 — בשתי השורות,
+    // סימטרית במלואה (במקום R+Note)
+    sheet.getRange(currentRow, 18).clearContent();
+    sheet.getRange(currentRow, 27).setValue("");
+    sheet.getRange(dupRow, 18).clearContent();
+    sheet.getRange(dupRow, 27).setValue("");
 
-    Logger.log("[S08] Task 124 — בוטל חשד כפילות בין שורה " + currentRow + " לשורה " + dupRow + " (R+Note נוקו בשתיהן).");
+    Logger.log("[S08] Task 124 — בוטל חשד כפילות בין שורה " + currentRow + " לשורה " + dupRow + " (R+עמודה27 נוקו בשתיהן).");
     return { success: true, msg: "✅ חשד הכפילות בוטל — R נוקה בשתי השורות (" + currentRow + " ו-" + dupRow + ")" };
   } catch (e) {
     Logger.log("[S08] שגיאה ב-s08_cancelDuplicateFlag: " + e.message);
@@ -714,8 +736,8 @@ function _s08_trashDriveFile(url) {
 }
 
 function _s08_getDuplicateRowNumber(sheet, currentRow) {
-  // [v1.0.11] קריאת File_ID מ-Note של תא R → חיפוש בעמודה A
-  const fileId = sheet.getRange(currentRow, 18).getNote() || "";
+  // [v1.0.21] Task 133 — קריאת File_ID מעמודה 27 → חיפוש בעמודה A
+  const fileId = (sheet.getRange(currentRow, 27).getValue() || "").toString().trim();
   if (!fileId) return null;
   const colA   = sheet.getRange(5, 1, sheet.getLastRow() - 4, 1).getValues();
   const idx    = colA.findIndex(function(r) { return r[0] === fileId; });
@@ -723,8 +745,46 @@ function _s08_getDuplicateRowNumber(sheet, currentRow) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// [v1.0.20] Task 118-נגזרת — תצוגה מקדימה בלבד (ללא כתיבה/מחיקה)
+// נקראת מה-Sidebar לפני אישור, כדי להציג לעמוס בדיוק אילו שורות יימחקו
+// לפני שהוא מאשר סופית. אותה לוגיקת סריקה בדיוק כמו תחילת
+// s08_deleteApproved — קריאה בלבד, ללא שום פעולת כתיבה.
+// ══════════════════════════════════════════════════════════════════
+
+function s08_previewApprovedForDeletion() {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("ניהול_מיילים");
+    if (!sheet) return { success: false, msg: "❌ גליון 'ניהול_מיילים' לא נמצא", rows: [] };
+
+    const firstRow = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW;
+    const lastRow  = sheet.getLastRow();
+    if (lastRow < firstRow) return { success: true, msg: "אין נתונים בגליון", rows: [] };
+
+    const numRows = lastRow - firstRow + 1;
+    const rValues = sheet.getRange(firstRow, 18, numRows, 1).getValues();
+
+    const rows = [];
+    for (let i = 0; i < numRows; i++) {
+      const rText = (rValues[i][0] || "").toString().trim();
+      if (rText.indexOf("מאושר למחיקה") === 0) {
+        rows.push({ row: firstRow + i, reason: rText });
+      }
+    }
+
+    return { success: true, msg: rows.length + " שורות מסומנות למחיקה", rows: rows };
+  } catch (e) {
+    Logger.log("[S08] שגיאת s08_previewApprovedForDeletion: " + e.message);
+    return { success: false, msg: "❌ שגיאה: " + e.message, rows: [] };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // [v1.0.12] Task 114 — מחיקה מרוכזת של שורות "מאושר למחיקה"
 // נקודת המחיקה המרכזית היחידה יחד עם s08_delete — S11 עצמו לא מוחק בשום מקרה.
+// [v1.0.20] מחוברת כעת לראשונה לממשק — כפתור "🗑️ מחק מאושרות" ב-Sidebar,
+// מאחורי מודל אישור מפורש (S08_Sidebar.html: confirmDeleteApproved).
+// הלוגיקה הפנימית של הפונקציה עצמה לא השתנתה כלל.
 // ══════════════════════════════════════════════════════════════════
 
 function s08_deleteApproved() {
@@ -803,11 +863,14 @@ function s08_fixReferencesAfterDelete() {
     const lastRow  = sheet.getLastRow();
     if (lastRow < firstRow) return;
 
-    const numRows  = lastRow - firstRow + 1;
-    const colAVals = sheet.getRange(firstRow, 1, numRows, 1).getValues();
-    const rRange   = sheet.getRange(firstRow, 18, numRows, 1);
-    const rVals    = rRange.getValues();
-    const rNotes   = rRange.getNotes();
+    // [v1.0.21] Task 133 — פישוט מלא (אישור עמוס, אפשרות א'). File_ID
+    // בעמודה 27 לא "זז" יותר אחרי מחיקת שורות, אז אין יותר "שורה X"
+    // שמתיישנת בטקסט לתקן. נשאר רק ניקוי מיידי של רפרנס יתום: אם
+    // ה-File_ID שבעמודה 27 נמחק לגמרי מהגליון, מנקים R+עמודה27.
+    const numRows   = lastRow - firstRow + 1;
+    const colAVals  = sheet.getRange(firstRow, 1, numRows, 1).getValues();
+    const rVals     = sheet.getRange(firstRow, 18, numRows, 1).getValues();
+    const col27Vals = sheet.getRange(firstRow, 27, numRows, 1).getValues();
 
     // מפת File_ID → שורה נוכחית, לפי המצב האמיתי אחרי המחיקה
     const fileIdRowMap = {};
@@ -819,34 +882,22 @@ function s08_fixReferencesAfterDelete() {
     let fixedCount = 0;
 
     for (let i = 0; i < numRows; i++) {
-      const row    = firstRow + i;
-      const rText  = (rVals[i][0]  || "").toString().trim();
-      const noteId = (rNotes[i][0] || "").toString().trim();
-      if (!rText || !noteId) continue;
+      const row     = firstRow + i;
+      const rText   = (rVals[i][0]    || "").toString().trim();
+      const col27Id = (col27Vals[i][0] || "").toString().trim();
+      if (!rText || !col27Id) continue;
 
-      const match = rText.match(/שורה\s+(\d+)/);
-      if (!match) continue;
-
-      const writtenRow = parseInt(match[1], 10);
-      const actualRow  = fileIdRowMap[noteId];
-
-      if (actualRow && actualRow !== writtenRow) {
-        const fixedText = rText.replace(/שורה\s+\d+/, "שורה " + actualRow);
-        sheet.getRange(row, 18).setValue(fixedText);
+      if (!fileIdRowMap[col27Id]) {
+        // ה-File_ID שבעמודה 27 לא נמצא יותר בגליון (נמחק כרגע) —
+        // אין יותר שורת תאום קיימת להצביע עליה. מנקים R+עמודה27.
+        sheet.getRange(row, 18).clearContent();
+        sheet.getRange(row, 27).setValue("");
         fixedCount++;
-        Logger.log("[S08] s08_fixReferencesAfterDelete — שורה " + row + ": " + writtenRow + " → " + actualRow);
-      } else if (!actualRow) {
-        // [v1.0.19] Task 109 — ה-File_ID לא נמצא בכלל בגליון (נמחק לגמרי,
-        // לא רק "זז"). המקרה הזה לא טופל קודם — הטקסט הישן היה נשאר תקוע
-        // לצמיתות. מנקים R+Note במלואם, כמו s08_cancelDuplicateFlag, כי
-        // אין יותר שורת תאום קיימת להצביע עליה.
-        sheet.getRange(row, 18).clearContent().clearNote();
-        fixedCount++;
-        Logger.log("[S08] s08_fixReferencesAfterDelete — שורה " + row + ": File_ID (" + noteId + ") נמחק לגמרי — R+Note נוקו");
+        Logger.log("[S08] s08_fixReferencesAfterDelete — שורה " + row + ": File_ID (" + col27Id + ") נמחק — R+עמודה27 נוקו");
       }
     }
 
-    Logger.log("[S08] s08_fixReferencesAfterDelete — תוקנו " + fixedCount + " רפרנסים");
+    Logger.log("[S08] s08_fixReferencesAfterDelete — נוקו " + fixedCount + " רפרנסים יתומים");
   } catch (e) {
     Logger.log("[S08] שגיאת s08_fixReferencesAfterDelete: " + e.message);
   }
