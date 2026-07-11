@@ -1,6 +1,6 @@
 /**
  * @file        S07_Classify.gs
- * @version     2.8.0 | @updated 09/07/2026 15:47 | @service S07
+ * @version     2.9.0 | @updated 11/07/2026 21:44 | @service S07
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S07_Classify.gs
  * @description סיווג מסמכים רפואיים בעזרת Gemini API.
  *              קורא טקסט מ-TXT_URL (X) או Raw_Text (Z).
@@ -12,12 +12,13 @@
  *              L(12)=Doc_Category | M(13)=Pipeline_Status
  *              N(14)=Extraction_Status | Q(17)=Complexity
  *              R(18)=Duplicate_Flag | S(19)=Error_Code | T(20)=Error_Detail
+ *              AA(27)=Duplicate_Target_FileID [v2.9.0, Task 131]
  *              קורא: X(24)=TXT_URL | Z(26)=Raw_Text
  *              תלויות: GEMINI_API_KEY, COLUMN_MAP.SHEETS_MAP,
  *                      מנהל_משאבים (getAvailableExtractor),
  *                      דוגמאות_למידה (גליון)
- * @callers     runS07Icon (ViewEngine) | classifyDocument (תפריט)
- *              nightlyConvertBatch (S_Scheduler — אצווה לילית)
+ * @callers     runS07Icon (ViewEngine) | classifyDocument (תפריט, ידני בלבד)
+ *              run_S07_ActiveRow (תפריט, ידני בלבד)
  * @functions   classifyDocument | run_S07_ActiveRow | executeS07Classification
  *              _processS07Batch | _getS07ColumnMap | _getColDefByName
  *              _safeWrite | _safeClear | _callAiWithFullPrompt_S07
@@ -26,6 +27,33 @@
  *              _calculateDuplicates_S07 | _extractTxtHeader_S07
  *              _guardAlreadyClassified_S07
  *              S07_ValidateWritePermissions
+ * @changes     [v2.9.0] Task 131 [שלב 3/8, שרשרת עמודה 27] — שינוי בלוק
+ *              זיהוי הכפילות (Task 91 המקורי) בתוך executeS07Classification.
+ *              (1) שתי קריאות ה-setNote(File_ID) על עמודה R (18) — הוחלפו
+ *              ב-setValue(File_ID) על עמודה 27 (AA, Duplicate_Target_FileID),
+ *              סימטרי לשתי השורות, בדיוק כמו קודם. R (18) עצמה נשארת עם
+ *              setValue של Duplicate_Flag בלבד — לא Note. (2) הוסר "— שורה X"
+ *              מטקסט R שנכתב לשתי השורות. "| ניקוד Y/5" נשאר בטקסט בינתיים
+ *              (החלטה מפורשת — עמודת ניקוד נפרדת נדחתה לעתיד). הפורמט
+ *              החדש: "כפול מאושר | ניקוד Y/5" במקום "כפול מאושר — שורה X
+ *              | ניקוד Y/5". (3) מחרוזת "חשוד כלוגו/ריק" (E25, נכתבת ע"י
+ *              S11 לא ע"י S07) אינה מושפעת כלל משינוי זה.
+ *              ⚠️ תלות הפעלה קריטית: קוד זה תלוי בכך ש-Task 129+130 כבר
+ *              רצו בהצלחה (עמודה 27 קיימת ומאוכלסת מנתונים היסטוריים).
+ *              ⚠️ אזהרת רצף עבודה: לפי החלטת עמוס — אין להריץ סיווג מסמכים
+ *              (executeS07Classification/_processS07Batch) בפועל אחרי
+ *              העלאת גרסה זו, עד ש-Task 132 (S11_QArun.gs) ו-Task 133
+ *              (S08_Validate.gs) יועלו גם הם — אחרת כפילויות חדשות שייכתבו
+ *              רק לעמודה 27 לא יזוהו נכון ע"י הגרסאות הישנות של S11/S08
+ *              שעדיין קוראות מ-Note/"שורה X".
+ * @changes     [v2.8.1] Task 119 — תיקון תיעוד @callers: הוסר אזכור שגוי של
+ *              "nightlyConvertBatch (S_Scheduler — אצווה לילית)". אומת בקריאת
+ *              קוד חי: nightlyConvertBatch (ב-S06_ConvertTXT.gs) קוראת אך ורק
+ *              ל-_processRow (המרת TXT) ואינה קוראת בשום מקום ל-
+ *              executeS07Classification או ל-_processS07Batch. הקריאה
+ *              היחידה ל-S07 מתבצעת ידנית (אייקון/תפריט) — תואם את שורה 9
+ *              בתיאור ("אינו אוטומטי") שהייתה נכונה כל העת; רק שורת
+ *              @callers הייתה שגויה/מיושנת. אין שינוי בלוגיקה — תיעוד בלבד.
  * @changes     [v2.8.0] Task 120 (השלמה) — התיקון ב-v2.7.0 חסם רק את
  *              הכתיבה ל-R+Note כש-R כבר "מאושר למחיקה", אך _calculateDuplicates_S07
  *              (עד 500 שורות + קריאות Drive בפועל לכל מועמד — הרצה יקרה)
@@ -221,7 +249,6 @@ function _safeClear(sheet, row, colName) {
 // ══════════════════════════════════════════════════════════════════
 // פונקציית ליבה
 // ══════════════════════════════════════════════════════════════════
-
 function executeS07Classification(row) {
   const firstRow = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW;
   if (row < firstRow) {
@@ -267,11 +294,13 @@ function executeS07Classification(row) {
     } else {
       const dupResult = _calculateDuplicates_S07(row, sheet, fullText);
       if (dupResult) {
-        const dupFlag = "כפול מאושר — שורה " + dupResult.sheetRow + " | ניקוד " + dupResult.score + "/5";
+        // [v2.9.0] Task 131 — הוסר "— שורה X" מהטקסט. "ניקוד" נשאר בינתיים.
+        const dupFlag = "כפול מאושר | ניקוד " + dupResult.score + "/5";
         _safeWrite(sheet, row, "Duplicate_Flag", dupFlag);
-        // Note של שורה Y = File_ID של שורת המטרה X
+        // [v2.9.0] Task 131 — עמודה 27 (AA) במקום Note על R.
+        // עמודה 27 של שורה Y = File_ID של שורת המטרה X
         const dupTargetFileId = (sheet.getRange(dupResult.sheetRow, 1).getValue() || "").toString().trim();
-        if (dupTargetFileId) { sheet.getRange(row, 18).setNote(dupTargetFileId); }
+        if (dupTargetFileId) { sheet.getRange(row, 27).setValue(dupTargetFileId); }
 
         // [v2.8.0] הגנת שורת ה"תאום" — הורחבה לבדוק גם "כפול מאושר" (לא
         // רק "מאושר למחיקה" כמו ב-v2.7.0), לעקביות עם הבדיקה הראשית למעלה.
@@ -282,13 +311,15 @@ function executeS07Classification(row) {
             mirrorRFlag.indexOf("מאושר למחיקה") === 0;
 
           if (isMirrorSettled) {
-            Logger.log("[S07] Task 120 — דילוג על עדכון R+Note בשורה " + dupResult.sheetRow +
+            Logger.log("[S07] Task 120 — דילוג על עדכון R+עמודה27 בשורה " + dupResult.sheetRow +
                         ": R כבר במצב סופי ('" + mirrorRFlag + "') — לא נדרס.");
           } else {
-            const mirrorFlag = "כפול מאושר — שורה " + row + " | ניקוד " + dupResult.score + "/5";
+            // [v2.9.0] Task 131 — הוסר "— שורה X" מהטקסט. "ניקוד" נשאר בינתיים.
+            const mirrorFlag = "כפול מאושר | ניקוד " + dupResult.score + "/5";
             _safeWrite(sheet, dupResult.sheetRow, "Duplicate_Flag", mirrorFlag);
-            // Note של שורה X = File_ID של שורה Y (fileIdForNote)
-            if (fileIdForNote) { sheet.getRange(dupResult.sheetRow, 18).setNote(fileIdForNote); }
+            // [v2.9.0] Task 131 — עמודה 27 (AA) במקום Note על R.
+            // עמודה 27 של שורה X = File_ID של שורה Y (fileIdForNote)
+            if (fileIdForNote) { sheet.getRange(dupResult.sheetRow, 27).setValue(fileIdForNote); }
           }
         } catch (mirrorErr) {
           Logger.log("[S07] סימטריה — לא הצליח לכתוב לשורה " + dupResult.sheetRow + ": " + mirrorErr.message);
