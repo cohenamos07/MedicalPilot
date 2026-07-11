@@ -1,9 +1,9 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.9.0 | @updated 15/06/2026 12:07 | @service COLUMN_MAP
+ * @version 2.9.1 | @updated 11/07/2026 20:53 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
- * @impacts גיליונות: ניהול_מיילים (26 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
+ * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
  *          יומן_אירועים_רפואי (7 עמודות).
  *          תלויים ישירים: S03 (A-H), S05 (M,O,P,R,S,T), S06 (M,O,P,Q,S,T,X,Y,Z),
  *          S07 (I,J,K,L,M,N,Q,R,S,T), S08 (I,J,K,L,M,U), S09 (גיליון S10),
@@ -17,6 +17,14 @@
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol
+ * @changes [v2.9.1] Task 129 [שלב 1/8] — הוספת עמודה 27 (AA) "Duplicate_Target_FileID"
+ *                   ל-SHEETS_MAP["ניהול_מיילים"] — רפרנס פיזי וגלוי לשורת-התאום בזיהוי
+ *                   כפילויות, שיחליף בהדרגה (שלבים 130-133) את מנגנון ה-Note הבלתי-נראה
+ *                   על עמודה R. עדכון @impacts מ-"26 עמודות" ל-"27 עמודות".
+ *                   ⚠️ שינוי תיעוד בלבד בקובץ זה — אין עדיין שינוי לוגי בשום שירות.
+ *                   הכותרת בפועל בתא AA4 בגליון טרם נכתבה (תתווסף ידנית — אומת מול
+ *                   הגליון החי ש-restoreHeaders() כותבת בטעות לשורה 1 במקום שורה 4,
+ *                   ולכן לא בשימוש כאן). מילוי הנתונים בפועל בעמודה 27 הוא Task 130.
  * @changes [v2.9.0] הוספת "יומן_אירועים_רפואי" ל-SHEET_CONFIG ו-SHEETS_MAP —
  *                   7 עמודות: Event_Date, Event_Type, Medical_System, Issuer,
  *                   Summary, Routing_Category, File_ID
@@ -27,7 +35,6 @@
  *          [v2.6.1] גרסת עורך קודמת
  *          [v2.6.0] [FIX-5] buildS10LearningSheet
  */
-
 // ══════════════════════════════════════════════════════════════════
 // תיעוד — מבנה עמודות גליון ניהול_מיילים
 // ══════════════════════════════════════════════════════════════════
@@ -79,7 +86,7 @@ const SHEETS_MAP = {
     { col: 10, name: "Doc_Issuer",        zone: "Content Metadata", writers: ["S07","S08"],                            readers: [],                          values: "טקסט חופשי",                                                                           notes: "מנפיק המסמך" },
     { col: 11, name: "Doc_Date",          zone: "Content Metadata", writers: ["S07","S08"],                            readers: [],                          values: "תאריך",                                                                                notes: "תאריך המסמך עצמו" },
     { col: 12, name: "Doc_Category",      zone: "Content Metadata", writers: ["S07","S08"],                            readers: [],                          values: "רפואי|חשבונאי|משפטי|ביטוחי|אחר",                                                       notes: "קטגוריה" },
-    { col: 13, name: "Pipeline_Status",   zone: "סטטוסים",          writers: ["S05","S06","S07","S08","S09"],          readers: ["S06","QA"],                values: "ממתין להמרה ל-TXT|הומר ל-TXT|מחולץ|ממתין לאימות|מאושר|חולץ לגליונות",         notes: "סטטוס הרשומה ב-pipeline" },
+    { col: 13, name: "Pipeline_Status",   zone: "סטטוסים",          writers: ["S05","S06","S07","S08","S09"],          readers: ["S06","QA"],                values: "ממתין להמרה ל-TXT|הומר ל-TXT|עבר סיווג|ממתין לאימות|מאושר|חולץ לגליונות",         notes: "סטטוס הרשומה ב-pipeline" },
     { col: 14, name: "Extraction_Status", zone: "סטטוסים",          writers: ["S07"],                                  readers: [],                          values: "ממתין|חולץ חלקי|חולץ מלא",                                                             notes: "סטטוס חילוץ תוכן" },
     { col: 15, name: "File_Type",         zone: "טכני",             writers: ["S05","S06"],                            readers: ["QA"],                      values: "SYSTEM_PDF|SYSTEM_IMG|SYSTEM_GDOC|SYSTEM_DOCX|SYSTEM_TXT|SYSTEM_SHEET",          notes: "סוג קובץ לפי MIME" },
     { col: 16, name: "File_Size",         zone: "טכני",             writers: ["S05","S06"],                            readers: ["QA"],                      values: "XX KB|XX MB",                                                                          notes: "גודל קובץ" },
@@ -92,7 +99,8 @@ const SHEETS_MAP = {
     { col: 23, name: "Source_URL",        zone: "לינקים",           writers: ["S03","S04"],                            readers: ["S06","QA","S08","S09"],    values: "https://drive.google.com/...",                                                          notes: "קישור לקובץ המקורי ב-Drive" },
     { col: 24, name: "TXT_URL",           zone: "לינקים",           writers: ["S06"],                                  readers: ["S05","S07","QA","S08","S09"], values: "https://drive.google.com/...",                                                       notes: "קישור לקובץ TXT שנוצר" },
     { col: 25, name: "Temp_URL",          zone: "לינקים",           writers: ["S06"],                                  readers: [],                          values: "https://drive.google.com/...",                                                          notes: "קישור זמני במהלך המרה" },
-    { col: 26, name: "Raw_Text",          zone: "טקסט גולמי",       writers: ["S06","S07"],                            readers: [],                          values: "טקסט מלא",                                                                             notes: "הטקסט המלא — עמודה אחרונה, רחבה מאוד" }
+    { col: 26, name: "Raw_Text",          zone: "טקסט גולמי",       writers: ["S06","S07"],                            readers: [],                          values: "טקסט מלא",                                                                             notes: "הטקסט המלא — עמודה אחרונה, רחבה מאוד" },
+    { col: 27, name: "Duplicate_Target_FileID", zone: "טכני",       writers: ["S07"],                                  readers: ["S07","S08","S11"],         values: "Drive ID",                                                                             notes: "רפרנס פיזי לשורת-התאום בזיהוי כפילות (Task 129/130) — מחליף getNote() על עמודה R. ריק = אין חשד כפילות פעיל." }
   ],
 
   // [v2.9.0] גליון יעד של S09 — אירועים רפואיים מחולצים
