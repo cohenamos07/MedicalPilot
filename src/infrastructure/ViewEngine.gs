@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.7.0 | @updated 28/06/2026 19:56 | @service VIEWENGINE
+ * @version 2.8.1 | @updated 10/07/2026 12:36 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -13,6 +13,16 @@
  *              נקרא מאייקוני הגליון בלבד — אינו חלק מזרימת עיבוד אוטומטי.
  *              S11 QA — לא מפעיל פילטר שורות, עובד על כל הגליון.
  *              [v2.5.0] תמיכה בגליון יומן_אירועים_רפואי — 2 איקונים.
+ *              [v2.8.0] Task 128 — "הרחב" הפך לדיספצ'ר רב-תכליתי: מיקום הסמן
+ *              (עמודה) בזמן הלחיצה קובע אם מופעל מבט/פילטר ספציפי (8 עמודות
+ *              ממופות ב-COLUMN_TO_VIEWKEY) או ביטול מלא (_doExpand — כל עמודה
+ *              אחרת, כולל A). כל 12 אייקוני-הפעולה (כל ICON_MAP חוץ מ"הרחב")
+ *              מבטלים כל פילטר פעיל בתחילת ריצתם באופן בלתי-תלוי, ללא קשר
+ *              למיקום הסמן — כדי להבטיח שתהליכי S01-S09/QA/S12 תמיד רצים על
+ *              הגליון ללא פילטר פעיל (חשד לשורש Task 123). שינוי זה חל אך
+ *              ורק על ICON_MAP/VIEW_SHEET_NAME (ניהול_מיילים) — אין נגיעה
+ *              ב-MEDICAL_EVENTS_ICON_MAP/runExpandViewEvents/runS10ViewIconEvents
+ *              (יומן_אירועים_רפואי, ארכיטקטורה נפרדת).
  * @impacts     ניהול_מיילים: קורא פילטרים — לא כותב ערכים לתאים.
  *              runStatusCheck כותב צבע רקע לשורות שגויות בלבד.
  *              יומן_אירועים_רפואי: setupMedicalEventsIcons — מכניס 2 איקונים אוטומטית.
@@ -24,7 +34,7 @@
  *                      S11 (runQAViewMain)
  * @callers     אייקוני גליון ניהול_מיילים בלבד — שורה 2
  *              אייקוני גליון יומן_אירועים_רפואי — שורה 2
- * @functions   switchView | viewEngine_buildCriteria | _doExpand
+ * @functions   switchView | viewEngine_buildCriteria | _doExpand | _removeActiveFilter
  *              runExpandView | runSystemCheckIcon | runAccessCheckIcon
  *              runGmailIcon | runWhatsAppIcon | runDriveIcon
  *              runS05Icon | runS06Icon | runS07Icon
@@ -32,7 +42,30 @@
  *              runQAView | runArchiveView | runStatusCheck
  *              setupIcons | cleanAndResetIcons | debugIcons
  *              runExpandViewEvents | runS10ViewIconEvents | setupMedicalEventsIcons
- * @changes     [v2.7.0] הוסר איקון S10 (עמודה 16) מ-ICON_MAP של ניהול_מיילים —
+ * @changes     [v2.8.1] Task 128 — תוקן באג שהתגלה באימות חי אצל עמוס: לחיצה
+ *          על "הרחב" ביטלה פילטרים אך לא גללה בפועל לתחילת הגליון (נשאר
+ *          על השורה שבה היה הסמן). שורש: _doExpand קראה activate() רק
+ *          על A1 — תא בשורות הקפואות (1-4) שתמיד גלוי, ולכן Sheets לא
+ *          מזיז את חלון התצוגה. תוקן: activate() קודם על שורת הנתונים
+ *          הראשונה (5, לא קפואה — מכריח גלילה אמיתית), ואז activate()
+ *          על A1 (קובע את מיקום הסמן הסופי). ראה @functions/_doExpand.
+ *          [v2.8.0] Task 128 — ראה @description לפירוט מלא. בקצרה:
+ *          נוסף COLUMN_TO_VIEWKEY (מיפוי עמודה→viewKey ל-8 מבטים).
+ *          runExpandView הפך מ-_doExpand() ישיר לדיספצ'ר לפי getActiveCell().getColumn().
+ *          נוסף _removeActiveFilter(sheet) — helper מרוכז, מוחלף בכל מקום
+ *          שהיה בו קוד remove+flush ידני (switchView, _doExpand, וכל אייקוני הפעולה).
+ *          הוסרו קריאות switchView(...) מתוך: runSystemCheckIcon, runAccessCheckIcon,
+ *          runGmailIcon, runWhatsAppIcon, runDriveIcon, runS05Icon, runS06Icon,
+ *          runS07Icon, runS08ViewIcon, runS09ViewIcon, runArchiveView, runQAView —
+ *          כולם מוחלפים ב-_removeActiveFilter(sheet) בתחילת הפונקציה.
+ *          הוסר originalRow/_restoreActiveRowAfterSwitch מתוך runS06Icon/runS07Icon/
+ *          runS08ViewIcon/runS09ViewIcon (קוד מת — לא רלוונטי יותר בלי switchView שם);
+ *          הלוגיקה מרוכזת כעת פעם אחת בתוך runExpandView (המקום היחיד שעדיין
+ *          קורא switchView, ולכן היחיד שעדיין עלול לדרוס activeRow).
+ *          runArchiveView — הוסרה הפעלת מבט ארכיון מהאייקון עצמו; נוסף מסר
+ *          הכוונה למשתמש (הצבת סמן על עמודה V + "הרחב" להצגת שורות ארכיון) —
+ *          החלטת עיצוב שלא נדונה במפורש, לסקירת עמוס.
+ *          [v2.7.0] הוסר איקון S10 (עמודה 16) מ-ICON_MAP של ניהול_מיילים —
  *          S10 כבר עובד מלא דרך MEDICAL_EVENTS_ICON_MAP ביומן_אירועים_רפואי
  *          (runS10ViewIconEvents, v2.5.0). VIEW_CONFIG.s10, ROW3_COLORS[16]
  *          ו-runS10ViewIcon() נשארו בקוד (קוד מת, לא מזיק) — לא נמחקו.
@@ -63,6 +96,24 @@
 
 const VIEW_SHEET_NAME = "ניהול_מיילים";
 const VIEW_TOTAL_COLS = 26;
+
+// ══════════════════════════════════════════════════════════════════
+// [v2.8.0] Task 128 — מיפוי עמודת-סמן ← viewKey
+// נקרא ע"י runExpandView (הדיספצ'ר) בלבד — קובע איזה מבט/פילטר
+// יופעל כשלוחצים "הרחב" בהתאם למיקום הסמן בזמן הלחיצה.
+// עמודה שלא מופיעה כאן ← ברירת מחדל (_doExpand — ביטול מלא).
+// ══════════════════════════════════════════════════════════════════
+
+const COLUMN_TO_VIEWKEY = {
+  4:  "gmail",
+  6:  "drive",
+  10: "metadata",
+  11: "convert",
+  13: "classify",
+  14: "s08",
+  15: "s09",
+  22: "archive"
+};
 
 // ══════════════════════════════════════════════════════════════════
 // מיפוי איקונים — 13 איקונים
@@ -259,11 +310,7 @@ function switchView(viewKey) {
 
     sheet.setFrozenRows(4);
 
-    const existingFilter = sheet.getFilter();
-    if (existingFilter) {
-      existingFilter.remove();
-      SpreadsheetApp.flush();
-    }
+    _removeActiveFilter(sheet);
 
     if (config.filter) {
       const lastRow     = Math.max(sheet.getLastRow(), 5);
@@ -312,8 +359,29 @@ function viewEngine_buildCriteria(filterDef) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// _doExpand — ביטול מוחלט של כל הפילטרים + גלילה ל-A1
+// [v2.8.0] Task 128 — _removeActiveFilter — helper מרוכז
+// מבטל כל פילטר בסיסי פעיל בגליון, אם קיים. נקרא מ-switchView,
+// _doExpand, וכל אייקוני הפעולה (ביטחון מלא — לא תלוי מיקום סמן).
+// ══════════════════════════════════════════════════════════════════
+
+function _removeActiveFilter(sheet) {
+  const existingFilter = sheet.getFilter();
+  if (existingFilter) {
+    existingFilter.remove();
+    SpreadsheetApp.flush();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// _doExpand — ביטול מוחלט של כל הפילטרים + גלילה אמיתית לתחילת הגליון
 // [v2.2.0] flush() אחרי remove() — reset מוחלט בכל מצב
+// [v2.8.1] Task 128 — תוקן באג שהתגלה באימות חי: activate() על A1
+// לבדו לא גורר גלילה חזותית, כי A1 יושב בשורות הקפואות (1-4) שתמיד
+// גלויות — Sheets לא "מזיז" את חלון התצוגה לתא שכבר גלוי. הפתרון:
+// מפעילים activate() קודם על שורת הנתונים הראשונה (5, לא קפואה) —
+// זה כן מכריח גלילה של אזור הנתונים לראש הגליון — ורק אז חוזרים ל-A1,
+// כדי שהתא הפעיל הסופי יישאר A1 (התנהגות "קונטרול הום" מלאה: גם
+// גלילה אמיתית וגם מיקום סמן ב-A1).
 // ══════════════════════════════════════════════════════════════════
 
 function _doExpand() {
@@ -321,14 +389,14 @@ function _doExpand() {
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(VIEW_SHEET_NAME);
 
-    const existingFilter = sheet.getFilter();
-    if (existingFilter) {
-      existingFilter.remove();
-      SpreadsheetApp.flush();
-    }
+    _removeActiveFilter(sheet);
 
+    const firstDataRow = SHEET_CONFIG[VIEW_SHEET_NAME].FIRST_DATA_ROW;
+    sheet.getRange(firstDataRow, 1).activate();
+    SpreadsheetApp.flush();
     sheet.getRange(1, 1).activate();
-    Logger.log("[ViewEngine] _doExpand — reset מוחלט + גלילה A1");
+
+    Logger.log("[ViewEngine] _doExpand — reset מוחלט + גלילה אמיתית לתחילת הגליון");
 
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-_doExpand: " + e.toString());
@@ -336,38 +404,73 @@ function _doExpand() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runExpandView — עמודה A — הרחב/כווץ
+// [v2.8.0] Task 128 — runExpandView — דיספצ'ר רב-תכליתי
+// עמודת הסמן בזמן הלחיצה קובעת את הפעולה:
+//   עמודה ∈ COLUMN_TO_VIEWKEY → switchView(viewKey) (הפעלת מבט/פילטר)
+//   כל עמודה אחרת (כולל A)    → _doExpand() (ביטול מלא)
 // ══════════════════════════════════════════════════════════════════
 
 function runExpandView() {
-  _doExpand();
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(VIEW_SHEET_NAME);
+
+    if (!sheet) {
+      SpreadsheetApp.getUi().alert("גיליון '" + VIEW_SHEET_NAME + "' לא נמצא.");
+      return;
+    }
+
+    const activeCol   = sheet.getActiveCell().getColumn();
+    const originalRow = sheet.getActiveCell().getRow();
+    const viewKey     = COLUMN_TO_VIEWKEY[activeCol];
+
+    if (viewKey) {
+      switchView(viewKey);
+      _restoreActiveRowAfterSwitch(sheet, originalRow);
+      Logger.log("[ViewEngine] runExpandView — עמודה " + activeCol + " → מבט: " + viewKey);
+    } else {
+      _doExpand();
+      Logger.log("[ViewEngine] runExpandView — עמודה " + activeCol + " ללא מבט ממופה → הרחב רגיל");
+    }
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runExpandView: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runSystemCheckIcon — עמודה B — S01
+// [v2.8.0] Task 128 — runSystemCheckIcon — עמודה B — S01
+// switchView הוסרה — _removeActiveFilter תמיד, ללא תלות בסמן
 // ══════════════════════════════════════════════════════════════════
 
 function runSystemCheckIcon() {
-  switchView("systemCheck");
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
+  _removeActiveFilter(sheet);
   checkSystemMorning();
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runAccessCheckIcon — עמודה C — S02
+// [v2.8.0] Task 128 — runAccessCheckIcon — עמודה C — S02
+// switchView הוסרה — _removeActiveFilter תמיד, ללא תלות בסמן
 // ══════════════════════════════════════════════════════════════════
 
 function runAccessCheckIcon() {
-  switchView("accessCheck");
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
+  _removeActiveFilter(sheet);
   checkUserAccess();
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runGmailIcon — עמודה D — S03 Gmail
+// [v2.8.0] Task 128 — runGmailIcon — עמודה D — S03 Gmail
+// switchView הוסרה — _removeActiveFilter תמיד, ללא תלות בסמן.
+// הפעלת פילטר gmail עצמו עברה ל"הרחב" (עמודה D + COLUMN_TO_VIEWKEY)
 // ══════════════════════════════════════════════════════════════════
 
 function runGmailIcon() {
   const ui      = SpreadsheetApp.getUi();
-  switchView("gmail");
+  const sheet   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
+  _removeActiveFilter(sheet);
   const confirm = ui.alert(
     "S03 — סריקת Gmail",
     "האם להריץ סריקת Gmail ומשיכת מיילים חדשים?",
@@ -379,12 +482,14 @@ function runGmailIcon() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runWhatsAppIcon — עמודה E — S03 WhatsApp (לא פעיל — בפיתוח)
+// [v2.8.0] Task 128 — runWhatsAppIcon — עמודה E — S03 WhatsApp (לא פעיל — בפיתוח)
+// switchView הוסרה — _removeActiveFilter תמיד, ללא תלות בסמן
 // ══════════════════════════════════════════════════════════════════
 
 function runWhatsAppIcon() {
-  const ui = SpreadsheetApp.getUi();
-  switchView("whatsapp");
+  const ui    = SpreadsheetApp.getUi();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
+  _removeActiveFilter(sheet);
   ui.alert(
     "WhatsApp — בפיתוח",
     "חיבור WhatsApp טרם הוגדר.\nהפונקציה תחובר בהמשך.",
@@ -393,12 +498,15 @@ function runWhatsAppIcon() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runDriveIcon — עמודה F — S04 Drive
+// [v2.8.0] Task 128 — runDriveIcon — עמודה F — S04 Drive
+// switchView הוסרה — _removeActiveFilter תמיד, ללא תלות בסמן.
+// הפעלת פילטר drive עצמו עברה ל"הרחב" (עמודה F + COLUMN_TO_VIEWKEY)
 // ══════════════════════════════════════════════════════════════════
 
 function runDriveIcon() {
   const ui      = SpreadsheetApp.getUi();
-  switchView("drive");
+  const sheet   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
+  _removeActiveFilter(sheet);
   const confirm = ui.alert(
     "S04 — סריקת Drive",
     "האם להריץ סריקת Drive וסנכרון קבצים חדשים?",
@@ -414,6 +522,8 @@ function runDriveIcon() {
 // [Task 83] שחזור השורה הפעילה המקורית אחרי switchView
 // switchView מפעילה activate() על שורה 4 (לצורך גלילה לעמודה) —
 // זה דורס את activeRow שהמשתמש עמד עליו. הפונקציה משחזרת אותו.
+// [v2.8.0] נשארת רלוונטית אך ורק דרך runExpandView — המקום היחיד
+// שעדיין קורא switchView (עבור 8 עמודות COLUMN_TO_VIEWKEY).
 // ══════════════════════════════════════════════════════════════════
 
 function _restoreActiveRowAfterSwitch(sheet, originalRow) {
@@ -425,13 +535,16 @@ function _restoreActiveRowAfterSwitch(sheet, originalRow) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runS05Icon — עמודה J — S05 חילוץ מטא-דאטה
+// [v2.8.0] Task 128 — runS05Icon — עמודה J — S05 חילוץ מטא-דאטה
+// switchView הוסרה — _removeActiveFilter תמיד, ללא תלות בסמן.
+// הפעלת פילטר metadata עצמו עברה ל"הרחב" (עמודה J + COLUMN_TO_VIEWKEY)
 // ══════════════════════════════════════════════════════════════════
 
 function runS05Icon() {
   try {
     const ui      = SpreadsheetApp.getUi();
-    switchView("metadata");
+    const sheet   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
+    _removeActiveFilter(sheet);
     const confirm = ui.alert(
       "S05 — חילוץ מטא-דאטה",
       "הפעולה תסרוק את כל הגיליון\nותחלץ מטא-דאטה לשורות הממתינות.\n\nהאם להמשיך?",
@@ -451,16 +564,17 @@ function runS05Icon() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runS06Icon — עמודה K — S06 המרת TXT
+// [v2.8.0] Task 128 — runS06Icon — עמודה K — S06 המרת TXT
+// switchView + originalRow/_restoreActiveRowAfterSwitch (Task 83) הוסרו —
+// אין יותר switchView כאן שדורס activeRow. _removeActiveFilter תמיד.
+// הפעלת פילטר convert עצמו עברה ל"הרחב" (עמודה K + COLUMN_TO_VIEWKEY)
 // ══════════════════════════════════════════════════════════════════
 
 function runS06Icon() {
   try {
     const ui     = SpreadsheetApp.getUi();
     const sheet  = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
-    const originalRow = sheet.getActiveCell().getRow(); // [Task 83]
-    switchView("convert");
-    _restoreActiveRowAfterSwitch(sheet, originalRow);    // [Task 83]
+    _removeActiveFilter(sheet);
     const choice = ui.alert(
       "S06 — המרת TXT",
       "בחר מצב הרצה:\n\n" +
@@ -489,16 +603,17 @@ function runS06Icon() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runS07Icon — עמודה M — S07 סיווג AI
+// [v2.8.0] Task 128 — runS07Icon — עמודה M — S07 סיווג AI
+// switchView + originalRow/_restoreActiveRowAfterSwitch (Task 83) הוסרו —
+// אין יותר switchView כאן שדורס activeRow. _removeActiveFilter תמיד.
+// הפעלת פילטר classify עצמו עברה ל"הרחב" (עמודה M + COLUMN_TO_VIEWKEY)
 // ══════════════════════════════════════════════════════════════════
 
 function runS07Icon() {
   try {
     const ui     = SpreadsheetApp.getUi();
     const sheet  = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
-    const originalRow = sheet.getActiveCell().getRow(); // [Task 83]
-    switchView("classify");
-    _restoreActiveRowAfterSwitch(sheet, originalRow);    // [Task 83]
+    _removeActiveFilter(sheet);
     const choice = ui.alert(
       "S07 — סיווג AI",
       "בחר מצב הרצה:\n\n" +
@@ -526,20 +641,23 @@ function runS07Icon() {
     Logger.log("[ViewEngine] שגיאה ב-runS07Icon: " + e.toString());
   }
 }
+
 // ══════════════════════════════════════════════════════════════════
-// runS08ViewIcon — עמודה N — S08 אימות ידני
+// [v2.8.0] Task 128 — runS08ViewIcon — עמודה N — S08 אימות ידני
+// switchView + originalRow/_restoreActiveRowAfterSwitch (Task 83) הוסרו —
+// אין יותר switchView כאן שדורס activeRow. _removeActiveFilter תמיד —
+// פתרון ישיר לחשד השורש של Task 123 ("לא נמצאו נתוני שורה" תחת פילטר ישן).
+// הפעלת פילטר s08 עצמו עברה ל"הרחב" (עמודה N + COLUMN_TO_VIEWKEY)
 // ══════════════════════════════════════════════════════════════════
 
 function runS08ViewIcon() {
   try {
     const ui     = SpreadsheetApp.getUi();
     const sheet  = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
-    const originalRow = sheet.getActiveCell().getRow(); // [Task 83]
-    switchView("s08");
-    _restoreActiveRowAfterSwitch(sheet, originalRow);    // [Task 83]
+    _removeActiveFilter(sheet);
     const confirm = ui.alert(
       "S08 — אימות ידני",
-      "עברת למבט אימות ידני.\nהאם לפתוח את מסך הבקרה?",
+      "בוטל כל פילטר פעיל בגיליון.\nהאם לפתוח את מסך הבקרה?",
       ui.ButtonSet.YES_NO
     );
     if (confirm === ui.Button.YES) {
@@ -555,19 +673,20 @@ function runS08ViewIcon() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runS09ViewIcon — עמודה O — S09 חילוץ אירועים
+// [v2.8.0] Task 128 — runS09ViewIcon — עמודה O — S09 חילוץ אירועים
+// switchView + originalRow/_restoreActiveRowAfterSwitch (Task 84-fix) הוסרו —
+// אין יותר switchView כאן שדורס activeRow. _removeActiveFilter תמיד.
+// הפעלת פילטר s09 עצמו עברה ל"הרחב" (עמודה O + COLUMN_TO_VIEWKEY)
 // ══════════════════════════════════════════════════════════════════
 
 function runS09ViewIcon() {
   try {
     const ui    = SpreadsheetApp.getUi();
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
-    const originalRow = sheet.getActiveCell().getRow(); // [Task 84-fix]
-    switchView("s09");
-    _restoreActiveRowAfterSwitch(sheet, originalRow);    // [Task 84-fix]
+    _removeActiveFilter(sheet);
     const confirm = ui.alert(
       "S09 — חילוץ אירועים רפואיים",
-      "עברת למבט חילוץ אירועים.\nהאם להריץ חילוץ עכשיו?",
+      "בוטל כל פילטר פעיל בגיליון.\nהאם להריץ חילוץ עכשיו?",
       ui.ButtonSet.YES_NO
     );
     if (confirm === ui.Button.YES) {
@@ -609,14 +728,17 @@ function runS10ViewIcon() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runQAView — עמודה Q(17) — S11 QA
+// [v2.8.0] Task 128 — runQAView — עמודה Q(17) — S11 QA
 // [v2.3.0] הוזז מעמודה U(21) לעמודה Q(17)
+// [v2.4.0] QA לא מפעיל פילטר שורות — עובד על כל הגליון
+// [v2.8.0] נוסף _removeActiveFilter — ליתר ביטחון, עקבי עם שאר 11
+// אייקוני הפעולה, אף כי QA ממילא לא בנה פילטר בעצמו
 // ══════════════════════════════════════════════════════════════════
 
 function runQAView() {
-  // [v2.4.0] QA לא מפעיל פילטר שורות — עובד על כל הגליון
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(VIEW_SHEET_NAME);
+  _removeActiveFilter(sheet);
   if (sheet) sheet.getRange(4, 17).activate();
   if (typeof runQAViewMain === "function") {
     runQAViewMain();
@@ -626,19 +748,28 @@ function runQAView() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// runArchiveView — עמודה V — S12 ארכיון — עם אישור
+// [v2.8.0] Task 128 — runArchiveView — עמודה V — S12 ארכיון
+// switchView("archive") הוסרה — הפעלת פילטר ארכיון עצמו עברה ל"הרחב"
+// (עמודה V + COLUMN_TO_VIEWKEY). האייקון עצמו מבטל פילטר בלבד ומכוון
+// את המשתמש לדרך החדשה. [החלטת עיצוב שלא נדונה במפורש — לסקירתך]
 // ══════════════════════════════════════════════════════════════════
 
 function runArchiveView() {
   try {
     const ui      = SpreadsheetApp.getUi();
+    const sheet   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
     const confirm = ui.alert(
       "S12 — ארכיון",
-      "האם לעבור למבט ארכיון?",
+      "האם לבטל פילטר פעיל ולעבור לעמודת הארכיון?",
       ui.ButtonSet.YES_NO
     );
     if (confirm === ui.Button.YES) {
-      switchView("archive");
+      _removeActiveFilter(sheet);
+      ui.alert(
+        "S12 — ארכיון",
+        "הפילטר בוטל.\nלצפייה בשורות הארכיון: הצב את הסמן בעמודה V ולחץ על אייקון \"הרחב\".",
+        ui.ButtonSet.OK
+      );
     }
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-runArchiveView: " + e.toString());
