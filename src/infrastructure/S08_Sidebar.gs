@@ -1,10 +1,15 @@
 <!--
   MedicalPilot — S08_Sidebar.html
-  @version 1.0.16 | @updated 09/07/2026 20:53 | @service S08
+  @version 1.0.17 | @updated 10/07/2026 13:56 | @service S08
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Sidebar.html
   @description ממשק Dialog לאימות ידני ולמידה — S08.
                מציג מסמך מקורי + טקסט TXT + שדות עריכה לכותרת/מנפיק/תאריך/קטגוריה.
                כפתורים: אישור, עדכון ולמידה, למידה יזומה, מחיקה.
+               [v1.0.17] כפתור נוסף בכותרת — "🗑️ מחק מאושרות": מחיקה מרוכזת
+               (בכל הגליון, לא רק השורה הנוכחית) של כל שורה שR שלה מתחיל
+               ב"מאושר למחיקה", מאחורי מודל אישור מפורש המציג מראש את
+               רשימת השורות שיימחקו (s08_previewApprovedForDeletion — קריאה
+               בלבד) לפני קריאה בפועל ל-s08_deleteApproved הקיימת.
                [v1.0.15] כשיש חשד כפילות (R מכיל "כפול מאושר") — עמודת
                שמאל מציגה שני מסמכי מקור (נוכחי+תאום) זה מעל זה, ללא ניווט,
                עם כפתור טוגל עצמאי מסמך↔TXT לכל אחד. ראה @changes v1.0.15.
@@ -15,6 +20,8 @@
                תלוי ב: S08_Validate.gs — כל הלוגיקה מתבצעת שם.
   @impacts     נקרא מ-S08_Validate.gs דרך HtmlService.
                כל פעולות הכתיבה לגליון מתבצעות ב-S08_Validate.gs בלבד.
+               [v1.0.17] מחק מאושרות פועל על כל גיליון ניהול_מיילים —
+               לא רק על השורה הנוכחית בסיידבר. אין כתיבה ללא אישור מפורש.
   @callers     S08_Validate.gs (showMainSidebar)
   @functions   loadInitial, renderRow, showError, prevRow, nextRow, jumpToRow,
                navigateTo, loadTxtContent, showTxtContent, loadDuplicateData,
@@ -23,7 +30,19 @@
                confirmDelete, deleteRow, closeDialog, setBusy, setButtonsEnabled,
                buildNormalColHtml, buildCompareColHtml, toggleDocView,
                renderCompareTxt, cancelDuplicateFlag, closeCancelDupModal,
-               confirmCancelDuplicateFlag
+               confirmCancelDuplicateFlag, confirmDeleteApproved,
+               closeDeleteApprovedModal, doDeleteApproved
+  @changes     [v1.0.17] בקשת עמוס — s08_deleteApproved() (Task 114, 07/07)
+               הייתה קיימת בשרת אך מעולם לא חוברה לממשק, ומופעלת עד כה רק
+               ידנית מהעורך ללא כל בקשת אישור. נוסף כפתור "🗑️ מחק מאושרות"
+               בכותרת הדיאלוג (פעולה גלובלית על כל הגליון, לא תלוית שורה
+               נוכחית) + מודל אישור ייעודי (deleteApprovedModal): לחיצה
+               ראשונה קוראת ל-s08_previewApprovedForDeletion (חדשה,
+               S08_Validate.gs v1.0.20 — קריאה בלבד) ומציגה בפועל את
+               מספרי השורות וסיבת הסימון של כל אחת; רק אישור מפורש שני
+               ("🗑️ מחק לצמיתות") קורא ל-s08_deleteApproved הקיימת — שלא
+               השתנתה כלל. נוספה CSS ייעודית (#deleteApprovedModal) לרוחב
+               מודל מותאם ותמיכה בטקסט רב-שורות (white-space:pre-wrap).
   @changes     [v1.0.15] Task 125 — עמודת שמאל מפוצלת לשני מצבים לפי קיום
                חשד כפילות (data.duplicateFlag), נבחר ב-buildBodyHtml:
                (1) אין חשד — buildNormalColHtml: זהה לגמרי להתנהגות הקיימת
@@ -203,6 +222,17 @@
     cursor: pointer; transition: background 0.15s; white-space: nowrap;
   }
   .close-btn:hover { background: rgba(198,40,40,1); }
+
+  .header-delete-btn {
+    background: rgba(198,40,40,0.75);
+    border: 1px solid rgba(255,255,255,0.4);
+    color: #fff; border-radius: 4px;
+    padding: 0 10px; height: 26px;
+    font-size: 12px; font-weight: 700;
+    cursor: pointer; transition: background 0.15s; white-space: nowrap;
+  }
+  .header-delete-btn:hover { background: rgba(198,40,40,1); }
+  .header-delete-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .header-meta { font-size: 10px; opacity: 0.7; font-weight: 400; white-space: nowrap; }
 
@@ -464,6 +494,10 @@
   .modal-text  { font-size: 12px; color: #444; line-height: 1.5; }
   .modal-actions { display: flex; gap: 6px; }
 
+  /* [v1.0.17] מודל מחיקה מרוכזת — רשימת שורות ארוכה, לכן רוחב+גלילה מיוחדים */
+  #deleteApprovedModal .modal-box { width: 420px; max-height: 70vh; overflow-y: auto; }
+  #deleteApprovedModalText { white-space: pre-wrap; }
+
   /* ════ הודעות סטטוס ════ */
   .status-msg {
     font-size: 12px; padding: 6px 8px; border-radius: 4px;
@@ -490,6 +524,8 @@
       <button class="nav-btn" id="btnPrev" onclick="prevRow()" title="הקודם">◀</button>
     </div>
     <div class="header-meta" id="headerMeta"></div>
+    <button class="header-delete-btn" id="btnDeleteApproved" onclick="confirmDeleteApproved()"
+      title="מחיקה סופית של כל השורות המסומנות 'מאושר למחיקה' — כולל קבצי Drive">🗑️ מחק מאושרות</button>
     <button class="close-btn" onclick="closeDialog()">✕ סגור</button>
   </div>
 
@@ -514,6 +550,17 @@
       <div class="modal-actions">
         <button class="btn" style="background:#e65100" onclick="confirmCancelDuplicateFlag()">כן, בטל חשד</button>
         <button class="btn" style="background:#999" onclick="closeCancelDupModal()">ביטול</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ [v1.0.17] בקשת עמוס — מודל אישור מחיקה מרוכזת (s08_deleteApproved) ════ -->
+  <div class="modal-overlay" id="deleteApprovedModal">
+    <div class="modal-box">
+      <div class="modal-title">⚠️ אישור מחיקה סופית — שורות מאושרות</div>
+      <div class="modal-text" id="deleteApprovedModalText">⏳ בודק כמה שורות מסומנות...</div>
+      <div class="modal-actions" id="deleteApprovedModalActions">
+        <button class="btn" style="background:#999" onclick="closeDeleteApprovedModal()">ביטול</button>
       </div>
     </div>
   </div>
@@ -926,7 +973,7 @@
     if (!card) return;
     if (!dup) { card.classList.remove('visible'); return; }
     document.getElementById('learnDupText').textContent =
-      'שורה ' + dup.dupRow + ' | מנפיק: "' + dup.matchedIssuer + '" | קטגוריה: "' + dup.matchedCategory + '"';
+          'שורה ' + dup.dupRow + ' | מנפיק: "' + dup.matchedIssuer + '" | קטגוריה: "' + dup.matchedCategory + '"';
     card.classList.add('visible');
   }
 
@@ -1150,6 +1197,88 @@
         showStatus('❌ ' + ((err && err.message) || err), false);
       })
       .s08_cancelDuplicateFlag(currentRow, dupData.row);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // [v1.0.17] בקשת עמוס — מחיקה מרוכזת של שורות "מאושר למחיקה"
+  // תצוגה מקדימה קריאה-בלבד (s08_previewApprovedForDeletion) ← אישור
+  // מפורש במודל ← מחיקה בפועל (s08_deleteApproved, ללא שינוי בלוגיקה שלה)
+  // ══════════════════════════════════════════════════════════════
+
+  function confirmDeleteApproved() {
+    var btn = document.getElementById('btnDeleteApproved');
+    if (btn) btn.disabled = true;
+
+    var modal = document.getElementById('deleteApprovedModal');
+    var text  = document.getElementById('deleteApprovedModalText');
+    text.textContent = '⏳ בודק כמה שורות מסומנות...';
+    modal.classList.add('visible');
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (btn) btn.disabled = false;
+
+        if (!res.success) {
+          text.textContent = '❌ ' + res.msg;
+          document.getElementById('deleteApprovedModalActions').innerHTML =
+            '<button class="btn" style="background:#999" onclick="closeDeleteApprovedModal()">סגור</button>';
+          return;
+        }
+
+        if (!res.rows || res.rows.length === 0) {
+          text.textContent = '✅ לא נמצאו שורות מסומנות "מאושר למחיקה" — אין מה למחוק.';
+          document.getElementById('deleteApprovedModalActions').innerHTML =
+            '<button class="btn" style="background:#999" onclick="closeDeleteApprovedModal()">סגור</button>';
+          return;
+        }
+
+        var rowsList = res.rows.map(function (r) {
+          return 'שורה ' + r.row + ' — ' + r.reason;
+        }).join('\n');
+
+        text.textContent =
+          'נמצאו ' + res.rows.length + ' שורות מסומנות למחיקה:\n\n' + rowsList +
+          '\n\n⚠️ הפעולה תמחק את השורות לצמיתות + את קבצי המקור וה-TXT ב-Drive. ' +
+          'לא ניתן לבטל. האם להמשיך?';
+
+        document.getElementById('deleteApprovedModalActions').innerHTML =
+          '<button class="btn btn-delete" onclick="doDeleteApproved()">🗑️ מחק לצמיתות</button>' +
+          '<button class="btn" style="background:#999" onclick="closeDeleteApprovedModal()">ביטול</button>';
+      })
+      .withFailureHandler(function (err) {
+        if (btn) btn.disabled = false;
+        text.textContent = '❌ ' + ((err && err.message) || err);
+        document.getElementById('deleteApprovedModalActions').innerHTML =
+          '<button class="btn" style="background:#999" onclick="closeDeleteApprovedModal()">סגור</button>';
+      })
+      .s08_previewApprovedForDeletion();
+  }
+
+  function closeDeleteApprovedModal() {
+    document.getElementById('deleteApprovedModal').classList.remove('visible');
+  }
+
+  function doDeleteApproved() {
+    var text = document.getElementById('deleteApprovedModalText');
+    var actions = document.getElementById('deleteApprovedModalActions');
+    text.textContent = '⏳ מוחק...';
+    actions.innerHTML = '';
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        text.textContent = res.msg;
+        actions.innerHTML =
+          '<button class="btn" style="background:#999" onclick="closeDeleteApprovedModal()">סגור</button>';
+        if (res.success) {
+          setTimeout(function () { navigateTo(currentRow); }, 1500);
+        }
+      })
+      .withFailureHandler(function (err) {
+        text.textContent = '❌ ' + ((err && err.message) || err);
+        actions.innerHTML =
+          '<button class="btn" style="background:#999" onclick="closeDeleteApprovedModal()">סגור</button>';
+      })
+      .s08_deleteApproved();
   }
 
   // ══════════════════════════════════════════════════════════════
