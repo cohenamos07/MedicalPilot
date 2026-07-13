@@ -1,8 +1,17 @@
 /**
  * MedicalPilot — S08_Validate.gs
- * @version 1.0.21 | @updated 11/07/2026 22:19 | @service S08
+ * @version 1.0.22 | @updated 12/07/2026 21:32 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
+ * @changes     [v1.0.22] Task 147 [BUG-12, אושר ע"י עמוס — אפשרות א] —
+ *              showMainSidebar: כותרת הדיאלוג הנייטיבית (showModalDialog)
+ *              כללה מספר שורה ("אימות ידני — שורה " + row), שנקבע פעם
+ *              אחת בפתיחה ואינו יכול להתעדכן בניווט פנימי (הבא/קודם/קפוץ)
+ *              — מגבלת פלטפורמה של Apps Script, לא באג לוגי. כתוצאה,
+ *              הכותרת החיצונית ותוכן הדיאלוג (הסרגל הפנימי, שמתעדכן נכון
+ *              בכל ניווט) יכלו להציג שני מספרי שורה שונים בו-זמנית. תוקן:
+ *              הכותרת קבועה כעת ("אימות ידני — S08"), ללא מספר שורה כלל
+ *              — המקור היחיד למספר השורה הוא הסרגל הפנימי, שתמיד מדויק.
  * @changes     [v1.0.21] Task 133 [שלב 5/8, שרשרת עמודה 27] — מעבר מלא
  *              מ-Note לעמודה 27 (Duplicate_Target_FileID). שלושה מקומות
  *              עברו מ-getNote()/clearNote() לקריאה/כתיבה ישירה של עמודה 27:
@@ -139,7 +148,7 @@
  *              [v1.0.11] Task 74+92 — הוספת בדיקת כניסה M=עבר סיווג ב-showMainSidebar.
  *                        s08_getDuplicateRowData + _s08_getDuplicateRowNumber:
  *                        מעבר מ-regex על טקסט R → קריאת getNote() + חיפוש File_ID בעמודה A.
- *    
+ *
  *              [v1.0.10] תיקון Task 14 — הוספת @callers + @functions + @changes מלא
  *              [v1.0.9]  s08_findLearningDuplicate — חיפוש כפול בדוגמאות_למידה
  *              [v1.0.8]  תיקון באג s08_updateAndLearn + s08_learnOnly
@@ -209,9 +218,9 @@ function showMainSidebar() {
     .setHeight(750)
     .setTitle("S08 — אימות ידני");
 
-  SpreadsheetApp.getUi().showModalDialog(html, "🔍 אימות ידני — שורה " + row);
+  // [v1.0.22] Task 147 — כותרת קבועה, ללא מספר שורה (ראו @changes בכותרת הקובץ)
+  SpreadsheetApp.getUi().showModalDialog(html, "🔍 אימות ידני — S08");
 }
-
 // ══════════════════════════════════════════════════════════════════
 // שליפת נתוני שורה
 // ══════════════════════════════════════════════════════════════════
