@@ -1,12 +1,21 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.20.0 | @updated 11/07/2026 22:00 | @service S11
+ * @version 1.21.0 | @updated 12/07/2026 16:05 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי 27 חוקי QA (E09-E28, ללא E23/E24; E17 עצמו כעת דו-שלבי).
  * @impacts בודק עקביות עמודות L, M, N, Q, R, S, T, U, וכעת גם עמודה 27 (AA)
  *          לפי ציר התקדמות S03→S09.
  *          [v1.18.0] qa_deleteE17Findings מוחקת שורה בעצמה — עצמאית
  *          לגמרי, ללא שום תלות ב-S08_Validate.gs.
+ * @changes [v1.21.0] Task 137 [התגלה בבדיקת E2E למיגרציית עמודה 27] —
+ *                   _qa_applyFixes, case "write_symmetry": לפני הכתיבה,
+ *                   מוסר מ-f.value כל מופע של "— שורה X" (regex). הבאג:
+ *                   הפיקס העתיק את R של שורת המקור כמו שהוא לשורת התאום,
+ *                   כולל מספר שורה שהתייחס למקור — וכשנכתב על שורת התאום
+ *                   עצמה, הטקסט הפך להיות עצמי-מתייחס (שורה מפנה לעצמה).
+ *                   מעתה: התווית שנכתבת היא סטטוס בלבד ("כפול מאושר |
+ *                   ניקוד Y/5"), ללא שום מספר שורה — תואם להחלטת Task 131
+ *                   שהרפרנס האמיתי היחיד הוא עמודה 27.
  * @changes [v1.20.0] Task 132 [שלב 4/8, שרשרת עמודה 27] — שכתוב מקיף של
  *                   בלוק זיהוי/אימות כפילויות בתוך _qa_checkRow, ושל
  *                   runQAViewMain ו-_qa_applyFixes. הרקע: אחרי Task 131,
@@ -1127,7 +1136,7 @@ function _qa_applyFixes(sheet, findings) {
   // ומחזירה כמה תיקונים באמת עברו (לא נבלעו ב-catch/עמודה לא תואמת).
   // [v1.17.0] בקשת עמוס — S11 עדיין לא מוחק שורות בעצמו (הכלל לא השתנה),
   // אבל כעת אוספת בנפרד אילו שורות E17 קיבלו בפועל fix="write" ל-R
-  // (הסלמה אמיתית, לא רק "flag" ראשוני ל-U) — כדי שה-Dialog יוכל להציע
+  // (הסלמה אמיתית, לא רק "flag" ראשוני) — כדי שה-Dialog יוכל להציע
   // מחיקה מיד אחרי, מאחורי אישור נפרד. שורה E17 נכנסת לרשימה רק אם
   // הכתיבה עצמה הצליחה בפועל (בתוך ה-try, לא נבלעה ב-catch).
   // [v1.20.0] Task 132 — case "write" על עמודה 18 איבד את לוגיקת ה-regex/
@@ -1135,6 +1144,8 @@ function _qa_applyFixes(sheet, findings) {
   // מנקה כעת גם עמודה 27 במקום Note. case חדש "write_symmetry" — לתיקון
   // E11: כותב גם ל-R (טקסט הכפילות) וגם לעמודה 27 (File_ID) יחד, לתיקון
   // סימטריה חסרה בשורת התאום.
+  // [v1.21.0] Task 137 — case "write_symmetry": מוסיף ניקוי "— שורה X"
+  // מהטקסט לפני כתיבה, כדי למנוע טקסט עצמי-מתייחס בשורת התאום.
 
   let appliedCount = 0;
   const e17DeletionCandidates = [];
@@ -1158,8 +1169,15 @@ function _qa_applyFixes(sheet, findings) {
           break;
 
         case "write_symmetry":
-          // [v1.20.0] Task 132 — תיקון E11: R + עמודה 27 יחד, לתיקון סימטריה
-          sheet.getRange(f.row, 18).setValue(f.value);
+          // [v1.21.0] Task 137 — מסיר "— שורה X" מהטקסט לפני כתיבה לשורת
+          // התאום. הרפרנס האמיתי היחיד הוא עמודה 27 — R הוא תווית סטטוס
+          // בלבד, ואסור שיכיל מספר שורה (במיוחד כשהוא נכתב על שורה אחרת
+          // מזו שממנה הועתק, מה שהופך אותו לעצמי-מתייחס ושגוי).
+          var symmetryText = String(f.value || "")
+            .replace(/\s*—\s*שורה\s+\d+\s*/g, " ")
+            .replace(/\s{2,}/g, " ")
+            .trim();
+          sheet.getRange(f.row, 18).setValue(symmetryText);
           sheet.getRange(f.row, 27).setValue(f.col27Value);
           break;
 
