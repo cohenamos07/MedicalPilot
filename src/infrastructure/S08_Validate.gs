@@ -1,6 +1,7 @@
 /**
  * MedicalPilot — S08_Validate.gs
- * @version 1.0.22 | @updated 12/07/2026 21:32 | @service S08
+ * @file        S08_Validate.gs
+ * @version 1.0.23 | @updated 13/07/2026 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
  * @changes     [v1.0.22] Task 147 [BUG-12, אושר ע"י עמוס — אפשרות א] —
@@ -191,11 +192,13 @@ function showMainSidebar() {
   // (Extraction_Status, לפי COLUMN_MAP.gs) אך נמצא בשורות ישנות גם ב-M —
   // תנאי הכניסה חסם אותן שגוי למרות שהן מוכנות לאימות ידני בפועל.
   const pipelineStatus = sheet.getRange(row, 13).getValue() || "";
-  const isReadyForS08  = (pipelineStatus === "עבר סיווג" || pipelineStatus === "חולץ מלא");
+  const isReadyForS08  = (pipelineStatus === "עבר סיווג" ||
+                          pipelineStatus === "חולץ מלא" ||
+                          pipelineStatus === "מאושר");
   if (!isReadyForS08) {
     SpreadsheetApp.getUi().alert(
       "⛔ שורה זו אינה מוכנה לאימות ידני.\n" +
-      "סטטוס נדרש: עבר סיווג | סטטוס נוכחי: " + (pipelineStatus || "ריק") + "\n" +
+      "סטטוס נדרש: עבר סיווג / חולץ מלא / מאושר | סטטוס נוכחי: " + (pipelineStatus || "ריק") + "\n" +
       "יש להריץ קודם את שירות S07 — סיווג מסמכים."
     );
     return;
@@ -235,7 +238,7 @@ function _s08_getRowData(sheet, row) {
     fileId:         fileId,
     docTitle:       sheet.getRange(row, 9).getValue()  || "",
     docIssuer:      sheet.getRange(row, 10).getValue() || "",
-    docDate:        sheet.getRange(row, 11).getValue() || "",
+    docDate:        _s08_formatDateForDisplay(sheet.getRange(row, 11).getValue()),
     docCategory:    sheet.getRange(row, 12).getValue() || "",
     pipelineStatus: sheet.getRange(row, 13).getValue() || "",
     fileSize:       sheet.getRange(row, 16).getValue() || "",
@@ -562,6 +565,9 @@ function s08_approve(row) {
   try {
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName("ניהול_מיילים");
+    if (!sheet || row < 2 || row > sheet.getLastRow()) {
+      return { success: false, msg: "❌ שורת האימות אינה זמינה" };
+    }
     sheet.getRange(row, 13).setValue("מאושר");
     sheet.getRange(row, 21).setValue("✅ אושר ידנית");
     Logger.log("[S08] אישור שורה " + row);
@@ -580,6 +586,14 @@ function s08_updateAndLearn(row, title, issuer, date, category, note) {
   try {
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName("ניהול_מיילים");
+    const existingLearning = s08_findLearningDuplicate(issuer, category);
+    if (existingLearning) {
+      return {
+        success: false,
+        isDuplicate: true,
+        msg: '⚠️ קיימת כבר דוגמת למידה תואמת בשורה ' + existingLearning.dupRow
+      };
+    }
     sheet.getRange(row, 9).setValue(title     || "");
     sheet.getRange(row, 10).setValue(issuer   || "");
     sheet.getRange(row, 11).setValue(date     || "");
@@ -608,6 +622,14 @@ function s08_learnOnly(row, title, issuer, date, category, note) {
   try {
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName("ניהול_מיילים");
+    const existingLearning = s08_findLearningDuplicate(issuer, category);
+    if (existingLearning) {
+      return {
+        success: false,
+        isDuplicate: true,
+        msg: '⚠️ קיימת כבר דוגמת למידה תואמת בשורה ' + existingLearning.dupRow
+      };
+    }
     sheet.getRange(row, 21).setValue("נשלח ללמידה");
     const learnResult = _s08_saveToLearning(sheet, row, title, issuer, category, date, note);
     if (!learnResult.success) return learnResult;
@@ -698,8 +720,14 @@ function s08_delete(row, deleteWhich) {
     const sourceUrl = sheet.getRange(targetRow, 23).getValue();
     const txtUrl    = sheet.getRange(targetRow, 24).getValue();
 
-    _s08_trashDriveFile(sourceUrl);
-    _s08_trashDriveFile(txtUrl);
+    const sourceTrash = _s08_trashDriveFile(sourceUrl);
+    const txtTrash    = _s08_trashDriveFile(txtUrl);
+    if (!sourceTrash.success || !txtTrash.success) {
+      return {
+        success: false,
+        msg: "❌ המחיקה בוטלה: " + [sourceTrash.msg, txtTrash.msg].filter(Boolean).join("; ")
+      };
+    }
 
     // [v1.0.18] Task 123 — סיבת השורש האמיתית (זוהתה ע"י עמוס): פילטר
     // בסיסי (Range.createFilter, נוצר ב-switchView ב-ViewEngine.gs) קשור
@@ -725,7 +753,11 @@ function s08_delete(row, deleteWhich) {
     SpreadsheetApp.flush();
 
     Logger.log("[S08] מחיקת שורה " + targetRow);
-    return { success: true, msg: "🗑️ השורה והקבצים נמחקו בהצלחה" };
+    return {
+      success: true,
+      nextRow: Math.min(targetRow, sheet.getLastRow()),
+      msg: "🗑️ השורה והקבצים נמחקו בהצלחה"
+    };
   } catch (e) {
     Logger.log("[S08] שגיאת מחיקה: " + e.message);
     return { success: false, msg: "❌ שגיאה במחיקה: " + e.message };
@@ -734,13 +766,16 @@ function s08_delete(row, deleteWhich) {
 
 function _s08_trashDriveFile(url) {
   try {
-    if (!url) return;
+    if (!url) return { success: true, msg: "" };
     let id = null;
     if (url.includes("/d/"))  id = url.split("/d/")[1].split("/")[0];
     if (url.includes("id=")) id = url.split("id=")[1].split("&")[0];
-    if (id) DriveApp.getFileById(id).setTrashed(true);
+    if (!id) return { success: false, msg: "כתובת קובץ לא תקינה" };
+    DriveApp.getFileById(id).setTrashed(true);
+    return { success: true, msg: "" };
   } catch (e) {
     Logger.log("[S08] לא ניתן למחוק קובץ: " + e.message);
+    return { success: false, msg: e.message };
   }
 }
 
@@ -833,12 +868,18 @@ function s08_deleteApproved() {
     }
 
     let deletedCount = 0;
+    let failedRows = [];
     rowsToDelete.forEach(function(row) {
       try {
         const sourceUrl = sheet.getRange(row, 23).getValue();
         const txtUrl    = sheet.getRange(row, 24).getValue();
-        _s08_trashDriveFile(sourceUrl);
-        _s08_trashDriveFile(txtUrl);
+        const sourceTrash = _s08_trashDriveFile(sourceUrl);
+        const txtTrash    = _s08_trashDriveFile(txtUrl);
+        if (!sourceTrash.success || !txtTrash.success) {
+          Logger.log("[S08] s08_deleteApproved — דולגה שורה " + row + " בגלל כשל Drive");
+          failedRows.push(row);
+          return;
+        }
         sheet.deleteRow(row);
         deletedCount++;
         Logger.log("[S08] s08_deleteApproved — נמחקה שורה " + row);
@@ -849,8 +890,17 @@ function s08_deleteApproved() {
 
     // [Task 109] תיקון רפרנסים מיידי אחרי כל מחיקה אמיתית
     s08_fixReferencesAfterDelete();
+    SpreadsheetApp.flush();
 
-    return { success: true, msg: "🗑️ נמחקו " + deletedCount + " שורות מאושרות", deleted: deletedCount };
+    return {
+      success: failedRows.length === 0,
+      msg: failedRows.length === 0
+        ? "🗑️ נמחקו " + deletedCount + " שורות מאושרות"
+        : "⚠️ נמחקו " + deletedCount + " שורות. שורות שלא נמחקו בגלל כשל Drive: " + failedRows.join(", "),
+      deleted: deletedCount,
+      failed: failedRows,
+      nextRow: Math.min(firstRow, sheet.getLastRow())
+    };
   } catch (e) {
     Logger.log("[S08] שגיאת s08_deleteApproved: " + e.message);
     return { success: false, msg: "❌ שגיאה: " + e.message };
@@ -910,4 +960,14 @@ function s08_fixReferencesAfterDelete() {
   } catch (e) {
     Logger.log("[S08] שגיאת s08_fixReferencesAfterDelete: " + e.message);
   }
+}
+
+function _s08_formatDateForDisplay(value) {
+  if (!value) return "";
+  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), "dd/MM/yyyy");
+  }
+  const text = value.toString().trim();
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return iso ? iso[3] + "/" + iso[2] + "/" + iso[1] : text;
 }

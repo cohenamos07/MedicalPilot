@@ -1,6 +1,7 @@
 <!--
   MedicalPilot — S08_Sidebar.html
-  @version 1.0.17 | @updated 10/07/2026 13:56 | @service S08
+  @file        S08_Sidebar.html
+  @version 1.0.18 | @updated 13/07/2026 | @service S08
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Sidebar.html
   @description ממשק Dialog לאימות ידני ולמידה — S08.
                מציג מסמך מקורי + טקסט TXT + שדות עריכה לכותרת/מנפיק/תאריך/קטגוריה.
@@ -574,6 +575,7 @@
   var _lastNavRow  = null; // [v1.0.16] Task 123 — retry
   var _lastNavSkip = undefined;
   var _navRetried  = false;
+  var _navRequestId = 0;
 
   window.addEventListener('DOMContentLoaded', function () {
     loadInitial();
@@ -591,9 +593,9 @@
   }
 
   function renderRow(result) {
-    if (!result) {
+    if (!result || result.error || !result.data || !result.row) {
       console.error('[S08] renderRow קיבל result=null/undefined — מקור אפשרי: s08_loadRowData() (טעינה ראשונית, property ריק) — לא אמור לקרות אחרי ניווט/קפיצה תקין.');
-      showError('לא נמצאו נתוני שורה — נסה לפתוח מחדש מהגליון.');
+      showError(result && result.msg ? result.msg : 'לא נמצאו נתוני שורה — נסה לפתוח מחדש מהגליון.');
       return;
     }
 
@@ -612,7 +614,7 @@
     // מילוי שדות עריכה
     document.getElementById('fTitle').value    = currentData.docTitle    || '';
     document.getElementById('fIssuer').value   = currentData.docIssuer   || '';
-    document.getElementById('fDate').value     = currentData.docDate     || '';
+    document.getElementById('fDate').value     = formatDateForInput(currentData.docDate);
     document.getElementById('fCategory').value = currentData.docCategory || '';
 
     dupData = null; // [v1.0.15] Task 125 — מאופס בכל renderRow, מתמלא מחדש ב-renderDupCard אם רלוונטי
@@ -645,7 +647,7 @@
   }
 
   function showError(err) {
-    var msg = (err && err.message) ? err.message : (err.msg || err || 'שגיאה לא ידועה');
+    var msg = (err && err.message) ? err.message : (err && err.msg) ? err.msg : (err || 'שגיאה לא ידועה');
     var body = document.getElementById('dialogBody');
     body.innerHTML = '<div class="center-loading" style="color:#c62828;">❌ ' + escapeHtml(msg) + '</div>';
   }
@@ -779,6 +781,7 @@
   }
 
   function navigateTo(row, skipDirection) {
+    var requestId = ++_navRequestId;
     _lastNavRow  = row;          // [v1.0.16] Task 123 — נשמר לצורך retry
     _lastNavSkip = skipDirection;
 
@@ -787,18 +790,19 @@
 
     if (typeof skipDirection === 'number') {
       google.script.run
-        .withSuccessHandler(handleNavResult)
-        .withFailureHandler(showError)
+        .withSuccessHandler(function (result) { handleNavResult(result, requestId); })
+        .withFailureHandler(function (err) { if (requestId === _navRequestId) showError(err); })
         .s08_loadRowByNumber(row, skipDirection);
     } else {
       google.script.run
-        .withSuccessHandler(handleNavResult)
-        .withFailureHandler(showError)
+        .withSuccessHandler(function (result) { handleNavResult(result, requestId); })
+        .withFailureHandler(function (err) { if (requestId === _navRequestId) showError(err); })
         .s08_loadRowByNumber(row);
     }
   }
 
-  function handleNavResult(result) {
+  function handleNavResult(result, requestId) {
+    if (requestId !== _navRequestId) return;
     console.log('[S08] handleNavResult התקבל:', result);
     if (result && result.error) { showError(result.msg); return; }
 
@@ -809,7 +813,9 @@
       console.error('[S08] handleNavResult קיבל falsy result עבור row=' + _lastNavRow + ' skip=' + _lastNavSkip + (_navRetried ? ' — כשל גם בניסיון החוזר' : ' — מנסה שוב אוטומטית...'));
       if (!_navRetried) {
         _navRetried = true;
-        setTimeout(function () { navigateTo(_lastNavRow, _lastNavSkip); }, 800);
+         setTimeout(function () {
+           if (requestId === _navRequestId) navigateTo(_lastNavRow, _lastNavSkip);
+         }, 800);
         return;
       }
       _navRetried = false;
@@ -998,21 +1004,29 @@
   }
 
   function approveRow() {
+    if (currentData && currentData.duplicateFlag) {
+      showStatus('⚠️ השורה מסומנת כחשד כפילות. בטל קודם את החשד בכרטיס הכפילות, או נווט לשורה אחרת; האישור לא בוצע.', false);
+      return;
+    }
     setButtonsEnabled(false);
     google.script.run
       .withSuccessHandler(function (res) {
         setButtonsEnabled(true);
-        showStatus(res.msg, res.success);
+        showStatus((res && res.msg) || 'לא התקבלה תשובה מהשרת', !!(res && res.success));
         if (res.success) setTimeout(nextRow, 900);
       })
       .withFailureHandler(function (err) {
         setButtonsEnabled(true);
-        showStatus('❌ ' + ((err && err.message) || err), false);
+        showStatus('❌ ' + ((err && err.message) || err || 'שגיאה לא ידועה'), false);
       })
       .s08_approve(currentRow);
   }
 
   function updateAndLearn() {
+    if (currentData && currentData.duplicateFlag) {
+      showStatus('⚠️ השורה מסומנת כחשד כפילות. בטל קודם את החשד בכרטיס הכפילות; העדכון והלמידה לא בוצעו.', false);
+      return;
+    }
     setButtonsEnabled(false);
     var title    = document.getElementById('fTitle').value;
     var issuer   = document.getElementById('fIssuer').value;
@@ -1023,8 +1037,12 @@
     google.script.run
       .withSuccessHandler(function (res) {
         setButtonsEnabled(true);
-        showStatus(res.msg, res.success && !res.isDuplicate);
-        if (res.success && !res.isDuplicate) setTimeout(nextRow, 900);
+        if (res && res.isDuplicate) {
+          showStatus('⚠️ השמירה נעצרה: קיימת כבר דוגמת למידה תואמת. לא נוצרה דוגמה חדשה.', false);
+          return;
+        }
+        showStatus((res && res.msg) || 'לא התקבלה תשובה מהשרת', !!(res && res.success));
+        if (res && res.success) setTimeout(nextRow, 900);
       })
       .withFailureHandler(function (err) {
         setButtonsEnabled(true);
@@ -1034,6 +1052,10 @@
   }
 
   function learnOnly() {
+    if (currentData && currentData.duplicateFlag) {
+      showStatus('⚠️ השורה מסומנת כחשד כפילות. בטל קודם את החשד בכרטיס הכפילות; הלמידה לא בוצעה.', false);
+      return;
+    }
     setButtonsEnabled(false);
     var title    = document.getElementById('fTitle').value;
     var issuer   = document.getElementById('fIssuer').value;
@@ -1044,7 +1066,11 @@
     google.script.run
       .withSuccessHandler(function (res) {
         setButtonsEnabled(true);
-        showStatus(res.msg, res.success && !res.isDuplicate);
+        if (res && res.isDuplicate) {
+          showStatus('⚠️ הלמידה נעצרה: קיימת כבר דוגמת למידה תואמת. לא נוצרה דוגמה חדשה.', false);
+          return;
+        }
+        showStatus((res && res.msg) || 'לא התקבלה תשובה מהשרת', !!(res && res.success));
       })
       .withFailureHandler(function (err) {
         setButtonsEnabled(true);
@@ -1085,10 +1111,12 @@
     google.script.run
       .withSuccessHandler(function (res) {
         setButtonsEnabled(true);
-        showStatus(res.msg, res.success);
+        showStatus((res && res.msg) || 'לא התקבלה תשובה מהשרת', !!(res && res.success));
         // [v1.0.16] Task 123 — הוארך מ-900 ל-1500ms: שולי בטיחות נוסף אחרי
         // מחיקה (deleteRow+fixReferencesAfterDelete+flush בצד השרת)
-        if (res.success) setTimeout(nextRow, 1500);
+        if (res && res.success) setTimeout(function () {
+          navigateTo(res.nextRow || currentRow, 1);
+        }, 1500);
       })
       .withFailureHandler(function (err) {
         setButtonsEnabled(true);
@@ -1266,11 +1294,11 @@
 
     google.script.run
       .withSuccessHandler(function (res) {
-        text.textContent = res.msg;
+        text.textContent = (res && res.msg) || 'לא התקבלה תשובה מהשרת';
         actions.innerHTML =
           '<button class="btn" style="background:#999" onclick="closeDeleteApprovedModal()">סגור</button>';
-        if (res.success) {
-          setTimeout(function () { navigateTo(currentRow); }, 1500);
+        if (res && res.success) {
+          setTimeout(function () { navigateTo(res.nextRow || currentRow, 1); }, 1500);
         }
       })
       .withFailureHandler(function (err) {
@@ -1293,6 +1321,13 @@
     var div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+  }
+
+  function formatDateForInput(value) {
+    if (!value) return '';
+    var text = String(value).trim();
+    var iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return iso ? iso[3] + '/' + iso[2] + '/' + iso[1] : text;
   }
 </script>
 
