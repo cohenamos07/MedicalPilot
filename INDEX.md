@@ -1,5 +1,5 @@
 # MedicalPilot — INDEX
-תאריך עדכון: 13/07/2026 20:38
+תאריך עדכון: 13/07/2026 20:59
 
 ## קבצים src/infrastructure
 - [Auth_Check.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Auth_Check.gs)
@@ -19,7 +19,7 @@
 - [S05_MetaExtract.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S05_MetaExtract.gs)
 - [S06_ConvertTXT.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S06_ConvertTXT.gs)
 - [S07_Classify.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S07_Classify.gs)
-- [S08_Sidebar.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S08_Sidebar.gs)
+- [S08_Sidebar.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S08_Sidebar.html)
 - [S08_Validate.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S08_Validate.gs)
 - [S09_ExtractMedical.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S09_ExtractMedical.gs)
 - [S10_Sidebar.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S10_Sidebar.gs)
