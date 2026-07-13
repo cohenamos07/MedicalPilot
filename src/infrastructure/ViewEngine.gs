@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.8.1 | @updated 10/07/2026 12:36 | @service VIEWENGINE
+ * @version 2.8.2 | @updated 12/07/2026 17:20 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -42,6 +42,12 @@
  *              runQAView | runArchiveView | runStatusCheck
  *              setupIcons | cleanAndResetIcons | debugIcons
  *              runExpandViewEvents | runS10ViewIconEvents | setupMedicalEventsIcons
+ * @changes     [v2.8.2] Task 134 [שלב 6/8, שרשרת עמודה 27] — VIEW_TOTAL_COLS
+ *          שונה מ-26 ל-27 (שורה יחידה, קבוע גלובלי). מרחיב אוטומטית את
+ *          4 השימושים הקיימים: filterRange ב-switchView, rowRange ב-
+ *          runStatusCheck, showColumns ו-row3Full ב-setupIcons — כולם
+ *          יכללו כעת גם את עמודה 27 (AA, Duplicate_Target_FileID).
+ *          אין מערכים קשיחים אחרים שתלויים במספר 26 בקובץ זה.
  * @changes     [v2.8.1] Task 128 — תוקן באג שהתגלה באימות חי אצל עמוס: לחיצה
  *          על "הרחב" ביטלה פילטרים אך לא גללה בפועל לתחילת הגליון (נשאר
  *          על השורה שבה היה הסמן). שורש: _doExpand קראה activate() רק
@@ -95,7 +101,7 @@
  */
 
 const VIEW_SHEET_NAME = "ניהול_מיילים";
-const VIEW_TOTAL_COLS = 26;
+const VIEW_TOTAL_COLS = 27;
 
 // ══════════════════════════════════════════════════════════════════
 // [v2.8.0] Task 128 — מיפוי עמודת-סמן ← viewKey
