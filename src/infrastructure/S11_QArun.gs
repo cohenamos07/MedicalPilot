@@ -1,12 +1,58 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.21.0 | @updated 12/07/2026 16:05 | @service S11
+ * @version 1.24.0 | @updated 14/07/2026 20:50 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
- * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי 27 חוקי QA (E09-E28, ללא E23/E24; E17 עצמו כעת דו-שלבי).
+ * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי חוקי QA
+ *              (E09-E28 + E30, ללא E23/E24; E29 בוטל ולא מומש — הוחלף
+ *              בעבודה על S06/S07/S11 בפועל; E17 עצמו כעת דו-שלבי).
  * @impacts בודק עקביות עמודות L, M, N, Q, R, S, T, U, וכעת גם עמודה 27 (AA)
  *          לפי ציר התקדמות S03→S09.
  *          [v1.18.0] qa_deleteE17Findings מוחקת שורה בעצמה — עצמאית
  *          לגמרי, ללא שום תלות ב-S08_Validate.gs.
+ * @changes [v1.24.0] תיקון שורש (בקשת עמוס, חקירת אמינות עמודה Q) — E30
+ *                   (כלל חדש) ב-_qa_checkRow: בודק התאמה בין "מורכבות:"
+ *                   בכותרת קובץ ה-TXT (העוגן — קביעת S06 המקורית, מסונכרנת
+ *                   מול S07 החל מ-v2.10.0 של S07_Classify.gs) לבין עמודה Q
+ *                   הנוכחית בגליון. רץ רק כשיש txtUrl (כלומר S06 כבר רץ —
+ *                   מונע חפיפה עם E10 שמטפל ב-Q שנקבע *לפני* S06). שולף
+ *                   את הערך דרך פונקציה חדשה, _qa_fetchTxtComplexity_E30
+ *                   (אותה שיטת שליפה בדיוק כמו _qa_fetchTxtWordCount_E25,
+ *                   regex שונה: /מורכבות:\s*(\S+)/). אם הערך בקובץ קיים
+ *                   ושונה מ-Q — fix="write" (לא flag!): מתקן את Q בפועל
+ *                   לערך שבקובץ, כי הקובץ הוא העוגן ולא ה-AI השני (S07)
+ *                   שיכול לתת תשובה שונה בכל הרצה (ראה דיון מלא בעבודה
+ *                   על S07 היום — שני סוכני Gemini עצמאיים, בלי רובריקה
+ *                   משותפת, לא מובטחים להסכים). אם שליפת TXT נכשלת (קובץ
+ *                   לא נגיש/פורמט ישן בלי שורת "מורכבות:") — אין ממצא,
+ *                   לא מנחשים. תופס בעיקר: שורות היסטוריות מלפני v2.10.0,
+ *                   כשלי סנכרון שקטים של _s07_syncComplexityToTxt, ועריכה
+ *                   ידנית ישירה של Q בגליון.
+ * @changes [v1.23.0] תיקון שורש דחוף (בקשת עמוס, נצפה בפועל בשורה 75 —
+ *                   "1.89 MB" נפרש כ-1.89) — E25 מסלול א' (_qa_checkRow):
+ *                   sizeMatchNew/sizeKBNew (regex עיוור ליחידות, מתעלם
+ *                   מ-KB מול MB) הוחלף בקריאה לפונקציה חדשה
+ *                   _qa_parseFileSizeToBytes(sizeStr) — מפרשת יחידה
+ *                   בפועל ומחזירה בייטים. הסף (<10KB) הפך ל-<10*1024
+ *                   בייטים. באג זה גרם לקבצים גדולים (MB) עם מספר קטן
+ *                   לפני היחידה להיחשב בטעות כ"<10KB" ולקבל "מאושר
+ *                   למחיקה — לוגו/ריק" על מסמכים אמיתיים. מסלול ב'
+ *                   (isLegacyLogoFlag) לא נגע בגודל קובץ כלל — לא
+ *                   מושפע מהבאג ולא שונה.
+ * @changes [v1.22.0] תיקון שורש (בקשת עמוס, חקירת עמודה Q) — _qa_applyFixes:
+ *                   נוסף guard זהות (File_ID) לפני כל כתיבה בפועל. הרקע: עד כה
+ *                   f.row (מספר שורה שנקבע בזמן הסריקה, runQAViewMain) נשמר
+ *                   ונשלח ל-Dialog HTML; "תקן נבחרים" (qa_applySelectedFixes)
+ *                   כתב לפי אותו מספר שורה בלבד, בלי לוודא שהרשומה בשורה הזו
+ *                   עדיין זהה למה שנסרק. אם התבצעה מחיקת שורה (S08/S11) בין
+ *                   הסריקה לאישור התיקון — כל כתיבה, כולל לעמודה Q, הייתה
+ *                   נוחתת על רשומה שהזיזה מיקום. כעת כל finding כולל fileId
+ *                   (מ-rowData[0], כבר בזיכרון בזמן הסריקה), ולפני כל כתיבה
+ *                   בפועל _qa_applyFixes משווה מול sheet.getRange(f.row,1)
+ *                   .getValue(). אי-התאמה → הכתיבה מדולגת לגמרי (לא מבוצעת
+ *                   בשום צורה — גישה שמרנית, תואמת לעיקרון שS11 לא "מנחש"
+ *                   היכן להזיז תיקון) + לוג ברור ("⛔ דולג — File_ID לא תואם,
+ *                   כנראה שהשורה זזה"), ונספרת כ"לא הוחלה" בדוח שחוזר ל-Dialog.
+ *                   אין שינוי בהתנהגות מעבר לבדיקה הזו עצמה.
  * @changes [v1.21.0] Task 137 [התגלה בבדיקת E2E למיגרציית עמודה 27] —
  *                   _qa_applyFixes, case "write_symmetry": לפני הכתיבה,
  *                   מוסר מ-f.value כל מופע של "— שורה X" (regex). הבאג:
@@ -94,7 +140,8 @@
  * @functions runQAViewMain, qa_getFindings, qa_applySelectedFixes,
  *            qa_deleteE17Findings,
  *            _qa_scanRow, _qa_scanAll, _qa_checkRow, _qa_dedupeE11Findings,
- *            _qa_fetchTxtWordCount_E25,
+ *            _qa_fetchTxtWordCount_E25, _qa_fetchTxtComplexity_E30,
+ *            _qa_parseFileSizeToBytes,
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol,
  *            _qa_loadEventsFileIds, findAnchorRowAndAuditVerified,
  *            qa_migrateNotesFromR_Task93, qa_findOrphanDuplicateRef_Task93,
@@ -557,7 +604,18 @@ function _qa_scanRow(allData, activeRow, lastRow, eventsFileIds, fileIdRowMap, r
   const rowData = allData[i];
   if (!rowData) return [];
   const myNote = (rNotesAll[i] && rNotesAll[i][0]) || "";
-  return _qa_checkRow(rowData, activeRow, allData, lastRow, eventsFileIds, fileIdRowMap, myNote);
+  const rowFindings = _qa_checkRow(rowData, activeRow, allData, lastRow, eventsFileIds, fileIdRowMap, myNote);
+
+  // [v1.22.0] תיקון שורש (חקירת עמודה Q) — תיוג fileId על כל ממצא, לפי
+  // השורה שאליה הממצא באמת מצביע (f.row) — לא בהכרח activeRow הנוכחית
+  // (E11 למשל מצביע על שורת-התאום). allData כבר מכיל את כל הגליון,
+  // כך שהשליפה תקינה גם עבור שורת-תאום. משמש את ה-guard ב-_qa_applyFixes.
+  rowFindings.forEach(function(f) {
+    const srcRow = allData[f.row - QA_DATA_START];
+    f.fileId = srcRow ? (srcRow[0] || "").toString().trim() : "";
+  });
+
+  return rowFindings;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -572,7 +630,16 @@ function _qa_scanAll(allData, lastRow, eventsFileIds, fileIdRowMap, rNotesAll) {
     if (!rowData[0]) continue; // דלג שורות ריקות (אין File_ID)
     const myNote = (rNotesAll[i] && rNotesAll[i][0]) || "";
     const rowFindings = _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds, fileIdRowMap, myNote);
-    rowFindings.forEach(function(f) { findings.push(f); });
+
+    // [v1.22.0] תיקון שורש (חקירת עמודה Q) — תיוג fileId על כל ממצא, לפי
+    // השורה שאליה הממצא באמת מצביע (f.row) — לא בהכרח row הנוכחית שבלולאה
+    // (E11 למשל מצביע על שורת-התאום). allData כבר מכיל את כל הגליון,
+    // כך שהשליפה תקינה גם עבור שורת-תאום. משמש את ה-guard ב-_qa_applyFixes.
+    rowFindings.forEach(function(f) {
+      const srcRow = allData[f.row - QA_DATA_START];
+      f.fileId = srcRow ? (srcRow[0] || "").toString().trim() : "";
+      findings.push(f);
+    });
   }
   return findings;
 }
@@ -598,7 +665,6 @@ function _qa_dedupeE11Findings(findings) {
 // ══════════════════════════════════════════════════════════════════
 // בדיקת שורה אחת — מחזיר מערך ממצאים
 // ══════════════════════════════════════════════════════════════════
-
 function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds, fileIdRowMap, myNote) {
   const findings = [];
 
@@ -937,10 +1003,12 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds, fileIdRowMa
   // מלבד הגנת Task 117 מפני False-Positive בכשל שליפת TXT.
   if (fileId && !r && n) {
     var sizeStrNew   = (rowData[15] || "").toString(); // P = FileSize
-    var sizeMatchNew = sizeStrNew.match(/(\d+(\.\d+)?)/);
-    var sizeKBNew    = sizeMatchNew ? parseFloat(sizeMatchNew[1]) : null;
+    // [v1.23.0] תיקון שורש דחוף — הוחלף sizeMatchNew/sizeKBNew (regex עיוור
+    // ליחידות, "1.89 MB" נפרש כ-1.89) בפונקציה מודעת-יחידות. הסף <10KB
+    // הפך ל-בייטים (<10*1024) כדי להשוות נכון מול הערך שבבייטים.
+    var sizeBytesNew = _qa_parseFileSizeToBytes(sizeStrNew);
 
-    if (sizeKBNew !== null && sizeKBNew < 10) {
+    if (sizeBytesNew !== null && sizeBytesNew < 10 * 1024) {
       var docTitleNew  = (rowData[8] || "").toString().trim();  // I
       var docIssuerNew = (rowData[9] || "").toString().trim();  // J
       var wordCountNew = _qa_fetchTxtWordCount_E25(txtUrl);
@@ -1048,8 +1116,54 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds, fileIdRowMa
       value: "עבר סיווג"
     });
   }
-
+// ── [v1.24.0] E30 (בקשת עמוס, חקירת אמינות עמודה Q) — בדיקת התאמה בין
+  // "מורכבות:" בכותרת קובץ ה-TXT (עוגן S06, מסונכרן מול S07 מ-v2.10.0
+  // של S07_Classify.gs) לבין עמודה Q הנוכחית. רץ רק כשיש txtUrl (S06
+  // כבר רץ) — מונע חפיפה עם E10 (מטפל ב-Q שנקבע *לפני* S06). fix="write"
+  // — לא flag: התיקון ודאי, לא רק התרעה, כי הקובץ הוא העוגן ולא ניחוש
+  // AI נוסף. אם שליפת TXT נכשלת/אין שורת "מורכבות:" — אין ממצא כלל.
+  if (fileId && txtUrl) {
+    var txtComplexity30 = _qa_fetchTxtComplexity_E30(txtUrl);
+    if (txtComplexity30 && txtComplexity30 !== q) {
+      findings.push({
+        row:   row,
+        code:  "E30",
+        col:   17,
+        desc:  "Q='" + (q || "ריק") + "' לא תואם ל'מורכבות:' בכותרת ה-TXT ('" + txtComplexity30 + "') — מתקן לפי הקובץ",
+        fix:   "write",
+        value: txtComplexity30
+      });
+    }
+  }
   return findings;
+}
+ 
+// ══════════════════════════════════════════════════════════════════
+// [v1.23.0] תיקון שורש דחוף — פענוח גודל קובץ מודע-יחידות (KB/MB/GB)
+// ══════════════════════════════════════════════════════════════════
+
+/**
+ * ממירה מחרוזת גודל קובץ (למשל "92 KB" או "1.89 MB") לבייטים.
+ * מחליפה regex עיוור-ליחידות שהתעלם מ-KB מול MB (ראה @changes v1.23.0) —
+ * "1.89 MB" היה נפרש כ-1.89 כאילו זה KB, ונופל בטעות מתחת לסף "<10KB".
+ * @param {string} sizeStr - תוכן עמודה P (File_Size), למשל "45 KB"/"1.2 MB".
+ * @returns {number|null} גודל בבייטים, או null אם לא ניתן לפענח (אין יחידה
+ *          מזוהה — עדיף להחזיר null ולא לנחש, לפי COLUMN_MAP הפורמט תמיד
+ *          "XX KB|XX MB").
+ */
+function _qa_parseFileSizeToBytes(sizeStr) {
+  if (!sizeStr) return null;
+  var str   = sizeStr.toString().trim();
+  var match = str.match(/(\d+(?:\.\d+)?)\s*(KB|MB|GB)/i);
+  if (!match) return null;
+
+  var num        = parseFloat(match[1]);
+  var unit       = match[2].toUpperCase();
+  var multiplier = unit === "GB" ? 1024 * 1024 * 1024 :
+                   unit === "MB" ? 1024 * 1024 :
+                   1024; // KB
+
+  return num * multiplier;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1074,6 +1188,31 @@ function _qa_fetchTxtWordCount_E25(txtUrl) {
 
   } catch (e) {
     Logger.log("[S11 QA] E25 — שגיאה בשליפת מספר מילים: " + e.message);
+    return null;
+  }
+}
+// ══════════════════════════════════════════════════════════════════
+// [v1.24.0] תיקון שורש — שליפת "מורכבות:" מכותרת קובץ ה-TXT (עוגן S06)
+// אותה שיטת שליפה כמו _qa_fetchTxtWordCount_E25, לעקביות
+// ══════════════════════════════════════════════════════════════════
+
+function _qa_fetchTxtComplexity_E30(txtUrl) {
+  try {
+    if (!txtUrl) return null;
+
+    var fileId = null;
+    var m1 = txtUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (m1) fileId = m1[1];
+    var m2 = txtUrl.match(/id=([a-zA-Z0-9_-]+)/);
+    if (m2) fileId = m2[1];
+    if (!fileId) return null;
+
+    var content = DriveApp.getFileById(fileId).getBlob().getDataAsString("UTF-8");
+    var match   = content.match(/מורכבות:\s*(\S+)/);
+    return match ? match[1].trim() : null;
+
+  } catch (e) {
+    Logger.log("[S11 QA] E30 — שגיאה בשליפת מורכבות מכותרת TXT: " + e.message);
     return null;
   }
 }
@@ -1146,6 +1285,14 @@ function _qa_applyFixes(sheet, findings) {
   // סימטריה חסרה בשורת התאום.
   // [v1.21.0] Task 137 — case "write_symmetry": מוסיף ניקוי "— שורה X"
   // מהטקסט לפני כתיבה, כדי למנוע טקסט עצמי-מתייחס בשורת התאום.
+  // [v1.22.0] תיקון שורש (בקשת עמוס, חקירת עמודה Q) — guard זהות File_ID
+  // חדש: לפני כל כתיבה בפועל, משווה את f.fileId (שנקבע בזמן הסריקה,
+  // ראה _qa_scanRow/_qa_scanAll) מול ה-File_ID האמיתי שנמצא כעת בשורה.
+  // אם התבצעה מחיקת שורה (S08/S11) בין הסריקה לרגע "תקן נבחרים" — השורה
+  // "זזה" והכתיבה הייתה נוחתת על רשומה אחרת. אי-התאמה → הכתיבה מדולגת
+  // לגמרי (לא מבוצעת), הממצא נספר כ"לא הוחל", ולוג ברור מוצג. אם f.fileId
+  // חסר (ממצא ישן, לפני v1.22.0) — רק אזהרה בלוג, הכתיבה ממשיכה כרגיל
+  // (fail-open לנתונים חסרים, fail-closed רק לאי-התאמה בפועל).
 
   let appliedCount = 0;
   const e17DeletionCandidates = [];
@@ -1160,6 +1307,21 @@ function _qa_applyFixes(sheet, findings) {
           Logger.log("[S11 QA] ⛔ כתיבה בוטלה — עמודה " + f.col + " לא תואמת");
           return;
         }
+      }
+
+      // [v1.22.0] guard זהות File_ID — לפני כל כתיבה בפועל
+      if (f.fileId) {
+        const actualFileId = (sheet.getRange(f.row, 1).getValue() || "").toString().trim();
+        if (actualFileId !== f.fileId) {
+          Logger.log(
+            "[S11 QA] ⛔ דולג — File_ID לא תואם בשורה " + f.row +
+            " (צפוי: " + f.fileId + " | בפועל: " + actualFileId + ") — " +
+            "כנראה שהשורה זזה בעקבות מחיקה. ממצא " + f.code + " לא הוחל."
+          );
+          return;
+        }
+      } else {
+        Logger.log("[S11 QA] ⚠️ ממצא " + f.code + " בשורה " + f.row + " ללא fileId שמור — guard לא בדק זהות.");
       }
 
       switch (f.fix) {
