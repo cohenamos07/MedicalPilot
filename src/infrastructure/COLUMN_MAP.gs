@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.9.1 | @updated 11/07/2026 20:53 | @service COLUMN_MAP
+ * @version 2.9.2 | @updated 15/07/2026 20:07 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
@@ -17,6 +17,19 @@
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol
+ * @changes [v2.9.2] Task 154 — 3 תיקונים לגיליון "דוגמאות_למידה": (1) SHEETS_MAP
+ *                   היה מתועד בסדר עמודות שגוי לגמרי מול מה שבאמת נכתב/נקרא בקוד
+ *                   (S08 _s08_saveToLearning / S07 _getLearningExamples_S07) — תוקן
+ *                   ל-Subject/Issuer/Classification/TXT_Document_Link/Original_File_ID/
+ *                   Complexity/Doc_Date/Notes. S07↔S08 עצמם היו עקביים זה עם זה —
+ *                   רק התיעוד היה שגוי. (2) הוספת SHEET_CONFIG["דוגמאות_למידה"]:
+ *                   FROZEN_ROWS:4, HEADER_ROW:4, FIRST_DATA_ROW:5 — מיישר את הגיליון
+ *                   לתקן 4-השורות הנהוג בשאר המערכת (היום כותרת בשורה 1, נתונים
+ *                   משורה 2). (3) תוקן באג ידוע ומתועד (ראה @changes [v2.9.1] למטה) —
+ *                   restoreHeaders() כתבה תמיד לשורה 1 בקשיחות; כעת קוראת את
+ *                   HEADER_ROW בפועל מ-SHEET_CONFIG לפי הגיליון שנבחר. הזזת הנתונים
+ *                   הקיימים בגיליון (1→4) והצבת אייקון "אתחול" — פעולה ידנית של עמוס,
+ *                   לא בקוד.
  * @changes [v2.9.1] Task 129 [שלב 1/8] — הוספת עמודה 27 (AA) "Duplicate_Target_FileID"
  *                   ל-SHEETS_MAP["ניהול_מיילים"] — רפרנס פיזי וגלוי לשורת-התאום בזיהוי
  *                   כפילויות, שיחליף בהדרגה (שלבים 130-133) את מנגנון ה-Note הבלתי-נראה
@@ -68,6 +81,11 @@ const SHEET_CONFIG = {
     FROZEN_ROWS:    4,  // שורות 1-4 מוקפאות — לא לגעת בקוד
     HEADER_ROW:     4,  // שורת כותרות
     FIRST_DATA_ROW: 5   // שורת נתונים ראשונה — כל לולאה מתחילה כאן
+  },
+  "דוגמאות_למידה": {
+    FROZEN_ROWS:    4,  // שורות 1-4 מוקפאות — לא לגעת בקוד
+    HEADER_ROW:     4,  // שורת כותרות
+    FIRST_DATA_ROW: 5   // שורת נתונים ראשונה — כל לולאה מתחילה כאן
   }
 };
 
@@ -115,14 +133,15 @@ const SHEETS_MAP = {
   ],
 
   "דוגמאות_למידה": [
-    { col: 1, name: "Classification",    zone: "תוכן",  writers: ["S08"], readers: ["S07"], values: "רפואי|חשבונאי|משפטי|ביטוחי|אחר", notes: "קטגוריה מאושרת ידנית" },
-    { col: 2, name: "Subject",           zone: "תוכן",  writers: ["S08"], readers: ["S07"], values: "טקסט חופשי",                      notes: "כותרת/סוג המסמך לדוגמה" },
-    { col: 3, name: "Issuer",            zone: "תוכן",  writers: ["S08"], readers: ["S07"], values: "טקסט חופשי",                      notes: "מנפיק המסמך לדוגמה" },
-    { col: 4, name: "Complexity",        zone: "תוכן",  writers: ["S08"], readers: ["S07"], values: "פשוט|בינוני|מורכב",               notes: "מורכבות המסמך" },
-    { col: 5, name: "Doc_Date",          zone: "תוכן",  writers: ["S08"], readers: ["S07"], values: "תאריך",                           notes: "תאריך המסמך" },
-    { col: 6, name: "Notes",             zone: "תוכן",  writers: ["S08"], readers: ["S07"], values: "טקסט חופשי",                      notes: "הערת למידה — סיבת התיקון" },
-    { col: 7, name: "Original_File_ID",  zone: "טכני",  writers: ["S08"], readers: ["S07"], values: "Drive ID",                        notes: "מזהה קובץ מקורי ב-Drive" },
-    { col: 8, name: "TXT_Document_Link", zone: "טכני",  writers: ["S08"], readers: ["S07"], values: "https://drive.google.com/...",     notes: "קישור לקובץ TXT לדוגמה" }
+    { col: 1, name: "Subject",           zone: "תוכן",  writers: ["S08"], readers: ["S07"], values: "טקסט חופשי",                      notes: "כותרת/סוג המסמך לדוגמה" },
+    { col: 2, name: "Issuer",            zone: "תוכן",  writers: ["S08"], readers: ["S07"], values: "טקסט חופשי",                      notes: "מנפיק המסמך לדוגמה" },
+    { col: 3, name: "Classification",    zone: "תוכן",  writers: ["S08"], readers: ["S07"], values: "רפואי|חשבונאי|משפטי|ביטוחי|אחר", notes: "קטגוריה מאושרת ידנית" },
+    { col: 4, name: "TXT_Document_Link", zone: "טכני",  writers: ["S08"], readers: ["S07"], values: "https://drive.google.com/...",     notes: "קישור לקובץ TXT לדוגמה" },
+    { col: 5, name: "Original_File_ID",  zone: "טכני",  writers: ["S08"], readers: ["S07"], values: "Drive ID",                        notes: "מזהה קובץ מקורי ב-Drive" },
+    { col: 6, name: "Complexity",        zone: "תוכן",  writers: ["S08"], readers: ["S07"], values: "פשוט|בינוני|מורכב",               notes: "מורכבות המסמך" },
+    { col: 7, name: "Doc_Date",          zone: "תוכן",  writers: ["S08"], readers: ["S07"], values: "תאריך",                           notes: "תאריך המסמך" },
+    { col: 8, name: "Notes",             zone: "תוכן",  writers: ["S08"], readers: ["S07"], values: "טקסט חופשי",                      notes: "הערת למידה — סיבת התיקון" },  
+    
   ],
 
   // [FIX-4] גליון למידה חדש — S10 אימות אירועים רפואיים
@@ -295,9 +314,16 @@ function restoreHeaders() {
   const sheet = ss.getSheetByName(sheetName);
   if (!sheet) { ui.alert("גליון לא נמצא בקובץ: " + sheetName); return; }
 
+  // [v2.9.2] Task 154 — תיקון באג ידוע: הפונקציה כתבה תמיד לשורה 1
+  // בקשיחות, בלי קשר להגדרת HEADER_ROW בפועל. כעת קוראת מ-SHEET_CONFIG
+  // אם קיים (ניהול_מיילים/יומן_אירועים_רפואי/דוגמאות_למידה — כולן
+  // HEADER_ROW=4), עם נפילה חזרה לשורה 1 לגליונות שאין להם עדיין
+  // SHEET_CONFIG (התנהגות מקורית, לא נשברת).
+  const headerRow = (SHEET_CONFIG[sheetName] && SHEET_CONFIG[sheetName].HEADER_ROW) || 1;
+
   const confirm = ui.alert(
     "שחזור כותרות",
-    "האם לשחזר את כותרות שורה 1 בגליון " + sheetName + "?\nפעולה זו תדרוס את הכותרות הנוכחיות.",
+    "האם לשחזר את כותרות שורה " + headerRow + " בגליון " + sheetName + "?\nפעולה זו תדרוס את הכותרות הנוכחיות.",
     ui.ButtonSet.YES_NO
   );
   if (confirm !== ui.Button.YES) return;
@@ -306,9 +332,9 @@ function restoreHeaders() {
   const headers   = new Array(totalCols).fill("");
   cols.forEach(function(c) { headers[c.col - 1] = c.name || ""; });
 
-  sheet.getRange(1, 1, 1, totalCols).setValues([headers]);
-  sheet.getRange(1, 1, 1, totalCols).setFontWeight("bold");
-  sheet.getRange(1, 1).activate();
+  sheet.getRange(headerRow, 1, 1, totalCols).setValues([headers]);
+  sheet.getRange(headerRow, 1, 1, totalCols).setFontWeight("bold");
+  sheet.getRange(headerRow, 1).activate();
 
   ui.alert("✅ כותרות שוחזרו בהצלחה לגליון " + sheetName);
 }
