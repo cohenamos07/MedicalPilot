@@ -1,6 +1,6 @@
 /**
  * @file        S07_Classify.gs
- * @version     2.9.0 | @updated 11/07/2026 21:44 | @service S07
+ * @version     2.10.0 | @updated 14/07/2026 19:20 | @service S07
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S07_Classify.gs
  * @description סיווג מסמכים רפואיים בעזרת Gemini API.
  *              קורא טקסט מ-TXT_URL (X) או Raw_Text (Z).
@@ -14,6 +14,7 @@
  *              R(18)=Duplicate_Flag | S(19)=Error_Code | T(20)=Error_Detail
  *              AA(27)=Duplicate_Target_FileID [v2.9.0, Task 131]
  *              קורא: X(24)=TXT_URL | Z(26)=Raw_Text
+ *              [v2.10.0] כותב גם לתוך תוכן קובץ ה-TXT עצמו (Drive) — ראה @changes.
  *              תלויות: GEMINI_API_KEY, COLUMN_MAP.SHEETS_MAP,
  *                      מנהל_משאבים (getAvailableExtractor),
  *                      דוגמאות_למידה (גליון)
@@ -25,8 +26,30 @@
  *              _validateAiResult_S07 | _isFilled_S07 | _countFilledFields_S07
  *              _fetchTextFromUrl_S07 | _getLearningExamples_S07
  *              _calculateDuplicates_S07 | _extractTxtHeader_S07
- *              _guardAlreadyClassified_S07
+ *              _guardAlreadyClassified_S07 | _s07_syncComplexityToTxt
  *              S07_ValidateWritePermissions
+ * @changes     [v2.10.0] תיקון שורש (בקשת עמוס, חקירת אמינות עמודה Q) —
+ *              4 שינויים ב-executeS07Classification + פונקציות תומכות:
+ *              (1) רובריקת מורכבות-תוכן אוניברסלית (לא תלוית קטגוריה) נוספה
+ *                  לפרומפט ב-_callAiWithFullPrompt_S07 — במקום "בחר אחד
+ *                  מ-3" בלי שום קריטריון.
+ *              (2) fullText.substring(0, 3800) → substring(0, 15000) —
+ *                  יישור לאותו סף שכבר קיים במסלולי DOCX/TXT של S06 עצמו
+ *                  (execute_Direct_Path/execute_Text_Path). התיקון הישן חתך
+ *                  מסמכים ארוכים לפני שה-AI בכלל הגיע לתוכן המהותי שלהם.
+ *              (3) generationConfig.temperature=0.1 נוסף לקריאת S07 (כמו
+ *                  שכבר קיים במסלולי S06 PDF/תמונה) — צמצום אקראיות בשיפוט
+ *                  מורכבות סובייקטיבי.
+ *              (4) _extractTxtHeader_S07 הורחבה לשלוף גם complexity מהכותרת
+ *                  הקיימת בקובץ ה-TXT (מה שS06 קבע במקור). ברירת המחדל
+ *                  השתנתה מ-"בינוני" עיוור ל-aiResult.complexity ||
+ *                  header.complexity || "בינוני" (נופל על קביעת S06 לפני
+ *                  שנופל על קבוע). אם הערך הסופי שונה מהכותרת המקורית —
+ *                  _s07_syncComplexityToTxt (חדשה) כותבת אותו בחזרה גם
+ *                  לתוך קובץ ה-TXT ב-Drive, כדי שהוא וQ יישארו מסונכרנים
+ *                  תמיד (מכינה את הבסיס לבדיקת התאמה עתידית ב-S11, טרם
+ *                  נכתבה). כשל בסנכרון ה-TXT נרשם ללוג בלבד — לא מפיל את
+ *                  הסיווג עצמו.
  * @changes     [v2.9.0] Task 131 [שלב 3/8, שרשרת עמודה 27] — שינוי בלוק
  *              זיהוי הכפילות (Task 91 המקורי) בתוך executeS07Classification.
  *              (1) שתי קריאות ה-setNote(File_ID) על עמודה R (18) — הוחלפו
@@ -333,8 +356,13 @@ function executeS07Classification(row) {
 
     const examples = _getLearningExamples_S07(ss);
 
+    // [v2.10.0] תיקון שורש (חקירת אמינות עמודה Q, בקשת עמוס) — שליפת
+    // הכותרת הקיימת בקובץ ה-TXT (כולל complexity שS06 כתב במקור) *לפני*
+    // קריאת ה-AI, לשימוש כ-fallback וכעוגן השוואה לסנכרון בהמשך.
+    const header = _extractTxtHeader_S07(fullText);
+
     const aiResult = _callAiWithFullPrompt_S07(
-      fullText.substring(0, 3800), extractor, examples
+      fullText.substring(0, 15000), extractor, examples
     );
 
     if (!aiResult || Object.keys(aiResult).length === 0)
@@ -346,11 +374,24 @@ function executeS07Classification(row) {
     if (filled < 2)
       throw new Error("AI_RESULT_TOO_WEAK: רק " + filled + " שדות — לא מספיק");
 
+    // [v2.10.0] תיקון שורש — ברירת מחדל משופרת: קודם תשובת ה-AI, אחרת
+    // מה שS06 כבר קבע (מהכותרת), ורק אם גם זה חסר — "בינוני" כמוצא אחרון
+    // (במקום נפילה עיוורת ל"בינוני" בלי קשר לתוכן המסמך, כמו קודם).
+    const finalComplexity = aiResult.complexity || header.complexity || "בינוני";
+
     _safeWrite(sheet, row, "Doc_Title",         aiResult.title      || "");
     _safeWrite(sheet, row, "Doc_Issuer",         aiResult.issuer     || "");
     _safeWrite(sheet, row, "Doc_Date",           aiResult.date       || "");
     _safeWrite(sheet, row, "Doc_Category",       aiResult.category   || "");
-    _safeWrite(sheet, row, "Complexity",         aiResult.complexity || "בינוני");
+    _safeWrite(sheet, row, "Complexity",         finalComplexity);
+
+    // [v2.10.0] תיקון שורש — אם הערך הסופי שונה מהערך שכבר כתוב בכותרת
+    // קובץ ה-TXT (קביעת S06 המקורית) — מסנכרנים את הקובץ עצמו, כדי
+    // שהוא ועמודה Q יישארו תואמים תמיד. אם header.complexity חסר (קובץ
+    // ישן/פורמט לא מזוהה) — אין עוגן להשוואה, מדלגים על הסנכרון בשקט.
+    if (txtUrl && header.complexity && header.complexity !== finalComplexity) {
+      _s07_syncComplexityToTxt(txtUrl, finalComplexity);
+    }
 
     const extractionStatus = filled === 4 ? "חולץ מלא" : "חולץ חלקי";
     _safeWrite(sheet, row, "Extraction_Status", extractionStatus);
@@ -374,7 +415,45 @@ function executeS07Classification(row) {
     return false;
   }
 }
+// ══════════════════════════════════════════════════════════════════
+// סנכרון מורכבות לקובץ TXT — תיקון שורש (חקירת אמינות עמודה Q)
+// ══════════════════════════════════════════════════════════════════
 
+/**
+ * [v2.10.0] מעדכנת את שורת "מורכבות:" בתוך תוכן קובץ ה-TXT ב-Drive,
+ * כדי שהיא תישאר תואמת לערך הסופי שנכתב לעמודה Q. נקראת רק כשיש
+ * אי-התאמה בין מה שכבר כתוב בקובץ (קביעת S06 המקורית) לבין הערך
+ * הסופי שנקבע ב-executeS07Classification. כשל כאן (קובץ לא נגיש/
+ * נמחק וכו') נרשם ללוג בלבד — לא מפיל את הסיווג עצמו, כי הכתיבה
+ * לעמודה Q (מקור האמת התפעולי) כבר הצליחה בשלב קודם.
+ */
+function _s07_syncComplexityToTxt(txtUrl, newComplexity) {
+  try {
+    var id = null;
+    if (txtUrl.includes("id="))      id = txtUrl.split("id=")[1].split("&")[0];
+    else if (txtUrl.includes("/d/")) id = txtUrl.split("/d/")[1].split("/")[0];
+    if (!id) throw new Error("לא נמצא File ID ב-URL");
+
+    var file    = DriveApp.getFileById(id);
+    var content = file.getBlob().getDataAsString();
+
+    if (!content || content.trim() === "")
+      throw new Error("קובץ TXT קיים אך ריק — לא ניתן לסנכרן");
+
+    var updated = content.replace(/(מורכבות:\s*)(\S+)/, "$1" + newComplexity);
+
+    if (updated === content) {
+      Logger.log("[S07] סנכרון TXT — לא נמצאה שורת 'מורכבות:' בקובץ (" + id + "), לא בוצע שינוי.");
+      return;
+    }
+
+    file.setContent(updated);
+    Logger.log("[S07] סנכרון TXT הצליח — עודכן ל-'" + newComplexity + "' בקובץ " + id);
+
+  } catch (e) {
+    Logger.log("[S07] ⚠️ סנכרון TXT נכשל (" + txtUrl + "): " + e.message + " — עמודה Q כבר עודכנה, רק הקובץ לא.");
+  }
+}
 function _extractTxtHeader_S07(txtContent) {
   if (!txtContent) return {};
   const result = {};
@@ -394,6 +473,12 @@ function _extractTxtHeader_S07(txtContent) {
 
     const wordsMatch = line.match(/מספר_מילים:\s*(\d+)/);
     if (wordsMatch) result.words = parseInt(wordsMatch[1], 10);
+
+    // [v2.10.0] תיקון שורש (חקירת אמינות עמודה Q) — שליפת הערך שS06 כתב
+    // במקור לתוך כותרת קובץ ה-TXT, לשימוש כ-fallback וכעוגן השוואה
+    // ב-executeS07Classification (במקום ברירת מחדל עיוורת ל"בינוני").
+    const complexityMatch = line.match(/מורכבות:\s*(\S+)/);
+    if (complexityMatch) result.complexity = complexityMatch[1].trim();
   });
   return result;
 }
@@ -530,6 +615,18 @@ function _callAiWithFullPrompt_S07(text, extractor, examples) {
     "ערכי category חוקיים: רפואי / חשבונאי / משפטי / ביטוחי / אחר\n" +
     "חשוב: category חייב להיות בדיוק אחד מהערכים הנ\"ל — ללא מילת 'מסמך' לפניו.\n" + // [v2.6.0] Task 73
     "ערכי complexity חוקיים: פשוט / בינוני / מורכב\n" +
+    // [v2.10.0] תיקון שורש (חקירת אמינות עמודה Q, בקשת עמוס) — רובריקה
+    // אוניברסלית (לא תלוית קטגוריה — רפואי/חשבונאי/משפטי/ביטוחי/אחר כולם
+    // נשפטים לפי אותם ארבעה קריטריונים מבניים). קודם לכן לא היה שום
+    // קריטריון כלל, רק שלוש האפשרויות בשמן.
+    "דרג את מורכבות התוכן (לא מורכבות טכנית/סריקה) לפי:\n" +
+    "- מספר נושאים/ישויות נפרדים במסמך\n" +
+    "- צפיפות מונחים מקצועיים\n" +
+    "- כמות נתונים/ערכים לחילוץ\n" +
+    "- מידת התלות בהקשר חיצוני להבנה מלאה\n" +
+    "פשוט: נושא אחד, מעט מונחים, מעט נתונים, לא דורש הקשר חיצוני\n" +
+    "בינוני: 2-3 נושאים קשורים, מונחים מפוזרים, נתונים בינוניים\n" +
+    "מורכב: 4+ נושאים או מבנה רב-שכבתי, מונחים צפופים, הרבה נתונים, דורש הקשר חיצוני\n" +
     "חובה למלא לפחות title ו-category.\n" +
     examples +
     "\nהטקסט:\n" + text;
@@ -539,7 +636,12 @@ function _callAiWithFullPrompt_S07(text, extractor, examples) {
   const response = UrlFetchApp.fetch(url, {
     method:             "post",
     contentType:        "application/json",
-    payload:            JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] }),
+    // [v2.10.0] תיקון שורש (בקשת עמוס) — נוסף temperature:0.1, כמו שכבר
+    // קיים במסלולי S06 PDF/תמונה — צמצום אקראיות בשיפוט מורכבות סובייקטיבי.
+    payload:            JSON.stringify({
+      contents:         [{ parts: [{ text: fullPrompt }] }],
+      generationConfig: { temperature: 0.1 }
+    }),
     muteHttpExceptions: true
   });
 
