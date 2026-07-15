@@ -1,7 +1,14 @@
 <!--
   MedicalPilot — S08_Sidebar.html
   @file        S08_Sidebar.html
-  @version 1.0.18 | @updated 13/07/2026 | @service S08
+  @version 1.0.19 | @updated 15/07/2026 | @service S08
+  @changes     [v1.0.19] Task 127 סעיף (4) — .modal-actions: נוסף
+               flex-wrap:wrap (עקבי עם .action-bar הקיים). במודל אישור
+               מחיקה עם חשד כפילות יש 3 כפתורים ("מחק שורה נוכחית" /
+               "מחק שורת תאום" / "ביטול"), כל אחד min-width:110px בתוך
+               modal-box ברוחב 320px (רוחב תוכן זמין 284px לאחר padding)
+               — כפתור "ביטול" חרג ויזואלית מהקופסה. כעת הכפתורים עוטפים
+               לשורה נוספת כשאין מקום, כמו שכבר קורה ב-.action-bar.
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Sidebar.html
   @description ממשק Dialog לאימות ידני ולמידה — S08.
                מציג מסמך מקורי + טקסט TXT + שדות עריכה לכותרת/מנפיק/תאריך/קטגוריה.
@@ -493,7 +500,7 @@
   }
   .modal-title { font-size: 13px; font-weight: 700; color: #c62828; }
   .modal-text  { font-size: 12px; color: #444; line-height: 1.5; }
-  .modal-actions { display: flex; gap: 6px; }
+  .modal-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
   /* [v1.0.17] מודל מחיקה מרוכזת — רשימת שורות ארוכה, לכן רוחב+גלילה מיוחדים */
   #deleteApprovedModal .modal-box { width: 420px; max-height: 70vh; overflow-y: auto; }
