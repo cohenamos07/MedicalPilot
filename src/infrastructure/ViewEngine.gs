@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.8.2 | @updated 12/07/2026 17:20 | @service VIEWENGINE
+ * @version 2.8.4 | @updated 15/07/2026 20:30 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -42,6 +42,20 @@
  *              runQAView | runArchiveView | runStatusCheck
  *              setupIcons | cleanAndResetIcons | debugIcons
  *              runExpandViewEvents | runS10ViewIconEvents | setupMedicalEventsIcons
+ * @changes     [v2.8.4] Task 154 — הוספת runSortLearningExamplesIcon: אייקון
+ *          קבוע לשימוש חוזר בגליון "דוגמאות_למידה" (לא ניהול_מיילים) —
+ *          ממיין את שורות הדוגמאות לפי מנפיק (עמודה B), לנוחות אנושית
+ *          בלבד (אילו מנפיקים כבר מיוצגים). אינו קשור ל-ICON_MAP/setupIcons
+ *          (מנגנון נפרד, לא הוחל כאן — הצבת האייקון בגליון עצמו נשארת
+ *          פעולה ידנית של עמוס: Drawing + הקצאת סקריפט).
+ * @changes     [v2.8.3] Task 147 — runS08ViewIcon/runS09ViewIcon: כשל הרשאה
+ *          שקורה לפעמים כשרצף "ui.alert ואז מיד showModalDialog/הרצת שירות"
+ *          (חשד: חסימת פופאפ כפול של הדפדפן) נבלע בשקט — רק Logger.log,
+ *          בלי שום הודעה למשתמש (האייקון "לא מגיב"). לא תוקן השורש (עדיין
+ *          לא מאומת שזו אכן הסיבה) — נוסף ui.alert בתוך ה-catch של שתי
+ *          הפונקציות, כדי שבפעם הבאה שזה קורה תוצג הודעה בפועל למשתמש
+ *          במקום כישלון שקט. runS10ViewIcon לא טופל — קוד מת, לא מחובר
+ *          לאייקון בגליון (ראה הערה קיימת ב-v2.7.0).
  * @changes     [v2.8.2] Task 134 [שלב 6/8, שרשרת עמודה 27] — VIEW_TOTAL_COLS
  *          שונה מ-26 ל-27 (שורה יחידה, קבוע גלובלי). מרחיב אוטומטית את
  *          4 השימושים הקיימים: filterRange ב-switchView, rowRange ב-
@@ -675,6 +689,18 @@ function runS08ViewIcon() {
     }
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-runS08ViewIcon: " + e.toString());
+    // [v2.8.3] Task 147 — הצגת השגיאה בפועל למשתמש, במקום כישלון שקט.
+    // עטוף ב-try/catch נפרד: אם השגיאה המקורית היא כשל הרשאה על ה-UI
+    // עצמו, גם הקריאה הזו עלולה להיכשל — לא רוצים שגיאה לא-מטופלת.
+    try {
+      SpreadsheetApp.getUi().alert(
+        "⚠️ שגיאה באייקון S08",
+        "אירעה שגיאה: " + e.message + "\n\nאם זו שגיאת הרשאה — הרץ ריענון הרשאות (AAA_FORCE_OAUTH_PROMPT_ONCE) ונסה שוב.",
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+    } catch (e2) {
+      Logger.log("[ViewEngine] גם הצגת שגיאת runS08ViewIcon נכשלה: " + e2.toString());
+    }
   }
 }
 
@@ -704,8 +730,21 @@ function runS09ViewIcon() {
     }
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-runS09ViewIcon: " + e.toString());
+    // [v2.8.3] Task 147 — הצגת השגיאה בפועל למשתמש, במקום כישלון שקט.
+    // עטוף ב-try/catch נפרד: אם השגיאה המקורית היא כשל הרשאה על ה-UI
+    // עצמו, גם הקריאה הזו עלולה להיכשל — לא רוצים שגיאה לא-מטופלת.
+    try {
+      SpreadsheetApp.getUi().alert(
+        "⚠️ שגיאה באייקון S09",
+        "אירעה שגיאה: " + e.message + "\n\nאם זו שגיאת הרשאה — הרץ ריענון הרשאות (AAA_FORCE_OAUTH_PROMPT_ONCE) ונסה שוב.",
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
+    } catch (e2) {
+      Logger.log("[ViewEngine] גם הצגת שגיאת runS09ViewIcon נכשלה: " + e2.toString());
+    }
   }
 }
+
 // ══════════════════════════════════════════════════════════════════
 // runS10ViewIcon — עמודה P — S10 אימות אירועים (ניהול_מיילים)
 // [v2.7.0] הוסר מ-ICON_MAP — לא מחובר יותר לאייקון בגליון. נשארה
@@ -1099,5 +1138,48 @@ function setupMedicalEventsIcons() {
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-setupMedicalEventsIcons: " + e.toString());
     SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+// ══════════════════════════════════════════════════════════════════
+// [v2.8.4] Task 154 — runSortLearningExamplesIcon — גיליון דוגמאות_למידה
+// אייקון קבוע, לשימוש חוזר — ממיין את כל שורות הדוגמאות לפי מנפיק
+// (עמודה B), כדי שיהיה קל לעמוס לראות אילו מנפיקים כבר מיוצגים.
+// אינו משפיע על לוגיקת S07 (שסורקת את כל הגיליון בלי תלות בסדר,
+// ראה Task 156) — זה כלי נוחות אנושי בלבד.
+// ══════════════════════════════════════════════════════════════════
+
+function runSortLearningExamplesIcon() {
+  const sheetName = "דוגמאות_למידה";
+  try {
+    const ui    = SpreadsheetApp.getUi();
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      ui.alert("שגיאה", "גליון לא נמצא: " + sheetName, ui.ButtonSet.OK);
+      return;
+    }
+
+    const firstDataRow = (SHEET_CONFIG[sheetName] && SHEET_CONFIG[sheetName].FIRST_DATA_ROW) || 2;
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+    if (lastRow < firstDataRow) {
+      ui.alert("אין שורות נתונים למיין בגליון " + sheetName + ".");
+      return;
+    }
+
+    const numRows = lastRow - firstDataRow + 1;
+    const range   = sheet.getRange(firstDataRow, 1, numRows, lastCol);
+    range.sort({ column: 2, ascending: true }); // עמודה 2 = Issuer
+
+    ui.alert("✅ " + numRows + " דוגמאות מוינו לפי מנפיק בגליון " + sheetName);
+    Logger.log("[ViewEngine] runSortLearningExamplesIcon — מוינו " + numRows + " שורות");
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runSortLearningExamplesIcon: " + e.toString());
+    try {
+      SpreadsheetApp.getUi().alert("⚠️ שגיאה במיון", e.message, SpreadsheetApp.getUi().ButtonSet.OK);
+    } catch (e2) {
+      Logger.log("[ViewEngine] גם הצגת שגיאת runSortLearningExamplesIcon נכשלה: " + e2.toString());
+    }
   }
 }
