@@ -1,9 +1,18 @@
 /**
  * MedicalPilot — S08_Validate.gs
  * @file        S08_Validate.gs
- * @version 1.0.23 | @updated 13/07/2026 | @service S08
+ * @version 1.0.24 | @updated 15/07/2026 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
+ * @changes     [v1.0.24] Task 127 סעיף (3) — s08_delete: nextRow חושב תמיד
+ *              לפי targetRow (השורה שנמחקה בפועל), גם כשdeleteWhich="original"
+ *              (מוחקים את שורת התאום, לא את השורה הנוכחית) — הדיאלוג קפץ
+ *              לשורה שאחרי התאום שנמחק במקום לחזור לשורה שהמשתמש עמד עליה
+ *              (row המקורי), ושבר את רצף העבודה שורה־שורה. תוקן: כש-
+ *              deleteWhich="original", נחזרת row המקורית (מתוקנת ב-1- אם
+ *              targetRow היה מעליה, כי המספור זז). כש-deleteWhich!="original"
+ *              (מוחקים את השורה הנוכחית עצמה) — ההתנהגות הקודמת נשארת ללא
+ *              שינוי: ממשיכים לשורה שתפסה את מקום זו שנמחקה.
  * @changes     [v1.0.22] Task 147 [BUG-12, אושר ע"י עמוס — אפשרות א] —
  *              showMainSidebar: כותרת הדיאלוג הנייטיבית (showModalDialog)
  *              כללה מספר שורה ("אימות ידני — שורה " + row), שנקבע פעם
@@ -752,10 +761,25 @@ function s08_delete(row, deleteWhich) {
     // ל-Sheet לפני שהתשובה חוזרת ללקוח (שעלול לירות קריאה נוספת תוך כ-900ms)
     SpreadsheetApp.flush();
 
+    // [v1.0.24] Task 127 סעיף (3) — תיקון שורש לניווט שגוי אחרי מחיקת
+    // שורת תאום: כש-deleteWhich="original" נמחקה targetRow (שורת התאום),
+    // לא row (השורה שהמשתמש עמד עליה) — יש לחזור ל-row, לא ל-targetRow.
+    // אם targetRow הייתה מעל row, כל המספור מתחתיה זז מעלה ב-1.
+    let returnRow;
+    if (deleteWhich === "original") {
+      returnRow = (targetRow < row) ? row - 1 : row;
+    } else {
+      returnRow = targetRow;
+    }
+    returnRow = Math.max(
+      SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW,
+      Math.min(returnRow, sheet.getLastRow())
+    );
+
     Logger.log("[S08] מחיקת שורה " + targetRow);
     return {
       success: true,
-      nextRow: Math.min(targetRow, sheet.getLastRow()),
+      nextRow: returnRow,
       msg: "🗑️ השורה והקבצים נמחקו בהצלחה"
     };
   } catch (e) {
@@ -763,7 +787,6 @@ function s08_delete(row, deleteWhich) {
     return { success: false, msg: "❌ שגיאה במחיקה: " + e.message };
   }
 }
-
 function _s08_trashDriveFile(url) {
   try {
     if (!url) return { success: true, msg: "" };
