@@ -1,15 +1,58 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.24.0 | @updated 14/07/2026 20:50 | @service S11
+ * @version 1.28.0 | @updated 23/07/2026 21:22 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי חוקי QA
- *              (E09-E28 + E30, ללא E23/E24; E29 בוטל ולא מומש — הוחלף
+ *              (E09-E28 + E30-E32, ללא E23/E24/E29; #149).
+ * @changes [v1.28.0] Task 153 — שני תיקונים ב-E32, אומתו מול תוכן TXT אמיתי
+ *                   (שורות 73/77): (1) _qa_fetchTxtHeader_E32 — רג'קס
+ *                   title/issuer הסתמך על "\s{2,}" כסמן סוף-שדה; כשכותרת
+ *                   ארוכה נוגעת ישירות בתווית השדה הבא בלי רווח כלל (נצפה
+ *                   בפועל בשורה 73 — "...מיוחדיםסוג_מקור:"), הרג'קס בלע את
+ *                   תווית השדה הבא לתוך title. תוקן: עצירה לפני תווית שדה
+ *                   ידועה (lookahead) במקום הסתמכות על רווח. (2)
+ *                   _qa_calculateDuplicates_E32 — quickScore (הסינון
+ *                   הראשוני) השווה את currentMeta (כותרת TXT של השורה
+ *                   הנוכחית) מול rowTitle/Issuer/Date (עמודות גליון I/J/K
+ *                   של המועמד) — שני מקורות נתונים שונים לחלוטין. תוקן:
+ *                   currentMeta הוחלף בעמודות הגליון של השורה הנוכחית עצמה
+ *                   (currentRowData[8/9/10]), עקבי עם צד המועמד. השוואת
+ *                   הניקוד הסופי (score, כותרת TXT מול כותרת TXT) לא שונתה.
+ *  [v1.27.0] Task 152 — סינון "לא זוהה" בהשוואת כפילויות ב-_qa_calculateDuplicates_E32:
+ *     [v1.27.0] Task 152 — סינון "לא זוהה" בהשוואת כפילויות ב-_qa_calculateDuplicates_E32:
+ *                   QA_Dismiss_Note) נוספה בשלושה מקומות: (1)
+ *                   _qa_calculateDuplicates_E32 — מדלג לגמרי אם השורה
+ *                   הנוכחית מסומנת "(כפול)", ומדלג על מועמד המסומן כך.
+ *                   (2) E25 (מסלול א' + מסלול ב') — מדלג אם השורה
+ *                   מסומנת "(לוגו/ריק)". (3) E31 — מדלג אם השורה מסומנת
+ *                   "(טקסט פגום)". מונע לולאת-דגל-חוזר לאחר ביטול ידני
+ *                   דרך S08 (מנגנון הביטול המלא לשתי הקטגוריות האחרונות
+ *                   ייבנה בשלב ב' — כאן רק בדיקת הזיהוי מוכנה מראש).
+ *  [v1.25.0] Task 149 (בקשת עמוס, 3 כללי QA חדשים) —
+ *                   (1) E25 שוכתב: הוסר שער גודל קובץ (sizeBytes<10KB) —
+ *                   רץ כעת אך ורק לפי מספר מילים בפועל, ללא תלות בגודל
+ *                   (ראה החלטה אמפירית — אין קורלציה גודל↔תוכן). fix
+ *                   שונה מ-"write" ל-"flag" בשני המסלולים (שורה חדשה +
+ *                   דגל ישן) — S11 מסמן בלבד, לא מאשר מחיקה אוטומטית.
+ *                   (2) E31 (כלל חדש) — TXT נשלף בהצלחה אך 0 מילים בפועל
+ *                   על קובץ שאינו קטן (≥10KB) — מסמן כשל-המרה סביר (מסמך
+ *                   אמיתי, לא לוגו/ריק), fix="flag", מציע הרצה חוזרת
+ *                   S06+S07. נבדק לפני E25 (מונע חפיפת אבחון על אותה שורה).
+ *                   (3) E32 (כלל חדש) — זיהוי כפילות עצמאי, רשת שנייה: רץ
+ *                   רק על שורות R ריק לגמרי (S07 לא זיהה/סימן). אותו
+ *                   אלגוריתם בדיוק כמו _calculateDuplicates_S07 (5
+ *                   קריטריונים: כותרת/מנפיק/תאריך/גודל/מס"-מילים±10%, סף
+ *                   3/5) — קוד עצמאי ב-S11, ללא שינוי בסף (אישור עמוס,
+ *                   גישה ג'). מדלג על מועמד שעמודה 27 שלו כבר מאוכלסת (לא
+ *                   דורס שיוך קיים). fix="write_symmetry" על שתי השורות
+ *                   יחד. פונקציות חדשות: _qa_fetchTxtHeader_E32,
+ *                   _qa_calculateDuplicates_E32, _qa_dedupeE32Findings.
  *              בעבודה על S06/S07/S11 בפועל; E17 עצמו כעת דו-שלבי).
  * @impacts בודק עקביות עמודות L, M, N, Q, R, S, T, U, וכעת גם עמודה 27 (AA)
  *          לפי ציר התקדמות S03→S09.
  *          [v1.18.0] qa_deleteE17Findings מוחקת שורה בעצמה — עצמאית
  *          לגמרי, ללא שום תלות ב-S08_Validate.gs.
- * @changes [v1.24.0] תיקון שורש (בקשת עמוס, חקירת אמינות עמודה Q) — E30
+ *  [v1.24.0] תיקון שורש (בקשת עמוס, חקירת אמינות עמודה Q) — E30
  *                   (כלל חדש) ב-_qa_checkRow: בודק התאמה בין "מורכבות:"
  *                   בכותרת קובץ ה-TXT (העוגן — קביעת S06 המקורית, מסונכרנת
  *                   מול S07 החל מ-v2.10.0 של S07_Classify.gs) לבין עמודה Q
@@ -27,7 +70,7 @@
  *                   לא מנחשים. תופס בעיקר: שורות היסטוריות מלפני v2.10.0,
  *                   כשלי סנכרון שקטים של _s07_syncComplexityToTxt, ועריכה
  *                   ידנית ישירה של Q בגליון.
- * @changes [v1.23.0] תיקון שורש דחוף (בקשת עמוס, נצפה בפועל בשורה 75 —
+ * [v1.23.0] תיקון שורש דחוף (בקשת עמוס, נצפה בפועל בשורה 75 —
  *                   "1.89 MB" נפרש כ-1.89) — E25 מסלול א' (_qa_checkRow):
  *                   sizeMatchNew/sizeKBNew (regex עיוור ליחידות, מתעלם
  *                   מ-KB מול MB) הוחלף בקריאה לפונקציה חדשה
@@ -38,7 +81,7 @@
  *                   למחיקה — לוגו/ריק" על מסמכים אמיתיים. מסלול ב'
  *                   (isLegacyLogoFlag) לא נגע בגודל קובץ כלל — לא
  *                   מושפע מהבאג ולא שונה.
- * @changes [v1.22.0] תיקון שורש (בקשת עמוס, חקירת עמודה Q) — _qa_applyFixes:
+ *  [v1.22.0] תיקון שורש (בקשת עמוס, חקירת עמודה Q) — _qa_applyFixes:
  *                   נוסף guard זהות (File_ID) לפני כל כתיבה בפועל. הרקע: עד כה
  *                   f.row (מספר שורה שנקבע בזמן הסריקה, runQAViewMain) נשמר
  *                   ונשלח ל-Dialog HTML; "תקן נבחרים" (qa_applySelectedFixes)
@@ -53,7 +96,7 @@
  *                   היכן להזיז תיקון) + לוג ברור ("⛔ דולג — File_ID לא תואם,
  *                   כנראה שהשורה זזה"), ונספרת כ"לא הוחלה" בדוח שחוזר ל-Dialog.
  *                   אין שינוי בהתנהגות מעבר לבדיקה הזו עצמה.
- * @changes [v1.21.0] Task 137 [התגלה בבדיקת E2E למיגרציית עמודה 27] —
+ *  [v1.21.0] Task 137 [התגלה בבדיקת E2E למיגרציית עמודה 27] —
  *                   _qa_applyFixes, case "write_symmetry": לפני הכתיבה,
  *                   מוסר מ-f.value כל מופע של "— שורה X" (regex). הבאג:
  *                   הפיקס העתיק את R של שורת המקור כמו שהוא לשורת התאום,
@@ -62,7 +105,7 @@
  *                   מעתה: התווית שנכתבת היא סטטוס בלבד ("כפול מאושר |
  *                   ניקוד Y/5"), ללא שום מספר שורה — תואם להחלטת Task 131
  *                   שהרפרנס האמיתי היחיד הוא עמודה 27.
- * @changes [v1.20.0] Task 132 [שלב 4/8, שרשרת עמודה 27] — שכתוב מקיף של
+ *  [v1.20.0] Task 132 [שלב 4/8, שרשרת עמודה 27] — שכתוב מקיף של
  *                   בלוק זיהוי/אימות כפילויות בתוך _qa_checkRow, ושל
  *                   runQAViewMain ו-_qa_applyFixes. הרקע: אחרי Task 131,
  *                   S07 כבר לא כותב "שורה X" לטקסט R ולא כותב Note —
@@ -81,7 +124,7 @@
  *                   הישנה (חילוץ "שורה X" + setNote); case "clear" על
  *                   עמודה 18 מנקה כעת גם עמודה 27 (setValue("")) במקום
  *                   Note. QA_ALLOWED_COLS — נוספה רשומה 27.
- * @changes [v1.19.0] Task 130 [שלב 2/8, שרשרת עמודה 27] — פונקציה חדשה
+ * [v1.19.0] Task 130 [שלב 2/8, שרשרת עמודה 27] — פונקציה חדשה
  *                   להריץ פעם אחת מהתפריט (חיבור לתפריט עצמו הוא Task 136,
  *                   טרם בוצע). המיגרציה קוראת את כל עמודה R הקיימת, ולכל
  *                   שורה עם חשד כפילות פעיל (טקסט "כפול מאושר — שורה X"
@@ -94,7 +137,7 @@
  *                   אינם משתנים בשום מקרה. תנאי כניסה קריטי: יש להריץ
  *                   ולוודא הצלחה מלאה לפני כל שינוי בקוד S07/S11/S08
  *                   (Tasks 131-133), אחרת שורות היסטוריות "יתייתמו".
- * @changes [v1.18.0] בקשת עמוס — לאחר שv1.17.0 (למטה) הופעל בפועל, עמוס
+ *  [v1.18.0] בקשת עמוס — לאחר שv1.17.0 (למטה) הופעל בפועל, עמוס
  *                   ביקש לנתק לגמרי את qa_deleteE17Findings מ-S08: זו לא
  *                   אותה מחיקה כמו S08 בכלל (שם — כפילות/לוגו — הקובץ
  *                   קיים ב-Drive וצריך למחוק גם אותו; כאן — E17 — המקור
@@ -106,7 +149,7 @@
  *                   "תלויות") הוסרה בהתאם. הפניות "שורה X" שעלולות
  *                   להתיישן עקב המחיקה מזוהות ומתוקנות באופן טבעי בסריקת
  *                   S11 הבאה (E20/E21 קיימים כבר בדיוק לשם כך).
- * @changes [v1.17.0] בקשת עמוס — מחיקת שורות E17 אפשרית כעת גם ישירות מתוך
+ * [v1.17.0] בקשת עמוס — מחיקת שורות E17 אפשרית כעת גם ישירות מתוך
  *                   חלון S11 QA, לא רק דרך סיידבר S08. חשוב: S11 עדיין לא
  *                   מוחק כלום בעצמו — הכלל הבסיסי לא השתנה. הזרימה: (1)
  *                   "תקן נבחרים" כותב R כרגיל; (2) _qa_applyFixes אוספת
@@ -146,7 +189,7 @@
  *            _qa_loadEventsFileIds, findAnchorRowAndAuditVerified,
  *            qa_migrateNotesFromR_Task93, qa_findOrphanDuplicateRef_Task93,
  *            qa_migrateNoteColToColumn27_Task130
- * @changes [v1.15.0] Task 118 (החלטת מוצר, עמוס) — E17 (מקור חסר/לא נגיש
+ *  [v1.15.0] Task 118 (החלטת מוצר, עמוס) — E17 (מקור חסר/לא נגיש
  *                   מ-Drive) חזר בעקביות בכל סריקה כדגל U קבוע ("⚠️ מקור
  *                   חסר (Drive)"), ללא הבחנה בין תקלת Drive חד-פעמית/זמנית
  *                   לבין אובדן אמיתי לצמיתות. הוחלט: להסלים ל"מאושר
@@ -166,7 +209,7 @@
  *                   QA_VALID_M (עם הערה) כדי ש-E03 לא ידווח כפול על אותן
  *                   שורות — E28 לבדו אחראי על ההמרה בפועל. יש להסיר את
  *                   "מחולץ" מ-QA_VALID_M בעתיד לאחר שכל השורות תוקנו.
- * @changes [v1.13.0] E27 (כלל חדש, בקשת עמוס) — Pipeline_Status (M) תקוע
+ *  [v1.13.0] E27 (כלל חדש, בקשת עמוס) — Pipeline_Status (M) תקוע
  *                   על "הומר ל-TXT" למרות שהסיווג בפועל הושלם: מזהה שורות
  *                   עם Doc_Title (I) מלא וגם Extraction_Status (N)="חולץ
  *                   מלא"/"חולץ חלקי" (הוכחה שS07 רץ בהצלחה), אך M עדיין
@@ -174,7 +217,7 @@
  *                   value="עבר סיווג". שלב א' (איתור) — שלב ב' (הרצה על שורות
  *                   נבחרות דרך ה-Sidebar) כבר קיים במנגנון "תקן נבחרים"
  *                   הרגיל, לא נדרש קוד נוסף.
- * @changes [v1.12.0] Tasks 115+116+117 — תיקון בלוק E25 (_qa_checkRow):
+ *  [v1.12.0] Tasks 115+116+117 — תיקון בלוק E25 (_qa_checkRow):
  *                   פוצל לשני מסלולים בלתי-תלויים במקום תנאי-סף משותף אחד.
  *                   (1) מסלול "שורה חדשה" (R ריק) — נשאר מותנה ב-n+P כפי
  *                       שהיה, בתוספת הגנת Task 117 (ראה סעיף 3).
@@ -186,7 +229,7 @@
  *                       מחזירה null) כבר לא נחשב "אין תוכן אמיתי" ולא גורם
  *                       יותר לאישור מחיקה אוטומטי — רק fix="flag" לבדיקה
  *                       ידנית (⚠️), בשני המסלולים כאחד.
- * @changes [v1.11.0] Task 121 — E26 (כלל חדש): נוסף קבוע QA_COMPLEXITY_EN_TO_HE
+ * [v1.11.0] Task 121 — E26 (כלל חדש): נוסף קבוע QA_COMPLEXITY_EN_TO_HE
  *                   (מיפוי SIMPLE→פשוט, MEDIUM→בינוני, COMPLEX→מורכב) ליד
  *                   QA_VALID_Q. ב-_qa_checkRow, מיד אחרי E09, נוסף בלוק E26:
  *                   אם Q קיים ונמצא במיפוי — fix="write" עם הערך העברי המקביל.
@@ -433,8 +476,9 @@ function runQAViewMain() {
     ? _qa_scanRow(allData, activeRow, lastRow, eventsFileIds, fileIdRowMap, rNotesAll)
     : _qa_scanAll(allData, lastRow, eventsFileIds, fileIdRowMap, rNotesAll);
 
-  // [v1.9.0] Task 102 — דה-דופ קונפליקט קבוצתי בE11 (חלופה A)
-  const findings = _qa_dedupeE11Findings(rawFindings);
+ // [v1.9.0] Task 102 — דה-דופ קונפליקט קבוצתי בE11 (חלופה A)
+ // [v1.25.0] Task 149(1) — שרשור דה-דופ נוסף עבור E32 (זוגות כפולים)
+  const findings = _qa_dedupeE32Findings(_qa_dedupeE11Findings(rawFindings));
 
   if (findings.length === 0) {
     ss.toast("✅ הכול תקין — אין ממצאים", "S11 QA", 4);
@@ -663,6 +707,23 @@ function _qa_dedupeE11Findings(findings) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// [v1.25.0] Task 149(1) — דה-דופ ממצאי E32 (זוג כפול מזוהה משתי
+// הכיוונים — סריקת A מוצאת B, וסריקת B מוצאת A בחזרה — 4 ממצאים
+// גולמיים במקום 2). שומר ממצא ראשון בלבד לכל שורת-יעד, אותו עיקרון
+// בדיוק כמו _qa_dedupeE11Findings.
+// ══════════════════════════════════════════════════════════════════
+
+function _qa_dedupeE32Findings(findings) {
+  var seenRows32 = {};
+  return findings.filter(function(f) {
+    if (f.code !== "E32") return true;
+    if (seenRows32[f.row]) return false;
+    seenRows32[f.row] = true;
+    return true;
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
 // בדיקת שורה אחת — מחזיר מערך ממצאים
 // ══════════════════════════════════════════════════════════════════
 function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds, fileIdRowMap, myNote) {
@@ -865,7 +926,40 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds, fileIdRowMa
       }
     }
   }
+
+  // ── [v1.25.0] E32 (בקשת עמוס, Task 149 סעיף 1) — זיהוי כפילות עצמאי,
+  // רשת שנייה. רץ רק על שורות R ריק לגמרי (S07 טרם זיהה/סימן) — אינו
+  // דורס את S07 בשום צורה: (1) לא רץ כלל אם R מלא (E11/E12 לעיל מטפלים
+  // בזה). (2) _qa_calculateDuplicates_E32 מדלג על כל מועמד שעמודה 27
+  // שלו כבר מאוכלסת (כבר משויך — לא נוגע בשיוך קיים). אותו אלגוריתם
+  // בדיוק כמו _calculateDuplicates_S07 (5 קריטריונים, סף 3/5) — אישור
+  // עמוס, גישה ג', ללא שינוי סף. fix="write_symmetry" על שתי השורות יחד.
+  if (fileId && !r && n && txtUrl) {
+    var dup32 = _qa_calculateDuplicates_E32(row, allData, lastRow);
+    if (dup32) {
+      var dupText32 = "כפול מאושר (רשת שנייה) | ניקוד " + dup32.score + "/5";
+      findings.push({
+        row:        row,
+        code:       "E32",
+        col:        18,
+        desc:       "זוהתה כפילות מול שורה " + dup32.row + " (ניקוד " + dup32.score + "/5) — R היה ריק, לא נתפס ע\"י S07",
+        fix:        "write_symmetry",
+        value:      dupText32,
+        col27Value: dup32.fileId
+      });
+      findings.push({
+        row:        dup32.row,
+        code:       "E32",
+        col:        18,
+        desc:       "זוהתה כפילות מול שורה " + row + " (ניקוד " + dup32.score + "/5) — נמצא ע\"י רשת ביטחון S11",
+        fix:        "write_symmetry",
+        value:      dupText32,
+        col27Value: fileId
+      });
+    }
+  }
   // ── E13: U=אושר ידנית + M≠מאושר ─────────────────────────────
+
   if (u === "✅ אושר ידנית" && m !== "מאושר" && m !== "אומת ידנית") {
     findings.push({
       row:   row,
@@ -999,84 +1093,114 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds, fileIdRowMa
   // מותנה ב-n+P) ומסלול פתרון-דגל-ישן (רץ תמיד, בלי תלות ב-n/P).
   var isLegacyLogoFlag = (r === "חשוד כלוגו/ריק");
 
-  // מסלול א' — שורה חדשה (R ריק בלבד): ללא שינוי בהתנהגות מ-v1.10.0,
-  // מלבד הגנת Task 117 מפני False-Positive בכשל שליפת TXT.
+  // מסלול א' — שורה חדשה (R ריק בלבד).
+  // [v1.25.0] Task 149(2) — הוסר שער גודל קובץ: רץ כעת ללא תלות ב-P
+  // (FileSize), רק לפי מספר מילים בפועל. [v1.25.0] Task 149(3) — E31
+  // נבדק כאן קודם, לפני E25: 0 מילים על קובץ שאינו קטן (≥10KB) הוא
+  // אבחון שונה (כשל-המרה, לא לוגו) — נבדק ראשון כדי למנוע חפיפת ממצא
+  // כפול על אותה שורה. [v1.25.0] Task 149(1) — fix שונה מ-"write"
+  // ל-"flag": S11 מסמן חשד בלבד, לא מאשר מחיקה אוטומטית.
   if (fileId && !r && n) {
     var sizeStrNew   = (rowData[15] || "").toString(); // P = FileSize
-    // [v1.23.0] תיקון שורש דחוף — הוחלף sizeMatchNew/sizeKBNew (regex עיוור
-    // ליחידות, "1.89 MB" נפרש כ-1.89) בפונקציה מודעת-יחידות. הסף <10KB
-    // הפך ל-בייטים (<10*1024) כדי להשוות נכון מול הערך שבבייטים.
     var sizeBytesNew = _qa_parseFileSizeToBytes(sizeStrNew);
+    var docTitleNew   = (rowData[8] || "").toString().trim();  // I
+    var docIssuerNew  = (rowData[9] || "").toString().trim();  // J
+    var vDismissNew   = (rowData[21] || "").toString().trim(); // V=22, Task155(א)
+    var wordCountNew  = _qa_fetchTxtWordCount_E25(txtUrl);
 
-    if (sizeBytesNew !== null && sizeBytesNew < 10 * 1024) {
-      var docTitleNew  = (rowData[8] || "").toString().trim();  // I
-      var docIssuerNew = (rowData[9] || "").toString().trim();  // J
-      var wordCountNew = _qa_fetchTxtWordCount_E25(txtUrl);
-
-      if (wordCountNew === null) {
-        // [v1.12.0] Task 117 — כשל שליפת TXT: לא מאשרים מחיקה על בסיס
-        // כשל טכני — רק דגל לבדיקה ידנית.
+    if (wordCountNew === null) {
+      // [v1.12.0] Task 117 — כשל שליפת TXT: לא מאשרים החלטה על בסיס
+      // כשל טכני — רק דגל לבדיקה ידנית.
+      // [v1.26.0] Task 155(א) — מדלג אם סומן "לא רלוונטי (לוגו/ריק)"
+      if (vDismissNew.indexOf("(לוגו/ריק)") === -1) {
         findings.push({
           row:   row,
           code:  "E25",
-          col:   18,
-          desc:  "גודל " + sizeStrNew + " (<10KB) — לא נמצא TXT לבדיקה (כשל שליפה), נדרשת בדיקה ידנית",
+          col:   21,
+          desc:  "לא נמצא TXT לבדיקה (כשל שליפה), נדרשת בדיקה ידנית",
           fix:   "flag",
           value: "⚠️ E25 — לא ניתן לאמת (TXT לא נשלף)"
         });
-      } else if (wordCountNew < 20 || docTitleNew === "לא זוהה" || docIssuerNew === "לא זוהה") {
+      }
+    } else if (wordCountNew === 0 && sizeBytesNew !== null && sizeBytesNew >= 10 * 1024) {
+      // [v1.25.0] Task 149(3) — E31: TXT נשלף בהצלחה אך 0 מילים על קובץ
+      // שאינו קטן — מסמך אמיתי, המרה כשלה. לא לוגו/ריק (ראה החלטה
+      // אמפירית, שורה 72 בגליון: 1.89MB + 0 מילים).
+      // [v1.26.0] Task 155(א) — מדלג אם סומן "לא רלוונטי (טקסט פגום)"
+      if (vDismissNew.indexOf("(טקסט פגום)") === -1) {
+        findings.push({
+          row:   row,
+          code:  "E31",
+          col:   21,
+          desc:  "TXT נשלף אך 0 מילים בפועל, גודל " + sizeStrNew + " (לא קטן) — חשד לכשל המרה, לא לוגו/ריק",
+          fix:   "flag",
+          value: "⚠️ E31 — חשד לכשל המרה (0 מילים, קובץ לא קטן) — מומלץ להריץ מחדש S06+S07"
+        });
+      }
+    } else if (wordCountNew < 20 || docTitleNew === "לא זוהה" || docIssuerNew === "לא זוהה") {
+      // [v1.26.0] Task 155(א) — מדלג אם סומן "לא רלוונטי (לוגו/ריק)"
+      if (vDismissNew.indexOf("(לוגו/ריק)") === -1) {
         findings.push({
           row:   row,
           code:  "E25",
-          col:   18,
-          desc:  "גודל " + sizeStrNew + " (<10KB) + " + wordCountNew + " מילים בפועל (<20) — חשד לוגו/ריק אושר",
-          fix:   "write",
-          value: "מאושר למחיקה — לוגו/ריק"
+          col:   21,
+          desc:  wordCountNew + " מילים בפועל (<20) — חשד לוגו/ריק, נדרש אישור ידני",
+          fix:   "flag",
+          value: "⚠️ E25 — חשד לוגו/ריק (" + wordCountNew + " מילים) — נדרש אישור ידני למחיקה"
         });
       }
-      // אחרת (תוכן אמיתי) → אין ממצא, R נשאר ריק כרגיל.
     }
+    // אחרת (תוכן אמיתי) → אין ממצא, R נשאר ריק כרגיל.
   }
 
   // מסלול ב' — [v1.12.0] פתרון דגל ישן (isLegacyLogoFlag): רץ תמיד, בלי
   // תלות ב-n או P — המטרה לפתור שורות שכבר תויגו בעבר, ולא "לחכות" לנתונים
   // (n/P) שעבור שורות ישנות עלולים לעולם לא להגיע (115+116).
-  if (fileId && isLegacyLogoFlag) {
-    var docTitleLeg  = (rowData[8] || "").toString().trim();  // I
-    var docIssuerLeg = (rowData[9] || "").toString().trim();  // J
-    var wordCountLeg = _qa_fetchTxtWordCount_E25(txtUrl);
+ if (fileId && isLegacyLogoFlag) {
+    // [v1.26.0] Task 155(א) — אם סומן ידנית "לא רלוונטי (לוגו/ריק)" —
+    // מדלג על כל מסלול ב' לגמרי (לא מסמן, לא מנקה, לא בודק TXT בכלל).
+    var vDismissLeg = (rowData[21] || "").toString().trim(); // V=22
 
-    if (wordCountLeg === null) {
-      // Task 117 — כשל שליפת TXT: משאירים דגל ישן כפי שהוא, לא מנקים
-      // ולא מאשרים מחיקה אוטומטית — רק דגל U לבדיקה ידנית.
-      findings.push({
-        row:   row,
-        code:  "E25",
-        col:   18,
-        desc:  "דגל ישן 'חשוד כלוגו/ריק' — לא נמצא TXT לבדיקה (כשל שליפה), לא ניתן לאמת/לנקות אוטומטית",
-        fix:   "flag",
-        value: "⚠️ E25 — דגל ישן, לא ניתן לאמת (TXT לא נשלף)"
-      });
-    } else if (wordCountLeg >= 20 && docTitleLeg !== "לא זוהה" && docIssuerLeg !== "לא זוהה") {
-      // [v1.10.0] תוכן התברר אמיתי, אך R עדיין מכיל את הדגל הישן והשגוי
-      // מS05 — יש לנקות אותו, אחרת "חשוד כלוגו/ריק" יישאר שם לצמיתות.
-      findings.push({
-        row:   row,
-        code:  "E25",
-        col:   18,
-        desc:  wordCountLeg + " מילים בפועל (≥20) + I/J תקינים — חשד נשלל, מנקה דגל ישן",
-        fix:   "clear",
-        value: ""
-      });
-    } else {
-      findings.push({
-        row:   row,
-        code:  "E25",
-        col:   18,
-        desc:  wordCountLeg + " מילים בפועל (<20) או I/J לא תקינים — דגל ישן מאושר",
-        fix:   "write",
-        value: "מאושר למחיקה — לוגו/ריק"
-      });
+    if (vDismissLeg.indexOf("(לוגו/ריק)") === -1) {
+      var docTitleLeg  = (rowData[8] || "").toString().trim();  // I
+      var docIssuerLeg = (rowData[9] || "").toString().trim();  // J
+      var wordCountLeg = _qa_fetchTxtWordCount_E25(txtUrl);
+
+      if (wordCountLeg === null) {
+        // Task 117 — כשל שליפת TXT: משאירים דגל ישן כפי שהוא, לא מנקים
+        // ולא מאשרים מחיקה אוטומטית — רק דגל U לבדיקה ידנית.
+        findings.push({
+          row:   row,
+          code:  "E25",
+          col:   18,
+          desc:  "דגל ישן 'חשוד כלוגו/ריק' — לא נמצא TXT לבדיקה (כשל שליפה), לא ניתן לאמת/לנקות אוטומטית",
+          fix:   "flag",
+          value: "⚠️ E25 — דגל ישן, לא ניתן לאמת (TXT לא נשלף)"
+        });
+      } else if (wordCountLeg >= 20 && docTitleLeg !== "לא זוהה" && docIssuerLeg !== "לא זוהה") {
+        // [v1.10.0] תוכן התברר אמיתי, אך R עדיין מכיל את הדגל הישן והשגוי
+        // מS05 — יש לנקות אותו, אחרת "חשוד כלוגו/ריק" יישאר שם לצמיתות.
+        findings.push({
+          row:   row,
+          code:  "E25",
+          col:   18,
+          desc:  wordCountLeg + " מילים בפועל (≥20) + I/J תקינים — חשד נשלל, מנקה דגל ישן",
+          fix:   "clear",
+          value: ""
+        });
+
+      } else {
+        // [v1.25.0] Task 149(1) — fix שונה מ-"write" ל-"flag": לא מאשר
+        // מחיקה אוטומטית, רק מסמן לבדיקה ידנית.
+        findings.push({
+          row:   row,
+          code:  "E25",
+          col:   21,
+          desc:  wordCountLeg + " מילים בפועל (<20) או I/J לא תקינים — דגל ישן, נדרש אישור ידני",
+          fix:   "flag",
+          value: "⚠️ E25 — דגל ישן, נדרש אישור ידני למחיקה (" + wordCountLeg + " מילים)"
+        });
+      }
     }
   }
 
@@ -1215,6 +1339,181 @@ function _qa_fetchTxtComplexity_E30(txtUrl) {
     Logger.log("[S11 QA] E30 — שגיאה בשליפת מורכבות מכותרת TXT: " + e.message);
     return null;
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v1.25.0] Task 149(1) — E32: שליפת כותרת TXT מלאה + חישוב כפילות
+// עצמאי ב-S11, זהה לחלוטין ל-_calculateDuplicates_S07 (S07_Classify.gs)
+// מבחינת אלגוריתם וסף — קוד עצמאי, לא שיתוף קובץ בין S07 ל-S11.
+// ══════════════════════════════════════════════════════════════════
+
+function _qa_fetchTxtHeader_E32(txtUrl) {
+  try {
+    if (!txtUrl) return {};
+
+    var fileId = null;
+    var m1 = txtUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (m1) fileId = m1[1];
+    var m2 = txtUrl.match(/id=([a-zA-Z0-9_-]+)/);
+    if (m2) fileId = m2[1];
+    if (!fileId) return {};
+
+    var content = DriveApp.getFileById(fileId).getBlob().getDataAsString("UTF-8");
+    var result  = {};
+    var lines   = content.split(/\r?\n/).slice(0, 6);
+
+    // [v1.28.0] Task 153 — עצירה לפני תווית שדה ידועה הבאה באותה שורה
+    // (או סוף השורה), במקום הסתמכות על "\s{2,}". אומת מול קובץ אמיתי
+    // (שורה 73): כשכותרת ארוכה, אין שום רווח לפני תווית השדה הבא —
+    // "\s{2,}" לא נמצא לעולם, וה-".+?" הישן היה בולע את התווית הבאה
+    // כולה לתוך הערך. הרשימה כוללת את כל 4 התוויות שעשויות להופיע
+    // כ"שדה שני" באותה שורה בפורמט הכותרת הנוכחי.
+    var NEXT_LABEL = "(?:סוג_מקור:|מספר_מילים:|מורכבות:|גודל_מקור:|$)";
+
+    lines.forEach(function(line) {
+      var titleMatch = line.match(new RegExp("^כותרת:\\s*(.+?)\\s*" + NEXT_LABEL));
+      if (titleMatch) result.title = titleMatch[1].trim();
+
+      var issuerMatch = line.match(new RegExp("^מנפיק:\\s*(.+?)\\s*" + NEXT_LABEL));
+      if (issuerMatch) result.issuer = issuerMatch[1].trim();
+
+      var dateMatch = line.match(/^תאריך_מסמך:\s*(\S+)/);
+      if (dateMatch) result.date = dateMatch[1].trim();
+
+      var sizeMatch = line.match(/גודל_מקור:\s*(\S+\s*\S*)/);
+      if (sizeMatch) result.size = sizeMatch[1].trim();
+
+      var wordsMatch = line.match(/מספר_מילים:\s*(\d+)/);
+      if (wordsMatch) result.words = parseInt(wordsMatch[1], 10);
+    });
+
+    return result;
+
+  } catch (e) {
+    Logger.log("[S11 QA] E32 — שגיאה בשליפת כותרת TXT לזיהוי כפילות: " + e.message);
+    return {};
+  }
+}
+
+function _qa_calculateDuplicates_E32(currentRow, allData, lastRow) {
+  var MAX_ROWS   = 500;
+  var scanLimit  = Math.min(lastRow, QA_DATA_START + MAX_ROWS - 1);
+  var currentIdx = currentRow - QA_DATA_START;
+  var currentRowData = allData[currentIdx];
+  if (!currentRowData) return null;
+
+  // [v1.26.0] Task 155(א) — אם השורה הנוכחית סומנה ידנית "לא רלוונטי
+  // (כפול)" (V, עמודה 22) — לא בודקים כלל. מונע לולאת-דגל-חוזר.
+  var currentDismiss32 = (currentRowData[21] || "").toString().trim(); // V
+  if (currentDismiss32.indexOf("(כפול)") !== -1) return null;
+
+  var currentTxtUrl = (currentRowData[23] || "").toString().trim(); // X
+  if (!currentTxtUrl) return null;
+
+  var currentMeta = _qa_fetchTxtHeader_E32(currentTxtUrl);
+  if (!currentMeta.title && !currentMeta.issuer && !currentMeta.date) return null;
+
+  // [v1.27.0] Task 152 — סינון "לא זוהה": אם כל 3 שדות = "לא זוהה"
+  // → metadata לא זוהה לגמרי, אל תשווה כלל (מונע false positive)
+  var isCurrentUndetected = (
+    (currentMeta.title === "לא זוהה" || !currentMeta.title) &&
+    (currentMeta.issuer === "לא זוהה" || !currentMeta.issuer) &&
+    (currentMeta.date === "לא" || currentMeta.date === "לא זוהה" || !currentMeta.date)
+  );
+  if (isCurrentUndetected) return null;
+
+  // [v1.28.0] Task 153 — עמודות הגליון של השורה הנוכחית עצמה (I/J/K),
+  // לשימוש בסינון המהיר (quickScore) בלבד — כדי שההשוואה תהיה עקבית
+  // מבחינת מקור הנתונים מול rowTitle/Issuer/Date של המועמד (שגם הם
+  // מגיעים מעמודות הגליון, לא מכותרת ה-TXT). לפני התיקון, quickScore
+  // השווה כותרת-TXT (currentMeta) מול עמודות-גליון (rowTitle וכו') —
+  // שני מקורות נתונים שונים לחלוטין. השוואת ה-score הסופית (למטה)
+  // ממשיכה להשתמש בכותרת TXT מול כותרת TXT של שני הצדדים, ללא שינוי.
+  var currentSheetTitle  = (currentRowData[8]  || "").toString().trim(); // I
+  var currentSheetIssuer = (currentRowData[9]  || "").toString().trim(); // J
+  var currentSheetDate   = (currentRowData[10] || "").toString().trim(); // K
+
+  var candidates = [];
+  for (var idx = 0; idx < allData.length; idx++) {
+    var candRow = idx + QA_DATA_START;
+    if (candRow === currentRow || candRow > scanLimit) continue;
+
+    var rd = allData[idx];
+    var rowFileId = (rd[0] || "").toString().trim();
+    if (!rowFileId) continue;
+
+    var rowTxtUrl = (rd[23] || "").toString().trim(); // X
+    if (!rowTxtUrl) continue;
+
+    var rowCol27 = (rd[26] || "").toString().trim(); // AA
+    if (rowCol27) continue; // כבר משויך — רשת שנייה לא דורסת שיוך קיים
+
+    // [v1.26.0] Task 155(א) — מדלג על מועמד שסומן ידנית "לא רלוונטי (כפול)"
+    var rowDismiss32 = (rd[21] || "").toString().trim(); // V
+    if (rowDismiss32.indexOf("(כפול)") !== -1) continue;
+
+    var rowTitle  = (rd[8]  || "").toString().trim(); // I
+    var rowIssuer = (rd[9]  || "").toString().trim(); // J
+    var rowDate   = (rd[10] || "").toString().trim(); // K
+
+    // [v1.28.0] Task 153 — quickScore כעת עקבי: עמודות-גליון (נוכחי) מול
+    // עמודות-גליון (מועמד), במקום כותרת-TXT (נוכחי) מול עמודות-גליון (מועמד).
+    var quickScore = 0;
+    if (currentSheetTitle && rowTitle) {
+      var a1 = currentSheetTitle.toLowerCase();
+      var b1 = rowTitle.toLowerCase();
+      if (a1.indexOf(b1) !== -1 || b1.indexOf(a1) !== -1) quickScore++;
+    }
+    if (currentSheetIssuer && rowIssuer &&
+        currentSheetIssuer.toLowerCase() === rowIssuer.toLowerCase()) {
+      quickScore++;
+    }
+    if (currentSheetDate && rowDate && currentSheetDate === rowDate) quickScore++;
+
+    if (quickScore >= 2) {
+      candidates.push({ row: candRow, fileId: rowFileId, txtUrl: rowTxtUrl });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  for (var c = 0; c < candidates.length; c++) {
+    var cand = candidates[c];
+    var otherMeta = _qa_fetchTxtHeader_E32(cand.txtUrl);
+    if (!otherMeta.title && !otherMeta.issuer) continue;
+
+    // [v1.27.0] Task 152 — סינון "לא זוהה": דלג אם המועמד גם לא זוהה לגמרי
+    var isOtherUndetected = (
+      (otherMeta.title === "לא זוהה" || !otherMeta.title) &&
+      (otherMeta.issuer === "לא זוהה" || !otherMeta.issuer) &&
+      (otherMeta.date === "לא" || otherMeta.date === "לא זוהה" || !otherMeta.date)
+    );
+    if (isOtherUndetected) continue;
+
+    var score = 0;
+    if (currentMeta.title && otherMeta.title) {
+      var a2 = currentMeta.title.toLowerCase();
+      var b2 = otherMeta.title.toLowerCase();
+      if (a2.indexOf(b2) !== -1 || b2.indexOf(a2) !== -1) score++;
+    }
+    if (currentMeta.issuer && otherMeta.issuer &&
+        currentMeta.issuer.toLowerCase() === otherMeta.issuer.toLowerCase()) {
+      score++;
+    }
+    if (currentMeta.date && otherMeta.date && currentMeta.date === otherMeta.date) score++;
+    if (currentMeta.size && otherMeta.size && currentMeta.size === otherMeta.size) score++;
+    if (currentMeta.words && otherMeta.words) {
+      var diff = Math.abs(currentMeta.words - otherMeta.words);
+      var pct  = diff / Math.max(currentMeta.words, otherMeta.words);
+      if (pct <= 0.10) score++;
+    }
+
+    if (score >= 3) {
+      return { row: cand.row, fileId: cand.fileId, score: score };
+    }
+  }
+
+  return null;
 }
 
 // ══════════════════════════════════════════════════════════════════
