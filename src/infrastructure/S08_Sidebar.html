@@ -1,7 +1,15 @@
 <!--
   MedicalPilot — S08_Sidebar.html
   @file        S08_Sidebar.html
-  @version 1.0.19 | @updated 15/07/2026 | @service S08
+  @version 1.0.20 | @updated 16/07/2026 14:10 | @service S08
+  @changes     [v1.0.20] Task 155(ב) (בקשת עמוס) — כרטיס אזהרה חדש
+               qa-warning-card, מוצג רק כש-data.qaStatus מתחיל ב-"⚠️
+               E25" או "⚠️ E31" (חשד לוגו/ריק או טקסט פגום). כפתור יחיד
+               "🚫 בטל חשד" קורא ל-s08_cancelLogoEmptyFlag או
+               s08_cancelCorruptedTextFlag (S08_Validate.gs v1.0.26) לפי
+               הקוד שזוהה ב-qaStatus, מאחורי מודל אישור (בדומה למודל
+               ביטול הכפילות הקיים). qaStatus עצמו נוסף ל-_s08_getRowData
+               (לא היה חשוף כלל ב-Sidebar לפני כן).
   @changes     [v1.0.19] Task 127 סעיף (4) — .modal-actions: נוסף
                flex-wrap:wrap (עקבי עם .action-bar הקיים). במודל אישור
                מחיקה עם חשד כפילות יש 3 כפתורים ("מחק שורה נוכחית" /
@@ -348,6 +356,34 @@
   .dup-cancel-btn:hover { opacity: 0.85; }
   .dup-cancel-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+  /* [v1.0.20] Task 155(ב) — כרטיס אזהרת E25/E31 (לוגו-ריק/טקסט-פגום) —
+     מוצג רק כשרלוונטי, בדומה ל-dup-inline-card אך בגוון נפרד (אדום-ורוד)
+     כדי להבדיל חזותית מכרטיס הכפילות (כתום) וכרטיס למידה (סגול). */
+  .qa-warning-card {
+    background: #fce4ec;
+    border: 1px solid #f06292;
+    border-right: 4px solid #c2185b;
+    border-radius: 6px;
+    padding: 7px 10px;
+    flex-shrink: 0;
+    display: none;
+    gap: 6px;
+    flex-direction: column;
+  }
+  .qa-warning-card.visible { display: flex; }
+
+  .qa-warning-text {
+    font-size: 11px; font-weight: 700;
+    color: #c2185b;
+  }
+
+  .qa-warning-cancel-btn {
+    background: #c2185b; color: #fff; border: none; border-radius: 4px;
+    padding: 6px 10px; font-size: 11px; font-weight: 700; cursor: pointer;
+    transition: opacity 0.15s; width: 100%;
+  }
+  .qa-warning-cancel-btn:hover { opacity: 0.85; }
+
   /* [v1.0.15] Task 125 — בלוקי השוואת מסמכים (מצב חשד כפילות) */
   .doc-compare-block {
     display: flex; flex-direction: column; gap: 4px;
@@ -559,6 +595,18 @@
         <button class="btn" style="background:#e65100" onclick="confirmCancelDuplicateFlag()">כן, בטל חשד</button>
         <button class="btn" style="background:#999" onclick="closeCancelDupModal()">ביטול</button>
       </div>
+   </div>
+  </div>
+
+  <!-- ════ [v1.0.20] Task 155(ב) — מודל אישור ביטול חשד E25/E31 ════ -->
+  <div class="modal-overlay" id="cancelQaWarningModal">
+    <div class="modal-box">
+      <div class="modal-title">⚠️ ביטול חשד QA</div>
+      <div class="modal-text" id="cancelQaWarningModalText"></div>
+      <div class="modal-actions">
+        <button class="btn" style="background:#c2185b" onclick="qaWarningDoCancel()">כן, בטל חשד</button>
+        <button class="btn" style="background:#999" onclick="closeCancelQaWarningModal()">ביטול</button>
+      </div>
     </div>
   </div>
 
@@ -577,7 +625,8 @@
   var currentRow  = null;
   var currentData = null;
   var lastRow     = null;
-  var dupData          = null;
+ var dupData          = null;
+  var qaWarningCategory = null; // [v1.0.20] Task 155(ב) — 'logo' או 'corrupted', נקבע ב-renderRow
   var compareTxtCache  = {};
   var _lastNavRow  = null; // [v1.0.16] Task 123 — retry
   var _lastNavSkip = undefined;
@@ -626,6 +675,22 @@
 
     dupData = null; // [v1.0.15] Task 125 — מאופס בכל renderRow, מתמלא מחדש ב-renderDupCard אם רלוונטי
 
+    // [v1.0.20] Task 155(ב) — כרטיס אזהרת E25/E31: qaStatus כבר קיים
+    // בנתונים סינכרונית (לא כמו duplicateFlag שדורש טעינה נוספת) —
+    // מוצג/מוסתר ישירות כאן, בלי קריאה נוספת לשרת.
+    var qaCard = document.getElementById('qaWarningCard');
+    if (currentData.qaStatus && currentData.qaStatus.indexOf('E25') !== -1) {
+      qaWarningCategory = 'logo';
+      document.getElementById('qaWarningText').textContent = currentData.qaStatus;
+      qaCard.classList.add('visible');
+    } else if (currentData.qaStatus && currentData.qaStatus.indexOf('E31') !== -1) {
+      qaWarningCategory = 'corrupted';
+      document.getElementById('qaWarningText').textContent = currentData.qaStatus;
+      qaCard.classList.add('visible');
+    } else {
+      qaWarningCategory = null;
+      qaCard.classList.remove('visible');
+    }
     if (currentData.duplicateFlag) {
       // [v1.0.15] Task 125 — מצב השוואה: בלוק המסמך הנוכחי נטען מיד;
       // בלוק שורת התאום נטען ב-renderDupCard כשהנתונים מגיעים.
@@ -683,6 +748,11 @@
           '</div>' +
           '<div class="dup-details-grid" id="dupDetailsGrid"></div>' +
           '<button class="dup-cancel-btn" id="dupCancelBtn" onclick="cancelDuplicateFlag()" disabled>🚫 בטל חשד כפילות (לא אותו מסמך)</button>' +
+        '</div>' +
+
+        '<div class="qa-warning-card" id="qaWarningCard">' +
+          '<div class="qa-warning-text" id="qaWarningText"></div>' +
+          '<button class="qa-warning-cancel-btn" id="qaWarningCancelBtn" onclick="confirmCancelQaWarning()">🚫 בטל חשד — לא רלוונטי</button>' +
         '</div>' +
 
         '<div class="learn-dup-card" id="learnDupCard">' +
@@ -1232,6 +1302,51 @@
         showStatus('❌ ' + ((err && err.message) || err), false);
       })
       .s08_cancelDuplicateFlag(currentRow, dupData.row);
+  .s08_cancelDuplicateFlag(currentRow, dupData.row);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // [v1.0.20] Task 155(ב) — ביטול חשד E25 (לוגו/ריק) או E31 (טקסט פגום).
+  // אותו דפוס בדיוק כמו ביטול הכפילות למעלה — שם הפונקציה שפותחת את
+  // המודל נקרא confirmCancelQaWarning (לפי הכפתור בכרטיס, buildBodyHtml),
+  // הפעולה בפועל היא qaWarningDoCancel.
+  // ══════════════════════════════════════════════════════════════
+
+  function confirmCancelQaWarning() {
+    if (!qaWarningCategory) return;
+    var label = qaWarningCategory === 'logo' ? 'לוגו/ריק' : 'טקסט פגום';
+    document.getElementById('cancelQaWarningModalText').textContent =
+      'לבטל את חשד ה' + label + ' בשורה ' + currentRow +
+      '? הדגל ינוקה, והשורה תסומן "נבדק ידנית" כדי שלא תיבדק שוב אוטומטית. הפעולה אינה מוחקת אף נתון אחר ואינה הפיכה.';
+    document.getElementById('cancelQaWarningModal').classList.add('visible');
+  }
+
+  function closeCancelQaWarningModal() {
+    document.getElementById('cancelQaWarningModal').classList.remove('visible');
+  }
+
+  function qaWarningDoCancel() {
+    closeCancelQaWarningModal();
+    if (!qaWarningCategory) return;
+    var btn = document.getElementById('qaWarningCancelBtn');
+    if (btn) btn.disabled = true;
+
+    var fnName = qaWarningCategory === 'logo' ? 's08_cancelLogoEmptyFlag' : 's08_cancelCorruptedTextFlag';
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        showStatus(res.msg, res.success);
+        if (res.success) {
+          setTimeout(function () { navigateTo(currentRow); }, 900);
+        } else if (btn) {
+          btn.disabled = false;
+        }
+      })
+      .withFailureHandler(function (err) {
+        if (btn) btn.disabled = false;
+        showStatus('❌ ' + ((err && err.message) || err), false);
+      })
+      [fnName](currentRow);
   }
 
   // ══════════════════════════════════════════════════════════════
