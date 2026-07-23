@@ -1,9 +1,24 @@
 /**
  * MedicalPilot — S08_Validate.gs
  * @file        S08_Validate.gs
- * @version 1.0.24 | @updated 15/07/2026 | @service S08
+ * @version 1.0.26 | @updated 16/07/2026 14:00 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
+ * @changes     [v1.0.26] Task 155(ב) (בקשת עמוס) — (1) _s08_getRowData
+ *              מחזירה כעת גם qaStatus (U, עמודה 21) — היה חסר לגמרי,
+ *              ה-Sidebar לא ידע כלל שקיים חשד E25/E31 על השורה. (2) שתי
+ *              פונקציות חדשות: s08_cancelLogoEmptyFlag (מנקה U אם מכיל
+ *              "E25" + R אם ="חשוד כלוגו/ריק", כותב V="...(לוגו/ריק)")
+ *              ו-s08_cancelCorruptedTextFlag (מנקה U אם מכיל "E31",
+ *              כותב V="...(טקסט פגום)") — אותו עיקרון בדיוק כמו
+ *              s08_cancelDuplicateFlag (Task 155(א)), למניעת לולאת-
+ *              דגל-חוזר גם עבור שתי הקטגוריות האלה.
+ * @changes     [v1.0.25] Task 155(א) (בקשת עמוס) — s08_cancelDuplicateFlag
+ *              כותבת כעת גם ל-V (22, QA_Dismiss_Note) בשתי השורות —
+ *              "נבדק ידנית — לא רלוונטי (כפול)". מונעת לולאת-דגל-חוזר:
+ *              R+עמודה27 שנוקו כאן הם בדיוק תנאי הכניסה של E32
+ *              (S11_QArun.gs) ו-_calculateDuplicates_S07
+ *              (S07_Classify.gs) — שניהם עודכנו לבדוק V לפני זיהוי מחדש.
  * @changes     [v1.0.24] Task 127 סעיף (3) — s08_delete: nextRow חושב תמיד
  *              לפי targetRow (השורה שנמחקה בפועל), גם כשdeleteWhich="original"
  *              (מוחקים את שורת התאום, לא את השורה הנוכחית) — הדיאלוג קפץ
@@ -252,7 +267,10 @@ function _s08_getRowData(sheet, row) {
     pipelineStatus: sheet.getRange(row, 13).getValue() || "",
     fileSize:       sheet.getRange(row, 16).getValue() || "",
     complexity:     sheet.getRange(row, 17).getValue() || "",
-    duplicateFlag:  sheet.getRange(row, 18).getValue() || "",
+   duplicateFlag:  sheet.getRange(row, 18).getValue() || "",
+    // [v1.0.26] Task 155(ב) — qaStatus (U, 21) היה חסר לגמרי; ה-Sidebar
+    // לא ידע שקיים חשד E25/E31 על השורה. נדרש להצגת qa-warning-card.
+    qaStatus:       sheet.getRange(row, 21).getValue() || "",
     sourceUrl:      sourceUrl,
     txtUrl:         sheet.getRange(row, 24).getValue() || ""
   };
@@ -558,10 +576,76 @@ function s08_cancelDuplicateFlag(currentRow, dupRow) {
     sheet.getRange(dupRow, 18).clearContent();
     sheet.getRange(dupRow, 27).setValue("");
 
-    Logger.log("[S08] Task 124 — בוטל חשד כפילות בין שורה " + currentRow + " לשורה " + dupRow + " (R+עמודה27 נוקו בשתיהן).");
-    return { success: true, msg: "✅ חשד הכפילות בוטל — R נוקה בשתי השורות (" + currentRow + " ו-" + dupRow + ")" };
+    // [v1.0.25] Task 155(א) (בקשת עמוס) — כתיבת V (22, QA_Dismiss_Note)
+    // בשתי השורות: מונעת לולאת-דגל-חוזר. לפני התיקון, R הריק שנוצר כאן
+    // הוא בדיוק התנאי לכניסה של E32 (S11_QArun.gs) ושל
+    // _calculateDuplicates_S07 (S07_Classify.gs) — כך שאותה כפילות
+    // שנדחתה כרגע הייתה יכולה להיות מזוהה שוב בסריקה/סיווג הבאים.
+    const dismissText = "נבדק ידנית — לא רלוונטי (כפול)";
+    sheet.getRange(currentRow, 22).setValue(dismissText);
+    sheet.getRange(dupRow, 22).setValue(dismissText);
+
+    Logger.log("[S08] Task 124/155 — בוטל חשד כפילות בין שורה " + currentRow + " לשורה " + dupRow + " (R+עמודה27 נוקו, V סומנה בשתיהן).");
+    return { success: true, msg: "✅ חשד הכפילות בוטל — R נוקה, V סומנה 'לא רלוונטי' בשתי השורות (" + currentRow + " ו-" + dupRow + ")" };
   } catch (e) {
     Logger.log("[S08] שגיאה ב-s08_cancelDuplicateFlag: " + e.message);
+    return { success: false, msg: "❌ שגיאה: " + e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v1.0.26] Task 155(ב) — ביטול חשד לוגו/ריק (E25) וטקסט פגום (E31)
+// אותו עיקרון בדיוק כמו s08_cancelDuplicateFlag (Task 155(א)) —
+// כתיבת V (22, QA_Dismiss_Note) מונעת לולאת-דגל-חוזר.
+// ══════════════════════════════════════════════════════════════════
+
+function s08_cancelLogoEmptyFlag(row) {
+  try {
+    if (!row) return { success: false, msg: "❌ חסר מספר שורה" };
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("ניהול_מיילים");
+
+    // מנקה את דגל E25 מ-U (מסלול א', שורה חדשה) אם קיים
+    const currentU = (sheet.getRange(row, 21).getValue() || "").toString();
+    if (currentU.indexOf("E25") !== -1) {
+      sheet.getRange(row, 21).clearContent();
+    }
+    // מנקה את הדגל הישן מ-R (מסלול ב', "חשוד כלוגו/ריק") אם קיים
+    const currentR = (sheet.getRange(row, 18).getValue() || "").toString().trim();
+    if (currentR === "חשוד כלוגו/ריק") {
+      sheet.getRange(row, 18).clearContent();
+    }
+
+    // כתיבת V — מונעת מ-E25 לזהות מחדש את אותה שורה בסריקה הבאה
+    sheet.getRange(row, 22).setValue("נבדק ידנית — לא רלוונטי (לוגו/ריק)");
+
+    Logger.log("[S08] Task 155(ב) — בוטל חשד לוגו/ריק בשורה " + row + " (U/R נוקו, V סומנה).");
+    return { success: true, msg: "✅ חשד לוגו/ריק בוטל בשורה " + row };
+  } catch (e) {
+    Logger.log("[S08] שגיאה ב-s08_cancelLogoEmptyFlag: " + e.message);
+    return { success: false, msg: "❌ שגיאה: " + e.message };
+  }
+}
+
+function s08_cancelCorruptedTextFlag(row) {
+  try {
+    if (!row) return { success: false, msg: "❌ חסר מספר שורה" };
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("ניהול_מיילים");
+
+    // מנקה את דגל E31 מ-U אם קיים (E31 נכתב רק ל-U, אין מסלול R)
+    const currentU = (sheet.getRange(row, 21).getValue() || "").toString();
+    if (currentU.indexOf("E31") !== -1) {
+      sheet.getRange(row, 21).clearContent();
+    }
+
+    // כתיבת V — מונעת מ-E31 לזהות מחדש את אותה שורה בסריקה הבאה
+    sheet.getRange(row, 22).setValue("נבדק ידנית — לא רלוונטי (טקסט פגום)");
+
+    Logger.log("[S08] Task 155(ב) — בוטל חשד טקסט פגום בשורה " + row + " (U נוקה, V סומנה).");
+    return { success: true, msg: "✅ חשד טקסט פגום בוטל בשורה " + row };
+  } catch (e) {
+    Logger.log("[S08] שגיאה ב-s08_cancelCorruptedTextFlag: " + e.message);
     return { success: false, msg: "❌ שגיאה: " + e.message };
   }
 }
