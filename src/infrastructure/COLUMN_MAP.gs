@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.9.2 | @updated 15/07/2026 20:07 | @service COLUMN_MAP
+ * @version 2.9.3 | @updated 16/07/2026 13:30 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
@@ -17,6 +17,12 @@
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol
+ * @changes [v2.9.3] Task 155(א) (בקשת עמוס) — עמודה 22 (V) ב-"ניהול_מיילים"
+ *                   יצאה משימוש "שמור לעתיד" — משמשת כעת כ-QA_Dismiss_Note:
+ *                   סימון ידני של דחיית חשד QA (כפול/לוגו-ריק/טקסט-פגום),
+ *                   נכתבת ע"י S08 (s08_cancelDuplicateFlag ודומיו), נקראת
+ *                   ע"י S07 (_calculateDuplicates_S07) ו-S11 (E25/E31/E32) —
+ *                   מונעת לולאת-דגל-חוזר אחרי ביטול ידני.
  * @changes [v2.9.2] Task 154 — 3 תיקונים לגיליון "דוגמאות_למידה": (1) SHEETS_MAP
  *                   היה מתועד בסדר עמודות שגוי לגמרי מול מה שבאמת נכתב/נקרא בקוד
  *                   (S08 _s08_saveToLearning / S07 _getLearningExamples_S07) — תוקן
@@ -113,7 +119,7 @@ const SHEETS_MAP = {
     { col: 19, name: "Error_Code",        zone: "שגיאות",           writers: ["S03","S04","S05","S06","S07","S09"],    readers: ["QA"],                      values: "429|503|NO_ID|ACCESS|EMPTY|UNSUPPORTED|PARSE|UNKNOWN|SKIP",                       notes: "קוד שגיאה קצר — מנוקה בהצלחה" },
     { col: 20, name: "Error_Detail",      zone: "שגיאות",           writers: ["S03","S04","S05","S06","S07","S09"],    readers: ["QA"],                      values: "טקסט חופשי",                                                                           notes: "פירוט שגיאה — מנוקה בהצלחה" },
     { col: 21, name: "QA_Status",         zone: "בדיקות",           writers: ["QA","S08"],                             readers: [],                          values: "✅ תקין|⚠️ + פירוט|✅ אושר ידנית|נשלח ללמידה",                                   notes: "תוצאת בדיקת QA / אימות ידני S08" },
-    { col: 22, name: "",                  zone: "מרווח",            writers: [],                                       readers: [],                          values: "",                                                                                     notes: "שמור לשימוש עתידי" },
+   { col: 22, name: "QA_Dismiss_Note",   zone: "בדיקות",           writers: ["S08"],                                  readers: ["S07","S11"],               values: "נבדק ידנית — לא רלוונטי (כפול)|(לוגו/ריק)|(טקסט פגום)",                              notes: "דחיית חשד QA ידנית (Task 155) — מונעת זיהוי חוזר של S07/S11" },
     { col: 23, name: "Source_URL",        zone: "לינקים",           writers: ["S03","S04"],                            readers: ["S06","QA","S08","S09"],    values: "https://drive.google.com/...",                                                          notes: "קישור לקובץ המקורי ב-Drive" },
     { col: 24, name: "TXT_URL",           zone: "לינקים",           writers: ["S06"],                                  readers: ["S05","S07","QA","S08","S09"], values: "https://drive.google.com/...",                                                       notes: "קישור לקובץ TXT שנוצר" },
     { col: 25, name: "Temp_URL",          zone: "לינקים",           writers: ["S06"],                                  readers: [],                          values: "https://drive.google.com/...",                                                          notes: "קישור זמני במהלך המרה" },
