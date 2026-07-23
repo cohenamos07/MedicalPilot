@@ -1,6 +1,6 @@
 /**
  * @file        S07_Classify.gs
- * @version     2.10.0 | @updated 14/07/2026 19:20 | @service S07
+ * @version     2.13.0 | @updated 19/07/2026 17:45 | @service S07
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S07_Classify.gs
  * @description סיווג מסמכים רפואיים בעזרת Gemini API.
  *              קורא טקסט מ-TXT_URL (X) או Raw_Text (Z).
@@ -28,6 +28,34 @@
  *              _calculateDuplicates_S07 | _extractTxtHeader_S07
  *              _guardAlreadyClassified_S07 | _s07_syncComplexityToTxt
  *              S07_ValidateWritePermissions
+ * @changes     [v2.12.1] Task 146 — תיקון קוסמטי בלבד: טקסט דיאלוג האישור
+ *              ב-_guardAlreadyClassified_S07 הזכיר "R+Note" — מנגנון ה-Note
+ *              הוסר לגמרי מהארכיטקטורה ב-Task 131 (הוחלף בעמודה 27,
+ *              Duplicate_Target_FileID). שינוי טקסט תצוגה בלבד, ללא שינוי
+ *              לוגי — לא משפיע על שום פונקציונליות.
+ * @changes     [v2.12.0] Task 155(א) (בקשת עמוס) — _calculateDuplicates_S07:
+ *              בתחילת הפונקציה נוספה בדיקת V (עמודה 22, QA_Dismiss_Note) —
+ *              אם השורה הנוכחית סומנה ידנית "נבדק ידנית — לא רלוונטי
+ *              (כפול)" (דרך s08_cancelDuplicateFlag, S08_Validate.gs
+ *              v1.0.25) — הפונקציה חוזרת מיד בלי לבדוק כפילות בכלל. גם
+ *              במסננת המועמדים (שלב 2) נוסף אותו תנאי — מועמד עם V
+ *              מסומן מדולג. מונע לולאת-דגל-חוזר: לפני התיקון, R+עמודה27
+ *              שנוקו ע"י s08_cancelDuplicateFlag היו יכולים לגרום
+ *              לזיהוי מחדש של אותה כפילות בדיוק בהרצה חוזרת של S07.
+ * @changes     [v2.11.0] Task 156 (בקשת עמוס) — _getLearningExamples_S07
+ *              שוכתבה: (1) תיקון באג שורש — קריאה משורה 2 קשיחה הוחלפה
+ *              ב-SHEET_CONFIG["דוגמאות_למידה"].FIRST_DATA_ROW (5). לאחר
+ *              מיגרציית Task 154 (הזזת נתונים 1→4) הפונקציה קראה בפועל
+ *              משורות הקפאה/כותרת ולא מנתונים אמיתיים. (2) לוגיקה חדשה:
+ *              סריקת כל שורות הגליון (לא רק 3 הראשונות) וסינון לפי
+ *              התאמת Issuer (עמודה 2) כתת-מחרוזת בטקסט הגולמי של המסמך
+ *              החדש (fullText, חיפוש טקסט רגיל — לא AI, לא קריאת Gemini
+ *              נוספת). התאמה→עד 5 דוגמאות מאותו מנפיק בלבד (הגבלה לפי
+ *              בקשת עמוס, מונעת פרומפט ענק למנפיק עם הרבה שורות). אין
+ *              התאמה→נפילה לברירת מחדל (3 הראשונות, כפי שהיה). מטרה:
+ *              מנפיק חוזר (למשל "אסותא") ילמד את המודל לזהות תבנית.
+ *              הפונקציה מקבלת כעת פרמטר נוסף fullText — נקודת הקריאה
+ *              ב-executeS07Classification עודכנה בהתאם.
  * @changes     [v2.10.0] תיקון שורש (בקשת עמוס, חקירת אמינות עמודה Q) —
  *              4 שינויים ב-executeS07Classification + פונקציות תומכות:
  *              (1) רובריקת מורכבות-תוכן אוניברסלית (לא תלוית קטגוריה) נוספה
@@ -156,8 +184,9 @@ function classifyDocument() {
 // ══════════════════════════════════════════════════════════════════
 // [v2.7.0] Task 107 — הגנה מפני re-extraction בהרצה בודדת
 // אם L (Doc_Title, אינדיקטור סיווג) כבר מלא — מציג דיאלוג אישור לפני
-// הרצה חוזרת, כדי למנוע דריסה בטעות של סיווג קיים (ובעקיפין, גם R+Note
-// אם יימצא כפול מחדש — ראה גם Task 120 ב-executeS07Classification).
+// הרצה חוזרת, כדי למנוע דריסה בטעות של סיווג קיים (ובעקיפין, גם
+// R+עמודה 27 [v2.12.1, Task 146] אם יימצא כפול מחדש — ראה גם Task 120
+// ב-executeS07Classification).
 // ══════════════════════════════════════════════════════════════════
 function _guardAlreadyClassified_S07(sheet, row) {
   const docTitle = sheet.getRange(row, 9).getValue();   // I = Doc_Title
@@ -169,7 +198,7 @@ function _guardAlreadyClassified_S07(sheet, row) {
   const response = ui.alert(
     "⚠️ שורה " + row + " כבר סווגה",
     "השורה כבר עברה סיווג (Doc_Title/Pipeline_Status מלאים).\n" +
-    "הרצה חוזרת תדרוס I/J/K/L/N/Q, ואם יימצא כפול חדש — גם R+Note.\n\n" +
+ "הרצה חוזרת תדרוס I/J/K/L/N/Q, ואם יימצא כפול חדש — גם R+עמודה 27.\n\n" +
     "להריץ בכל זאת?",
     ui.ButtonSet.YES_NO
   );
@@ -354,7 +383,7 @@ function executeS07Classification(row) {
     if (!extractor) throw new Error("NO_FREE_EXTRACTOR: Flash מוצה — נסה מחר");
     console.log("[S07] מחלץ: " + extractor.id);
 
-    const examples = _getLearningExamples_S07(ss);
+    const examples = _getLearningExamples_S07(ss, fullText);
 
     // [v2.10.0] תיקון שורש (חקירת אמינות עמודה Q, בקשת עמוס) — שליפת
     // הכותרת הקיימת בקובץ ה-TXT (כולל complexity שS06 כתב במקור) *לפני*
@@ -488,8 +517,22 @@ function _calculateDuplicates_S07(currentRow, sheet, currentTxtContent) {
   const lastRow  = Math.min(sheet.getLastRow(), MAX_ROWS);
   if (lastRow < 2) return null;
 
+  // [v2.12.0] Task 155(א) (בקשת עמוס) — אם השורה הנוכחית סומנה ידנית
+  // כ"נבדק ידנית — לא רלוונטי (כפול)" (V, עמודה 22) — לא בודקים כפילות
+  // בכלל. מונע לולאת-דגל-חוזר אחרי s08_cancelDuplicateFlag.
+  const currentDismiss = String(sheet.getRange(currentRow, 22).getValue() || "").trim();
+  if (currentDismiss.indexOf("(כפול)") !== -1) return null;
+
   const currentMeta = _extractTxtHeader_S07(currentTxtContent);
   if (!currentMeta.title && !currentMeta.issuer && !currentMeta.date) return null;
+
+  // [v2.13.0] Task 152 — סינון "לא זוהה": אם כל 3 שדות = "לא זוהה" או ריק
+  const isCurrentUndetected = (
+    (currentMeta.title === "לא זוהה" || !currentMeta.title) &&
+    (currentMeta.issuer === "לא זוהה" || !currentMeta.issuer) &&
+    (currentMeta.date === "לא" || currentMeta.date === "לא זוהה" || !currentMeta.date)
+  );
+  if (isCurrentUndetected) return null;
 
   // ── שלב 1: קריאה אחת של עמודות I, J, K, X לזיכרון ──────────────
   const rangeData = sheet.getRange(2, 9, lastRow - 1, 16).getValues();
@@ -502,12 +545,15 @@ function _calculateDuplicates_S07(currentRow, sheet, currentTxtContent) {
     const sheetRow = i + 2;
     if (sheetRow === currentRow) continue;
 
-    const rowTitle  = String(rangeData[i][0]  || "").trim(); // I
-    const rowIssuer = String(rangeData[i][1]  || "").trim(); // J
-    const rowDate   = String(rangeData[i][2]  || "").trim(); // K
-    const rowTxtUrl = String(rangeData[i][15] || "").trim(); // X(24)
+    const rowTitle   = String(rangeData[i][0]  || "").trim(); // I
+    const rowIssuer  = String(rangeData[i][1]  || "").trim(); // J
+    const rowDate    = String(rangeData[i][2]  || "").trim(); // K
+    const rowDismiss = String(rangeData[i][13] || "").trim(); // V(22)
+    const rowTxtUrl  = String(rangeData[i][15] || "").trim(); // X(24)
 
     if (!rowTxtUrl) continue;
+    // [v2.12.0] Task 155(א) — מדלג על מועמד שסומן ידנית "לא רלוונטי (כפול)"
+    if (rowDismiss.indexOf("(כפול)") !== -1) continue;
 
     let quickScore = 0;
 
@@ -545,6 +591,14 @@ function _calculateDuplicates_S07(currentRow, sheet, currentTxtContent) {
 
     const otherMeta = _extractTxtHeader_S07(otherContent);
     if (!otherMeta.title && !otherMeta.issuer) continue;
+
+    // [v2.13.0] Task 152 — סינון "לא זוהה": דלג אם גם המועמד הזה לא מזוהה
+    const isOtherUndetected = (
+      (otherMeta.title === "לא זוהה" || !otherMeta.title) &&
+      (otherMeta.issuer === "לא זוהה" || !otherMeta.issuer) &&
+      (otherMeta.date === "לא" || otherMeta.date === "לא זוהה" || !otherMeta.date)
+    );
+    if (isOtherUndetected) continue;
 
     let score = 0;
 
@@ -585,15 +639,45 @@ function _calculateDuplicates_S07(currentRow, sheet, currentTxtContent) {
 // דוגמאות למידה
 // ══════════════════════════════════════════════════════════════════
 
-function _getLearningExamples_S07(ss) {
+function _getLearningExamples_S07(ss, fullText) {
   try {
     const exSheet = ss.getSheetByName("דוגמאות_למידה");
     if (!exSheet) return "";
+
+    // [v2.11.0] Task 156(1) — תיקון באג שורש: FIRST_DATA_ROW (5) במקום
+    // "2" קשיח. לאחר מיגרציית Task 154 (הזזת נתונים 1→4), שורה 2 היא
+    // שורת הקפאה/כותרת — לא נתונים אמיתיים.
+    const firstDataRow = SHEET_CONFIG["דוגמאות_למידה"].FIRST_DATA_ROW;
     const lastRow = exSheet.getLastRow();
-    if (lastRow < 2) return "";
-    const data = exSheet.getRange(2, 1, Math.min(lastRow - 1, 3), 3).getValues();
+    if (lastRow < firstDataRow) return "";
+
+    // עמודות לפי SHEETS_MAP["דוגמאות_למידה"]: 1=Subject, 2=Issuer,
+    // 3=Classification.
+    const numRows = lastRow - firstDataRow + 1;
+    const allRows = exSheet.getRange(firstDataRow, 1, numRows, 3).getValues();
+
+    // [v2.11.0] Task 156(2) — סריקת התאמת מנפיק בטקסט הגולמי של המסמך
+    // החדש (חיפוש טקסט רגיל, לא AI, לא קריאת Gemini נוספת). מנפיק לא
+    // ריק שמופיע כתת-מחרוזת ב-fullText — מטרה: מנפיק חוזר (למשל
+    // "אסותא") ילמד את המודל לזהות תבנית.
+    var matchedRows = [];
+    if (fullText) {
+      var haystack = fullText.toLowerCase();
+      matchedRows = allRows.filter(function(r) {
+        var issuer = (r[1] || "").toString().trim();
+        return issuer && haystack.indexOf(issuer.toLowerCase()) !== -1;
+      });
+    }
+
+    // [v2.11.0] Task 156 — הגבלה ל-5 דוגמאות מקסימום לאותו מנפיק (בקשת
+    // עמוס, מונע פרומפט ענק כשלמנפיק יש הרבה שורות דוגמה). אין התאמה
+    // → נפילה לברירת מחדל (3 השורות הראשונות, כפי שהיה לפני Task 156).
+    const dataToUse = matchedRows.length > 0
+      ? matchedRows.slice(0, 5)
+      : allRows.slice(0, 3);
+
     let out = "\n--- דוגמאות לסיווג נכון ---\n";
-    data.forEach(function(r) {
+    dataToUse.forEach(function(r) {
       if (r[0]) out += "טקסט: " + r[0] + " | מנפיק: " + (r[1] || "") + " | קטגוריה: " + (r[2] || "") + "\n";
     });
     return out;
