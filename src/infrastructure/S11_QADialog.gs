@@ -1,6 +1,10 @@
 <!--
   MedicalPilot — S11_QADialog.html
-  @version 1.5.0 | @updated 10/07/2026 17:34 | @service S11
+  @version 1.6.0 | @updated 16/07/2026 14:30 | @service S11
+  @changes     [v1.6.0] Task 155 (בקשת עמוס) — הוספת badges חסרים:
+               E25, E26, E27, E28, E30, E31, E32 (נוספו בשירות S07/S11
+               בין 07/07 ל-16/07/2026 אך מעולם לא קיבלו badge CSS —
+               הוצגו ללא צבע). אין שינוי לוגי, רק תיעוד ויזואלי.
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QADialog.html
   @description ממשק HTML לדוח ממצאי QA — טבלת ממצאים עם צ'קבוקסים,
                סינון לפי קוד שגיאה, קיבוץ E11 לפי הפניה, כפתור תקן נבחרים.
@@ -182,6 +186,14 @@
   .badge-E20 { background: #F8D7DA; color: #721C24; }
   .badge-E21 { background: #D1ECF1; color: #0C5460; }
   .badge-E22 { background: #F5C2C7; color: #58151C; }
+  /* [v1.6.0] Task 155 — badges חסרים ל-7 קודים שנוספו מ-07/07 עד 16/07 */
+  .badge-E25 { background: #F5C2C7; color: #58151C; }
+  .badge-E26 { background: #FFF3CD; color: #856404; }
+  .badge-E27 { background: #FFF3CD; color: #856404; }
+  .badge-E28 { background: #FFF3CD; color: #856404; }
+  .badge-E30 { background: #D1ECF1; color: #0C5460; }
+  .badge-E31 { background: #F5C2C7; color: #58151C; }
+  .badge-E32 { background: #E2D9F3; color: #4A1C8C; }
 
   .fix-label  { font-size: 11px; color: #666; }
   .fix-auto   { color: #1a7a3c; font-weight: 600; }
