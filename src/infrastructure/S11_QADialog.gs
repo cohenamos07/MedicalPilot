@@ -1,59 +1,18 @@
 <!--
   MedicalPilot — S11_QADialog.html
-  @version 1.6.0 | @updated 16/07/2026 14:30 | @service S11
-  @changes     [v1.6.0] Task 155 (בקשת עמוס) — הוספת badges חסרים:
-               E25, E26, E27, E28, E30, E31, E32 (נוספו בשירות S07/S11
-               בין 07/07 ל-16/07/2026 אך מעולם לא קיבלו badge CSS —
-               הוצגו ללא צבע). אין שינוי לוגי, רק תיעוד ויזואלי.
+  @version 1.32.0 | @updated 28/07/2026 21:53 | @service S11
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QADialog.html
-  @description ממשק HTML לדוח ממצאי QA — טבלת ממצאים עם צ'קבוקסים,
-               סינון לפי קוד שגיאה, קיבוץ E11 לפי הפניה, כפתור תקן נבחרים.
-               [v1.5.0] בקשת עמוס — אחרי "תקן נבחרים", אם היו ממצאי E17
-               שהוסלמו בפועל (fix="write" ל-R, לא "flag" ראשוני) — מוצג
-               מודל אישור נפרד עם רשימת השורות, ורק אישור מפורש שני מוחק
-               אותן (qa_deleteE17Findings → s08_deleteSpecificRows, row-only
-               ללא Drive — E17=מקור ממילא חסר). מוגבל בכוונה ל-E17 בלבד.
-  @impacts נקרא מ-S11_QArun.gs דרך HtmlService — מציג ממצאים ומאשר תיקונים.
-           שולח תיקונים חזרה ל-S11_QArun.gs דרך google.script.run.
-           [v1.5.0] מחיקת שורות E17 (לאחר אישור) — S11_QArun.gs מבצעת
-           את הקריאה בפועל ל-S08_Validate.gs; הדיאלוג עצמו לא כותב/מוחק דבר.
-           [v1.2.0] תומך כעת גם בממצאי מחיקת שורה מלאה (E16) ובממצאי
-           עדכון Note בלבד (E18) — ללא שינוי בזרימת האישור הידני.
-  @callers S11_QArun.gs (runQAViewMain)
-  @functions initFindings, buildFilterButtons, filterBy, renderTable,
-             toggleSelectAll, updateSelectedCount, applySelected,
-             showDeleteE17Modal, closeDeleteE17Modal, doDeleteE17Rows
-  @changes [v1.5.0] בקשת עמוס — ראה @description לפירוט מלא. נוסף מודל
-           HTML חדש (#deleteE17Modal, לפי אותו דפוס עיצוב מ-S08_Sidebar.html)
-           + CSS ייעודי + 3 פונקציות JS. applySelected() בודקת כעת גם
-           result.e17Rows ומציגה את המודל אם לא ריק — ללא שינוי בהתנהגות
-           הקיימת לשאר סוגי הממצאים.
-  @changes [v1.4.0] תיקון "תקן נבחרים" מציג הצלחה גם כשלא תיקן כלום —
-           applySelected() קיבלה result מ-qa_applySelectedFixes (S11_QArun.gs
-           v1.16.0, עכשיו {success, appliedCount, totalRequested, msg} במקום
-           boolean גס) אך מעולם לא בדקה אותו — תמיד הציגה "✅ תוקנו X
-           ממצאים" (X = כמה שנשלחו, לא כמה שבאמת תוקנו). אומת בפועל ע"י
-           עמוס: לחיצה על 9 ממצאים הציגה הצלחה, אך בדיקה ישירה בגליון
-           הראתה 0 שינויים. התיקון: מציג את result.msg האמיתי (כולל אבחנה
-           בין הצלחה מלאה/חלקית/כישלון), עם console.log בכל שלב לאבחון
-           עתידי אם עדיין לא יתוקן בפועל. גם הוסרה שורת דיבוג ישנה
-           ('RAW: '+findingsJson.substring...) שלא הייתה אמורה להישאר.
-  @changes [v1.3.0] Task 100 — הוספת badge-E22 (מקור חסר לצמיתות + delete_row).
-           checkbox של E22 אינו מסומן כברירת מחדל (אותה לוגיקה קיימת לפי
-           fix==='delete_row', לא נדרש שינוי קוד — רק CSS חדש לצבע התג).
-           [v1.2.0] Tasks 94+98 (פעימת קוד משולבת עם S11_QArun.gs):
-           (1) הוספת badges צבעוניים לקודים E16, E18, E19, E20, E21
-               (וגם E14/E15/E17 שהיו חסרים עיצוב עד כה — תוקן תוך כדי).
-           (2) הוספת תווית תיקון חדשה "→ עדכון Note" (class fix-note)
-               עבור fix === 'set_note' (Task 98, E18).
-           (3) הוספת תווית תיקון חדשה, בולטת ומזהירה יותר, "🗑 מחיקת שורה"
-               (class fix-delete, אדום כהה) עבור fix === 'delete_row' (Task 94, E16).
-           (4) [שמרנות] שורת E16 (מחיקת שורה) נטענת כברירת מחדל **לא מסומנת**
-               ב-checkbox — בניגוד לכל שאר הכללים שמסומנים כברירת מחדל —
-               מכיוון שמדובר בפעולה הרסנית ובלתי הפיכה על הגליון.
-           [v1.1.0] Task 89 — הוספת ענף clear_u (תווית + class fix-clear) עבור חוק E15
-           [v1.0.0] גרסה ראשונה — Dialog HTML במקום ui.alert
-
+  @description ממשק HTML לדוח ממצאי QA — פתיחה מיידית, סריקה הדרגתית קוד-
+               אחרי-קוד (ללא באצ'ים), עצירה על ממצא עם אפשרות תיקון-מיידי
+               או דילוג, טבלת סיכום סופית עם צ'קבוקסים, סינון לפי קוד
+               שגיאה, קיבוץ E11 לפי הפניה, כפתור תקן נבחרים.
+  @callers    S11_QArun.gs (runQAViewMain, template.evaluate)
+  @functions  runNextStep, runSingleStep, runBatchesForStep (מושבתת),
+              _renderStepReview, _stepResume, _stepSkip, _stepApplySelected,
+              finishScan, initFindings, buildFilterButtons, filterBy,
+              renderTable, toggleSelectAll, updateSelectedCount, applySelected,
+              closeDeleteE17Modal, doDeleteE17Rows
+  @changes [v1.32.0] Task 158 — נסגר סופית: runBatchesForStep הושבתה (קוד מת, הבאצ'ים לא היו השורש — S11_QArun.gs v1.34.0 מפרט את השורש האמיתי). נוספה עצירה-על-ממצא: כשקוד מוצא ממצאים, מוצג חלון-ביניים (_renderStepReview) עם טבלה וכפתורים "תקן נבחרים והמשך"/"דלג לקוד הבא" — מה שמתוקן לא נכנס לדוח הסופי, מה שנשאר/דולג כן. אומת מקצה-לקצה: 79 ממצאים סופיים (E11:1, E25:8, E31:5, E32:65). כל שאריות ה-DEBUG הזמניות (כותרת חלון, checkSteps.length) הוסרו.
 -->
 <!DOCTYPE html>
 <html dir="rtl">
@@ -254,9 +213,59 @@
   }
   .modal-btn-delete { background: #c62828; }
   .modal-btn-cancel { background: #999; }
+
+  /* [v1.29.0] בקשת עמוס — דיאלוג התקדמות, מוצג מיד עם פתיחת החלון */
+  .progress-overlay {
+    display: flex; position: fixed; inset: 0;
+    background: #fff; align-items: center; justify-content: center;
+    z-index: 100; flex-direction: column; gap: 14px;
+  }
+  .progress-overlay.hidden { display: none; }
+  .progress-box { width: 80%; max-width: 420px; text-align: center; }
+  .progress-title  { font-size: 16px; font-weight: 700; color: #333; margin-bottom: 6px; }
+  .progress-status { font-size: 13px; color: #555; margin-bottom: 10px; min-height: 18px; }
+  .progress-bar-wrap {
+    width: 100%; height: 8px; background: #eee; border-radius: 4px; overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%; width: 0%; background: #1976d2; transition: width 0.2s ease;
+  }
+  .progress-count { font-size: 11px; color: #999; margin-top: 6px; }
 </style>
 </head>
 <body>
+
+ <div class="progress-overlay" id="progressOverlay">
+  <div class="progress-box">
+    <div class="progress-title">🔍 S11 QA — סורק</div>
+    <div class="progress-status" id="progressStatus">מתחיל…</div>
+    <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressBarFill"></div></div>
+    <div class="progress-count" id="progressCount"></div>
+  </div>
+</div>
+
+<!-- [שלב C — Task 158, 28/07/2026] חלון-ביניים: עצירה כשקוד מסוים מוצא ממצאים -->
+<div class="progress-overlay hidden" id="stepReviewOverlay" style="align-items:flex-start; padding-top:30px;">
+  <div style="background:#fff; border-radius:8px; width:92%; max-width:680px; max-height:88vh; display:flex; flex-direction:column; box-shadow:0 4px 20px rgba(0,0,0,0.2);">
+    <div style="padding:12px 16px; border-bottom:1px solid #dde3ea; font-weight:700; font-size:14px; color:#1a3a5c;" id="stepReviewTitle"></div>
+    <div style="overflow-y:auto; padding:8px 16px; flex:1;">
+      <table style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="width:30px; text-align:right; font-size:12px; color:#444; padding:6px 4px;">☑</th>
+            <th style="width:50px; text-align:right; font-size:12px; color:#444; padding:6px 4px;">שורה</th>
+            <th style="text-align:right; font-size:12px; color:#444; padding:6px 4px;">תיאור</th>
+          </tr>
+        </thead>
+        <tbody id="stepReviewBody"></tbody>
+      </table>
+    </div>
+    <div style="padding:10px 16px; border-top:1px solid #dde3ea; display:flex; gap:8px;">
+      <button class="btn-fix" onclick="_stepApplySelected()">תקן נבחרים והמשך</button>
+      <button class="btn-cancel" onclick="_stepSkip()">דלג לקוד הבא</button>
+    </div>
+  </div>
+</div>
 
 <div class="header">
   <h2>S11 QA — דוח ממצאים</h2>
@@ -392,15 +401,192 @@ function updateSelectedCount() {
     document.getElementById('btnFix').disabled = (n === 0);
   }
 
-  // טעינת נתונים מוזרקים ישירות מ-GAS
-  // [v1.4.0] הוסרה שורת דיבוג ישנה שהציגה 'RAW: '+findingsJson.substring(0,50)
-  try {
-    var raw    = '<?= findingsJson ?>';
-    var parsed = JSON.parse(raw);
-    window.initFindings(parsed);
-  } catch(e) {
-    document.getElementById('totalCount').textContent = 'שגיאת JSON: ' + e.message;
+var checkSteps  = <?!= checkStepsJson ?>;
+  var isSingleRow = <?= isSingleRow ?>;
+  var activeRow   = <?= activeRow ?>;
+  var lastRow     = <?= lastRow ?>;
+var accumulated = [];
+  var debugErrors = [];
+  var stepIdx     = 0;
+
+  function runNextStep() {
+    if (stepIdx >= checkSteps.length) {
+      finishScan();
+      return;
+    }
+    var step = checkSteps[stepIdx];
+    var pct  = Math.round((stepIdx / checkSteps.length) * 100);
+
+    document.getElementById('progressBarFill').style.width = pct + '%';
+    document.getElementById('progressCount').textContent =
+      (stepIdx + 1) + ' מתוך ' + checkSteps.length;
+
+    runSingleStep(step);
   }
+
+  // [v1.34.0] Task 158 — שלב 3/6: בוטל חיתוך הבאצ'ים (BATCH_SIZE_HEAVY/
+  // LIGHT, startIdx/nextIdx) — היה מחזיר 0 ממצאים בכל הקודים הכבדים
+  // (E32, E25-E31, E17-E22, E30) למרות נתונים תקינים ואפס שגיאות; סיבת-
+  // שורש טרם אותרה. קריאה יחידה מלאה לכל קוד, זהה במבנה ל-s11_runSingleCheck
+  // (הפונקציה הלא-מחולקת), שהוכחה כעובדת בהרצת runTest_S11_BatchScan
+  // (batchSize=100000 = מקביל לקריאה יחידה על כל הגליון). פס הטעינה
+  // ממשיך להתקדם צעד-צעד (X מתוך 22) בלי שינוי חזותי — רק בלי תת-
+  // ההתקדמות שהייתה בתוך קוד בודד.
+  function runSingleStep(step) {
+    document.getElementById('progressStatus').textContent =
+      '🔍 בודק ' + step.code + (step.heavy ? ' (Drive — עשוי לקחת רגע)' : '') + ' — ' + step.label;
+
+   google.script.run
+      .withSuccessHandler(function(result) {
+        if (result && result.error) {
+          debugErrors.push(step.code + ':' + result.msg);
+          stepIdx++;
+          runNextStep();
+          return;
+        }
+        // [שלב C — Task 158, 28/07/2026] נמצאו ממצאים בקוד הזה — עוצרים
+        // ומציגים אותם, במקום להמשיך אוטומטית לקוד הבא.
+        if (result && result.findings && result.findings.length > 0) {
+          _renderStepReview(step, result.findings);
+          return;
+        }
+        stepIdx++;
+        runNextStep();
+      })
+      .withFailureHandler(function(err) {
+        console.error('[S11 QA] שלב ' + step.code + ' נכשל: ', err);
+        debugErrors.push(step.code + ':FAIL:' + (err && err.message ? err.message : err));
+        stepIdx++;
+        runNextStep(); // ממשיכים גם אם שלב בודד נכשל
+      })
+      .s11_runSingleCheck(step.code, isSingleRow, activeRow, lastRow);
+  }
+
+  // [שלב C — Task 158, 28/07/2026] תמיכה בעצירה-על-ממצא: מציג את ממצאי
+  // הקוד הנוכחי בחלון-ביניים, ומאפשר לתקן חלק מהם עכשיו או לדלג הלאה.
+  // מה שמתוקן לא נכנס לדוח הסופי (כבר טופל); מה שנשאר לא-מסומן/דולג
+  // נכנס לדוח הסופי (accumulated) כרגיל.
+  var _stepPendingFindings = [];
+
+  function _renderStepReview(step, findings) {
+    _stepPendingFindings = findings.map(function(f, i) { f._stepIdx = i; return f; });
+    document.getElementById('stepReviewTitle').textContent =
+      '⚠️ נמצאו ' + findings.length + ' ממצאים בקוד ' + step.code + ' — ' + step.label;
+    var tbody = document.getElementById('stepReviewBody');
+    tbody.innerHTML = '';
+    findings.forEach(function(f, i) {
+      var checkedAttr = (f.fix === 'delete_row') ? '' : 'checked';
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td style="padding:6px 4px;"><input type="checkbox" class="step-review-cb" data-idx="' + i + '" ' + checkedAttr + '></td>' +
+        '<td style="padding:6px 4px;">' + f.row + '</td>' +
+        '<td style="padding:6px 4px;">' + f.desc + '</td>';
+      tbody.appendChild(tr);
+    });
+    document.getElementById('progressOverlay').classList.add('hidden');
+    document.getElementById('stepReviewOverlay').classList.remove('hidden');
+  }
+
+  function _stepResume() {
+    document.getElementById('stepReviewOverlay').classList.add('hidden');
+    document.getElementById('progressOverlay').classList.remove('hidden');
+    stepIdx++;
+    runNextStep();
+  }
+
+  function _stepSkip() {
+    accumulated = accumulated.concat(_stepPendingFindings);
+    _stepResume();
+  }
+
+  function _stepApplySelected() {
+    var checkedIdxs = [];
+    document.querySelectorAll('.step-review-cb:checked').forEach(function(cb) {
+      checkedIdxs.push(parseInt(cb.getAttribute('data-idx')));
+    });
+    var toFix   = _stepPendingFindings.filter(function(f) { return checkedIdxs.indexOf(f._stepIdx) !== -1; });
+    var toDefer = _stepPendingFindings.filter(function(f) { return checkedIdxs.indexOf(f._stepIdx) === -1; });
+
+    if (toFix.length === 0) {
+      accumulated = accumulated.concat(_stepPendingFindings);
+      _stepResume();
+      return;
+    }
+
+    google.script.run
+      .withSuccessHandler(function(result) {
+        accumulated = accumulated.concat(toDefer);
+        _stepResume();
+      })
+      .withFailureHandler(function(err) {
+        console.error('[S11 QA] _stepApplySelected נכשלה: ', err);
+        accumulated = accumulated.concat(_stepPendingFindings); // fail-safe — לא לאבד ממצאים
+        _stepResume();
+      })
+      .qa_applySelectedFixes(JSON.stringify(toFix));
+  }
+ // [שלב A — Task 158, 28/07/2026] מושבתת — קוד מת, לא נקראת משום מקום.
+  // הבאצ'ים בוטלו (ראה הערה מעל runSingleStep) — נשמרת כאן להתייחסות
+  // בלבד, לא לחבר מחדש בלי בדיקה חוזרת. תלויה גם ב-s11_runSingleCheckBatch
+  // (S11_QArun.gs) שהושבתה באותו שלב.
+  /*
+  function runBatchesForStep(step, startIdx, stepFindings) {
+    var batchSize = step.heavy ? BATCH_SIZE_HEAVY : BATCH_SIZE_LIGHT;
+
+    document.getElementById('progressStatus').textContent =
+      '🔍 בודק ' + step.code + (step.heavy ? ' (Drive — עשוי לקחת רגע)' : '') + ' — ' + step.label;
+
+    google.script.run
+     .withSuccessHandler(function(result) {
+        if (result && result.error) {
+          debugErrors.push(step.code + ':' + result.msg);
+        }
+        if (result && !result.error && result.findings) {
+          stepFindings = stepFindings.concat(result.findings);
+        }
+        if (step.heavy && result && !result.error && !result.isDone) {
+          document.getElementById('progressStatus').textContent =
+            '🔍 בודק ' + step.code + ' (Drive) — נסרקו ' + result.nextIdx + ' מתוך ' + result.totalRows + ' שורות';
+        }
+        if (!result || result.error || result.isDone) {
+          accumulated = accumulated.concat(stepFindings);
+          stepIdx++;
+          runNextStep();
+        } else {
+          runBatchesForStep(step, result.nextIdx, stepFindings);
+        }
+      })
+      .withFailureHandler(function(err) {
+        console.error('[S11 QA] שלב ' + step.code + ' נכשל: ', err);
+        debugErrors.push(step.code + ':FAIL:' + (err && err.message ? err.message : err));
+        accumulated = accumulated.concat(stepFindings);
+        stepIdx++;
+        runNextStep(); // ממשיכים גם אם שלב בודד נכשל
+      })
+      .s11_runSingleCheckBatch(step.code, isSingleRow, activeRow, lastRow, startIdx, batchSize);
+  }
+  */
+
+function finishScan() {
+    document.getElementById('progressBarFill').style.width = '100%';
+    google.script.run
+      .withSuccessHandler(function(result) {
+        document.getElementById('progressOverlay').classList.add('hidden');
+        var finalFindings = (result && result.findings) ? result.findings : [];
+        if (finalFindings.length === 0) {
+          document.getElementById('totalCount').textContent = '✅ הכול תקין — אין ממצאים';
+        }
+        window.initFindings(finalFindings);
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById('progressOverlay').classList.add('hidden');
+        document.getElementById('totalCount').textContent =
+          'שגיאה בשמירת ממצאים: ' + (err && err.message ? err.message : err);
+      })
+      .s11_storeFindings(JSON.stringify(accumulated));
+  }
+
+ runNextStep();
 
 function applySelected() {
     var checkedIdxs = [];
