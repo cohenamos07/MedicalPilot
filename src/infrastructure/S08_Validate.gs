@@ -1,102 +1,9 @@
 /**
  * MedicalPilot — S08_Validate.gs
  * @file        S08_Validate.gs
- * @version 1.0.26 | @updated 16/07/2026 14:00 | @service S08
+ * @version 1.0.27 | @updated 29/07/2026 19:42 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
- * @changes     [v1.0.26] Task 155(ב) (בקשת עמוס) — (1) _s08_getRowData
- *              מחזירה כעת גם qaStatus (U, עמודה 21) — היה חסר לגמרי,
- *              ה-Sidebar לא ידע כלל שקיים חשד E25/E31 על השורה. (2) שתי
- *              פונקציות חדשות: s08_cancelLogoEmptyFlag (מנקה U אם מכיל
- *              "E25" + R אם ="חשוד כלוגו/ריק", כותב V="...(לוגו/ריק)")
- *              ו-s08_cancelCorruptedTextFlag (מנקה U אם מכיל "E31",
- *              כותב V="...(טקסט פגום)") — אותו עיקרון בדיוק כמו
- *              s08_cancelDuplicateFlag (Task 155(א)), למניעת לולאת-
- *              דגל-חוזר גם עבור שתי הקטגוריות האלה.
- * @changes     [v1.0.25] Task 155(א) (בקשת עמוס) — s08_cancelDuplicateFlag
- *              כותבת כעת גם ל-V (22, QA_Dismiss_Note) בשתי השורות —
- *              "נבדק ידנית — לא רלוונטי (כפול)". מונעת לולאת-דגל-חוזר:
- *              R+עמודה27 שנוקו כאן הם בדיוק תנאי הכניסה של E32
- *              (S11_QArun.gs) ו-_calculateDuplicates_S07
- *              (S07_Classify.gs) — שניהם עודכנו לבדוק V לפני זיהוי מחדש.
- * @changes     [v1.0.24] Task 127 סעיף (3) — s08_delete: nextRow חושב תמיד
- *              לפי targetRow (השורה שנמחקה בפועל), גם כשdeleteWhich="original"
- *              (מוחקים את שורת התאום, לא את השורה הנוכחית) — הדיאלוג קפץ
- *              לשורה שאחרי התאום שנמחק במקום לחזור לשורה שהמשתמש עמד עליה
- *              (row המקורי), ושבר את רצף העבודה שורה־שורה. תוקן: כש-
- *              deleteWhich="original", נחזרת row המקורית (מתוקנת ב-1- אם
- *              targetRow היה מעליה, כי המספור זז). כש-deleteWhich!="original"
- *              (מוחקים את השורה הנוכחית עצמה) — ההתנהגות הקודמת נשארת ללא
- *              שינוי: ממשיכים לשורה שתפסה את מקום זו שנמחקה.
- * @changes     [v1.0.22] Task 147 [BUG-12, אושר ע"י עמוס — אפשרות א] —
- *              showMainSidebar: כותרת הדיאלוג הנייטיבית (showModalDialog)
- *              כללה מספר שורה ("אימות ידני — שורה " + row), שנקבע פעם
- *              אחת בפתיחה ואינו יכול להתעדכן בניווט פנימי (הבא/קודם/קפוץ)
- *              — מגבלת פלטפורמה של Apps Script, לא באג לוגי. כתוצאה,
- *              הכותרת החיצונית ותוכן הדיאלוג (הסרגל הפנימי, שמתעדכן נכון
- *              בכל ניווט) יכלו להציג שני מספרי שורה שונים בו-זמנית. תוקן:
- *              הכותרת קבועה כעת ("אימות ידני — S08"), ללא מספר שורה כלל
- *              — המקור היחיד למספר השורה הוא הסרגל הפנימי, שתמיד מדויק.
- * @changes     [v1.0.21] Task 133 [שלב 5/8, שרשרת עמודה 27] — מעבר מלא
- *              מ-Note לעמודה 27 (Duplicate_Target_FileID). שלושה מקומות
- *              עברו מ-getNote()/clearNote() לקריאה/כתיבה ישירה של עמודה 27:
- *              s08_getDuplicateRowData, _s08_getDuplicateRowNumber,
- *              s08_cancelDuplicateFlag. s08_fixReferencesAfterDelete פושטה
- *              משמעותית (אישור מפורש של עמוס, אפשרות א') — הוסרה לגמרי
- *              לוגיקת תיקון "שורה X" שהתיישן (regex), כי File_ID בעמודה 27
- *              לא "זז" יותר גם אחרי מחיקת שורות סביבו. נשאר רק ניקוי מיידי
- *              של רפרנס יתום (R+עמודה27) כשה-File_ID שהצביע אליו נמחק
- *              לגמרי מהגליון — ללא המתנה לסריקת S11 (E12) הבאה.
- * @changes     [v1.0.19] Task 109 (המשך) — s08_fixReferencesAfterDelete
- *              טיפלה רק במקרה שה-File_ID שב-Note "זז" למיקום אחר (actualRow
- *              truthy). לא טופל בכלל המקרה שה-File_ID נמחק *לגמרי* מהגליון
- *              (actualRow === undefined) — ה-if נכשל בשקט, והטקסט הישן
- *              ("כפול מאושר — שורה X") נשאר תקוע לצמיתות בעמודה R, גם
- *              כשהמסמך שהוא מצביע עליו כבר לא קיים. אומת בנתוני הגליון
- *              בפועל (עמוס, שורה 12 מול File_ID מחוק). התיקון: branch נוסף
- *              — אם noteId לא נמצא בכלל ב-fileIdRowMap, מנקים R+Note לגמרי
- *              (כמו s08_cancelDuplicateFlag) במקום להשאיר טקסט תקוע.
- *              בסיסי (Range.createFilter, ב-switchView/ViewEngine.gs) קשור
- *              לטווח שורות קבוע שנקבע פעם אחת בפתיחת מבט S08. מחיקת שורה
- *              בתוך אותו טווח בזמן שהפילטר עדיין פעיל היא תקלה מתועדת של
- *              Google Sheets — הטווח הפנימי לא מתעדכן, ומשאיר את הגליון
- *              במצב לא עקבי שגורם לכשלים לא צפויים בקריאות הבאות (בדיוק
- *              "לא נמצאו נתוני שורה" שתועד ב-v1.0.16/v1.0.17). התיקון:
- *              existingFilter.remove()+SpreadsheetApp.flush() לפני
- *              sheet.deleteRow() — הן ב-s08_delete והן ב-s08_deleteApproved
- *              (Task 114, אותה פגיעות בדיוק, לולאת מחיקה). אותו דפוס הגנה
- *              בדיוק כמו שכבר קיים ב-switchView וב-_doExpand (ViewEngine.gs)
- *              — לא מנגנון חדש, רק יישום עקבי שלו כאן.
- *              מופיע בעקביות בדיוק אחרי מחיקה מוצלחת + קפיצה אוטומטית
- *              ל-nextRow (900ms אחר כך). קריאה חוזרת של s08_loadRowByNumber
- *              מוכיחה: הפונקציה מבנית לא יכולה להחזיר null/undefined בשום
- *              נתיב קוד (כל branch מחזיר אובייקט מפורש). אין הוכחה חד-
- *              משמעית לסיבת השורש (אין עדיין פלט Console אמיתי מהדפדפן),
- *              אך s08_delete לא כללה SpreadsheetApp.flush() לפני החזרת
- *              תשובה ללקוח — אחרי deleteRow()+s08_fixReferencesAfterDelete()
- *              (עובר על כל עמודה R). זה חשוד כתזמון: קריאת google.script.run
- *              נפרדת (nextRow) יורה כ-900ms אח"כ לאותו גליון. נוספה
- *              SpreadsheetApp.flush() בסוף s08_delete — מבטיחה שהמחיקה
- *              ותיקון הרפרנסים נכתבים במלואם ל-Sheet לפני שהתשובה חוזרת
- *              ללקוח, ולפני שקריאה נוספת עלולה להיורות. הקשחה הגנתית
- *              מוצדקת הנדסית (best-practice בכל מקרה), לא ניחוש עיוור.
- * @impacts     קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,P,Q,R,W,X, ועמודה 27.
- *              כתיבה: ניהול_מיילים עמודות I,J,K,L,M,U,27 + גיליון דוגמאות_למידה (8 עמודות).
- *              4 כפתורים: אישור / עדכון+למידה / למידה יזומה / מחיקה.
- *              בדיקת כפולים אוטומטית מול ניהול_מיילים ומול דוגמאות_למידה.
- *              [v1.0.13] Task 111 — s08_loadRowByNumber מקבלת פרמטר נוסף
- *              skipDirection (1/-1). כשמופעלת מ-Prev/Next בלבד (לא מקפיצה
- *              ידנית), מדלגת אוטומטית על שורות "כפול מאושר" בכיוון הניווט,
- *              כדי לא להציג לאימות ידני זוג כפול. דורש עדכון תואם ב-
- *              S08_Sidebar.html (prevRow/nextRow/navigateTo מעבירים כיוון).
- *              [v1.0.12] Task 114 — s08_deleteApproved: סורק את כל עמודה R (18)
- *              ומוחק (שורה + קבצי Drive) כל שורה שR שלה מתחיל ב"מאושר למחיקה"
- *              (מכל סיבה — E16/E22/E25 ב-S11). הופך לנקודת המחיקה המרכזית היחידה
- *              יחד עם s08_delete הקיים — S11 עצמו לא מוחק שורות בשום מקרה.
- *              [v1.0.12] Task 109 — s08_fixReferencesAfterDelete: לאחר כל מחיקה
- *              אמיתית (מ-s08_delete או מ-s08_deleteApproved), עובר על כל עמודה R,
- *              [v1.0.21] כעת בודק מול עמודה 27 (לא Note) אם ה-File_ID עדיין
- *              קיים בגליון — מנקה רפרנס יתום אם לא. אין יותר תיקון "שורה X".
  *              תלויות: S08_Sidebar.html, COLUMN_MAP.gs (SHEET_CONFIG), Drive API.
  * @callers     runS08ViewIcon (ViewEngine עמודה N) | Menu_PROD
  * @functions   showMainSidebar, _s08_getRowData, s08_loadRowData,
@@ -109,79 +16,10 @@
  *              _s08_trashDriveFile, _s08_getDuplicateRowNumber,
  *              s08_deleteApproved, s08_fixReferencesAfterDelete,
  *              s08_previewApprovedForDeletion
- * @changes     [v1.0.20] בקשת עמוס — s08_deleteApproved() הייתה קיימת ומוכנה
- *              (Task 114, 07/07) אך מעולם לא חוברה לשום כפתור בממשק —
- *              הופעלה עד כה רק ידנית מהעורך, ללא כל בקשת אישור. נוסף
- *              s08_previewApprovedForDeletion() — פונקציית תצוגה מקדימה
- *              קריאה-בלבד (ללא כתיבה), מחזירה את רשימת השורות שיימחקו כדי
- *              שה-Sidebar יציג אותן במודל אישור מפורש (S08_Sidebar.html
- *              v1.0.17: כפתור "🗑️ מחק מאושרות" בכותרת) לפני קריאה בפועל
- *              ל-s08_deleteApproved() הקיימת. לוגיקת s08_deleteApproved
- *              עצמה לא השתנתה כלל — רק חוברה לראשונה לממשק.
- *          [v1.0.16] Task 124 — תלות עבור Task 125 (תצוגת שני מסמכי
- *              מקור בכרטיס חשד כפילות, ללא ניווט/קפיצה):
- *              (1) s08_getDuplicateRowData מחזירה כעת גם sourceUrl ו-txtUrl
- *                  של שורת התאום (בנוסף לשדות הקיימים) — אותה לוגיקת
- *                  fallback בדיוק כמו ב-_s08_getRowData (עמודה W, ואם ריקה
- *                  נבנה URL מ-File_ID בעמודה A).
- *              (2) פונקציה חדשה s08_cancelDuplicateFlag(currentRow, dupRow) —
- *                  מנקה R (Duplicate_Flag) + Note בשתי השורות בו-זמנית
- *                  (סימטריה מלאה, לפי אישור מפורש של עמוס). לא נוגעת בשום
- *                  עמודה/נתון אחר, לא מוחקת שורות. שימוש: כשההשוואה
- *                  הוויזואלית מראה שזה *לא* אותו מסמך בפועל — ביטול החשד
- *                  בלי מחיקת נתונים.
- * @changes     [v1.0.15] Task (בקשת עמוס) — הוספת מספר מילים לכרטיס חשד
- *              כפילות: נוספה _s08_fetchTxtWordCount (זהה בשיטה ל-
- *              _qa_fetchTxtWordCount_E25 ב-S11_QArun.gs). s08_getDuplicateRowData
- *              מחזירה כעת גם wordCount (שורת התאום) וגם currentWordCount
- *              (השורה הנוכחית) — מציג את שני הצדדים להשוואה ישירה מול הקריטריון
- *              החמישי מתוך 5 שS07 משתמש בו לחישוב ניקוד כפילות (הפרש≤10%).
- * @changes     [v1.0.14] Tasks 105+106:
- *              (1) Task 106 — showMainSidebar: תנאי הכניסה הורחב לקבל גם
- *                  Pipeline_Status="חולץ מלא" (ערך ששייך בפועל לעמודה N
- *                  לפי COLUMN_MAP.gs, אך נמצא בטעות גם ב-M בשורות ישנות) —
- *                  לא רק "עבר סיווג". מונע חסימה שגויה של שורות מוכנות לאימות.
- *              (2) Task 105 — s08_highlightActiveRow: נוספה בדיקת
- *                  sheet.isRowHiddenByFilter(row) לפני setActiveRange —
- *                  מונע כשל (הודעה גנרית/ריקה בצד הלקוח) כשמנווטים לשורה
- *                  המוסתרת ע"י מסנן (filter) פעיל. אם מוסתרת — מדלג על
- *                  ההדגשה החזותית בלבד, הנתונים עצמם עדיין נטענים כרגיל.
- * @changes     [v1.0.13] Task 111 — s08_loadRowByNumber(rowNum, skipDirection):
- *                        נוסף פרמטר אופציונלי skipDirection. כשערכו 1 או -1
- *                        (מגיע רק מ-prevRow/nextRow דרך navigateTo), הפונקציה
- *                        ממשיכה לזוז בכיוון (targetRow += skipDirection) כל עוד
- *                        R של השורה מתחיל ב"כפול מאושר", עד שמוצאת שורה שאינה
- *                        כפולה או יוצאת מטווח הנתונים (ואז מחזירה הודעת שגיאה
- *                        ברורה). קפיצה ידנית (jumpToRow) לא מעבירה skipDirection
- *                        וממשיכה לטעון בדיוק את השורה המבוקשת כרגיל.
- *              [v1.0.12] Task 114 — s08_deleteApproved(): פונקציה חדשה, סורקת
- *                        עמודה R (18) בכל טווח הנתונים (מ-SHEET_CONFIG.FIRST_DATA_ROW),
- *                        מאתרת כל שורה שR שלה מתחיל ב"מאושר למחיקה", ממיינת יורד
- *                        לפי מספר שורה (מוחקת מלמטה למעלה כדי לא לשבש אינדקסים),
- *                        ולכל שורה: מטרישת (trash) קובץ מקור (W) וקובץ TXT (X)
- *                        באמצעות _s08_trashDriveFile הקיימת, ואז sheet.deleteRow.
- *                        בסיום קוראת ל-s08_fixReferencesAfterDelete.
- *              [v1.0.12] Task 109 — s08_fixReferencesAfterDelete(): פונקציה חדשה,
- *                        נקראת בסוף s08_delete וגם בסוף s08_deleteApproved. בונה
- *                        מפת File_ID→שורה נוכחית מעמודה A, עוברת על כל Note בעמודה
- *                        R, ומשווה את מספר השורה הכתוב בטקסט (regex "שורה \d+") מול
- *                        המיקום האמיתי של ה-File_ID השמור ב-Note. אם התיישן — מתקנת
- *                        רק את מספר השורה בטקסט (משאירה שאר הטקסט, כולל "| ניקוד
- *                        Y/5" אם קיים, ואת ה-Note עצמו ללא שינוי).
- *              [v1.0.12] s08_delete() — נוספה קריאה ל-s08_fixReferencesAfterDelete()
- *                        בסוף מחיקה מוצלחת (לפני החזרת התוצאה).
- *              [v1.0.11] Task 74+92 — הוספת בדיקת כניסה M=עבר סיווג ב-showMainSidebar.
- *                        s08_getDuplicateRowData + _s08_getDuplicateRowNumber:
- *                        מעבר מ-regex על טקסט R → קריאת getNote() + חיפוש File_ID בעמודה A.
- *
- *              [v1.0.10] תיקון Task 14 — הוספת @callers + @functions + @changes מלא
- *              [v1.0.9]  s08_findLearningDuplicate — חיפוש כפול בדוגמאות_למידה
- *              [v1.0.8]  תיקון באג s08_updateAndLearn + s08_learnOnly
- *              [v1.0.7]  הודעת כפול כוללת מספר שורה
- *              [v1.0.6]  s08_fetchTxtContent + Dialog 1100×750
- *              [v1.0.5]  pipelineStatus עמודה M
- *              [v1.0.4]  s08_loadRowByNumber + s08_highlightActiveRow
- *              [v1.0.3]  בדיקת סף X + sourceUrl
+ * @changes     [v1.0.27] Task 154 — s08_findLearningDuplicate ו-_s08_saveToLearning:
+ *              תוקן באג שורש getRange(2,...) קשיח בגיליון "דוגמאות_למידה" —
+ *              הוחלף ב-SHEET_CONFIG["דוגמאות_למידה"].FIRST_DATA_ROW (5), זהה
+ *              לתיקון שכבר יושם ב-_getLearningExamples_S07 (Task 156).
  */
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה — פתיחת חלון אימות
@@ -428,9 +266,17 @@ function s08_findLearningDuplicate(issuer, category) {
     const ss         = SpreadsheetApp.getActiveSpreadsheet();
     const learnSheet = ss.getSheetByName("דוגמאות_למידה");
     if (!learnSheet) return null;
+
+    // [Task 154] תיקון באג שורש: FIRST_DATA_ROW (5) במקום "2" קשיח.
+    // לאחר מיגרציית Task 154 (הזזת נתונים 1→4 ב-COLUMN_MAP.gs), שורה 2
+    // היא שורת הקפאה — לא נתונים. זהה לתיקון ב-_getLearningExamples_S07
+    // (S07_Classify.gs, Task 156).
+    const firstDataRow = SHEET_CONFIG["דוגמאות_למידה"].FIRST_DATA_ROW;
     const lastRow = learnSheet.getLastRow();
-    if (lastRow < 2) return null;
-    const existing = learnSheet.getRange(2, 1, lastRow - 1, 3).getValues();
+    if (lastRow < firstDataRow) return null;
+
+    const numRows  = lastRow - firstDataRow + 1;
+    const existing = learnSheet.getRange(firstDataRow, 1, numRows, 3).getValues();
     for (let i = 0; i < existing.length; i++) {
       if (
         existing[i][1] && existing[i][2] &&
@@ -438,7 +284,7 @@ function s08_findLearningDuplicate(issuer, category) {
         existing[i][2].toString().trim() === (category || "").trim()
       ) {
         return {
-          dupRow:          i + 2,
+          dupRow:          i + firstDataRow,
           matchedIssuer:   existing[i][1].toString().trim(),
           matchedCategory: existing[i][2].toString().trim()
         };
@@ -748,16 +594,20 @@ function _s08_saveToLearning(sheet, row, title, issuer, category, date, note) {
     const learnSheet = ss.getSheetByName("דוגמאות_למידה");
     if (!learnSheet) return { success: false, msg: "❌ גליון 'דוגמאות_למידה' לא נמצא" };
 
+    // [Task 154] תיקון באג שורש: FIRST_DATA_ROW (5) במקום "2" קשיח —
+    // זהה לתיקון ב-s08_findLearningDuplicate למעלה.
+    const firstDataRow = SHEET_CONFIG["דוגמאות_למידה"].FIRST_DATA_ROW;
     const lastRow = learnSheet.getLastRow();
-    if (lastRow > 1) {
-      const existing = learnSheet.getRange(2, 1, lastRow - 1, 3).getValues();
+    if (lastRow >= firstDataRow) {
+      const numRows  = lastRow - firstDataRow + 1;
+      const existing = learnSheet.getRange(firstDataRow, 1, numRows, 3).getValues();
       for (let i = 0; i < existing.length; i++) {
         if (
           existing[i][1] && existing[i][2] &&
           existing[i][1].toString().trim() === (issuer   || "").trim() &&
           existing[i][2].toString().trim() === (category || "").trim()
         ) {
-          const dupLearnRow     = i + 2;
+          const dupLearnRow     = i + firstDataRow;
           const matchedIssuer   = existing[i][1].toString().trim();
           const matchedCategory = existing[i][2].toString().trim();
           return {
