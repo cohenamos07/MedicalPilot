@@ -1,6 +1,6 @@
 <!--
   MedicalPilot — S11_QADialog.html
-  @version 1.32.0 | @updated 28/07/2026 21:53 | @service S11
+  @version 1.33.0 | @updated 30/07/2026 22:00 | @service S11
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QADialog.html
   @description ממשק HTML לדוח ממצאי QA — פתיחה מיידית, סריקה הדרגתית קוד-
                אחרי-קוד (ללא באצ'ים), עצירה על ממצא עם אפשרות תיקון-מיידי
@@ -8,11 +8,11 @@
                שגיאה, קיבוץ E11 לפי הפניה, כפתור תקן נבחרים.
   @callers    S11_QArun.gs (runQAViewMain, template.evaluate)
   @functions  runNextStep, runSingleStep, runBatchesForStep (מושבתת),
-              _renderStepReview, _stepResume, _stepSkip, _stepApplySelected,
-              finishScan, initFindings, buildFilterButtons, filterBy,
-              renderTable, toggleSelectAll, updateSelectedCount, applySelected,
-              closeDeleteE17Modal, doDeleteE17Rows
-  @changes [v1.32.0] Task 158 — נסגר סופית: runBatchesForStep הושבתה (קוד מת, הבאצ'ים לא היו השורש — S11_QArun.gs v1.34.0 מפרט את השורש האמיתי). נוספה עצירה-על-ממצא: כשקוד מוצא ממצאים, מוצג חלון-ביניים (_renderStepReview) עם טבלה וכפתורים "תקן נבחרים והמשך"/"דלג לקוד הבא" — מה שמתוקן לא נכנס לדוח הסופי, מה שנשאר/דולג כן. אומת מקצה-לקצה: 79 ממצאים סופיים (E11:1, E25:8, E31:5, E32:65). כל שאריות ה-DEBUG הזמניות (כותרת חלון, checkSteps.length) הוסרו.
+              _runNextSubStep, _renderStepReview, _stepResume, _stepSkip,
+              _stepApplySelected, finishScan, initFindings, buildFilterButtons,
+              filterBy, renderTable, toggleSelectAll, updateSelectedCount,
+              applySelected, closeDeleteE17Modal, doDeleteE17Rows
+  @changes [v1.33.0] Task 159 — נוסף MERGED_STEP_GROUPS + _runNextSubStep: השלב הממוזג E32-E25-E31-E30 (S11_QArun.gs v1.35.0, שיתוף שליפת TXT) מפוצל בתצוגה ל-4 עצירות נפרדות (E32, E25, E31, E30 — כל אחת בחלון-ביניים משלה), כדי לשמר את חוויית עצירה-על-ממצא המקורית לכל קוד בנפרד למרות השליפה המשותפת בשרת. _stepResume מעודכנת לקדם _subStepIdx במקום stepIdx ישירות; שאר 19 השלבים הלא-ממוזגים ללא שינוי התנהגותי. אומת מקצה-לקצה: 4 עצירות נפרדות (E32=65, E25=8, E31=5, E30=0), סה"כ 78 תואם לדוח הסופי.
 -->
 <!DOCTYPE html>
 <html dir="rtl">
@@ -409,6 +409,19 @@ var accumulated = [];
   var debugErrors = [];
   var stepIdx     = 0;
 
+  // [Task 159 — שלב 3] שלב ממוזג ("E32-E25-E31-E30") משתף שליפת TXT אחת,
+  // אך התצוגה/העצירה חוזרת להיות מפוצלת ל-3 תת-קבוצות בדיוק כמו לפני
+  // המיזוג: E32 בנפרד, E25+E31 יחד (כפי שכבר היו גם קודם), E30 בנפרד.
+  var MERGED_STEP_GROUPS = {
+    "E32-E25-E31-E30": [
+      { code: "E32", label: "כפילות תוכן — רשת שנייה (Drive)", filter: function(f) { return f.code === "E32"; } },
+      { code: "E25", label: "לוגו/ריק (Drive)",                 filter: function(f) { return f.code === "E25"; } },
+      { code: "E31", label: "טקסט פגום (Drive)",                filter: function(f) { return f.code === "E31"; } },
+      { code: "E30", label: "מורכבות מול תוכן (Drive)",         filter: function(f) { return f.code === "E30"; } }
+    ]
+  };
+  var _subStepQueue = [];
+  var _subStepIdx   = 0;
   function runNextStep() {
     if (stepIdx >= checkSteps.length) {
       finishScan();
@@ -446,10 +459,27 @@ var accumulated = [];
         }
         // [שלב C — Task 158, 28/07/2026] נמצאו ממצאים בקוד הזה — עוצרים
         // ומציגים אותם, במקום להמשיך אוטומטית לקוד הבא.
+       // [שלב C — Task 158, 28/07/2026] נמצאו ממצאים בקוד הזה — עוצרים
+        // ומציגים אותם, במקום להמשיך אוטומטית לקוד הבא.
+        // [Task 159 — שלב 3] אם זה שלב ממוזג — מפצלים לתת-קבוצות לפי הקוד
+        // המקורי של כל ממצא, כדי לשמר עצירה נפרדת לכל קוד כמו לפני המיזוג.
+
         if (result && result.findings && result.findings.length > 0) {
-          _renderStepReview(step, result.findings);
+          var groups = MERGED_STEP_GROUPS[step.code];
+          if (groups) {
+            _subStepQueue = groups
+              .map(function(g) {
+                return { code: g.code, label: g.label, findings: result.findings.filter(g.filter) };
+              })
+              .filter(function(g) { return g.findings.length > 0; });
+          } else {
+            _subStepQueue = [{ code: step.code, label: step.label, findings: result.findings }];
+          }
+          _subStepIdx = 0;
+          _runNextSubStep();
           return;
         }
+       
         stepIdx++;
         runNextStep();
       })
@@ -468,7 +498,19 @@ var accumulated = [];
   // נכנס לדוח הסופי (accumulated) כרגיל.
   var _stepPendingFindings = [];
 
-  function _renderStepReview(step, findings) {
+  // [Task 159 — שלב 3] מריץ את תת-הקבוצה הבאה בתור. כשכל התת-קבוצות של
+  // השלב הנוכחי טופלו — עובר לשלב הבא בפועל (stepIdx++).
+  function _runNextSubStep() {
+    if (_subStepIdx >= _subStepQueue.length) {
+      stepIdx++;
+      runNextStep();
+      return;
+    }
+    var group = _subStepQueue[_subStepIdx];
+    _renderStepReview({ code: group.code, label: group.label }, group.findings);
+  }function _renderStepReview(step, findings) 
+  {
+
     _stepPendingFindings = findings.map(function(f, i) { f._stepIdx = i; return f; });
     document.getElementById('stepReviewTitle').textContent =
       '⚠️ נמצאו ' + findings.length + ' ממצאים בקוד ' + step.code + ' — ' + step.label;
@@ -490,8 +532,8 @@ var accumulated = [];
   function _stepResume() {
     document.getElementById('stepReviewOverlay').classList.add('hidden');
     document.getElementById('progressOverlay').classList.remove('hidden');
-    stepIdx++;
-    runNextStep();
+    _subStepIdx++;
+    _runNextSubStep();
   }
 
   function _stepSkip() {
