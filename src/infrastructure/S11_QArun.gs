@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.34.0 | @updated 28/07/2026 21:18 | @service S11
+ * @version 1.37.0 | @updated 02/08/2026 21:27 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי חוקי QA
  *              (E09-E28 + E30-E32, ללא E23/E24/E29; #149).
@@ -17,8 +17,8 @@
  *            _qa_dedupeE32Findings, _qa_fetchTxtWordCount_E25, _qa_fetchTxtComplexity_E30,
  *            _qa_fetchTxtHeader_E32, _qa_calculateDuplicates_E32, _qa_parseFileSizeToBytes,
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol, _qa_loadEventsFileIds,
- *            findAnchorRowAndAuditVerified
- * @changes [v1.34.0] Task 158 — נמצא ונסגר השורש האמיתי: isSingleRow חושב הפוך (getNumColumns()>=getMaxColumns()) וגרם לדילוג כל 97 השורות בכל 22 הבדיקות כש-activeRow היה שורת כותרות (4); ההבחנה שורה-בודדת/אצווה הוסרה לגמרי מהלולאה — נסרק תמיד כל הטווח מ-QA_DATA_START. s11_runSingleCheckBatch הושבתה (קוד מת, לא הייתה השורש). אומת מול הדיאלוג החי: 79 ממצאים אמיתיים (E11:1, E25:8, E31:5, E32:65) — הבדל מ-193 שנבע מבאג הרשאות Drive נפרד (תוקן ידנית ע"י עמוס, לא בקוד).
+ *            findAnchorRowAndAuditVerified, _qa_clearStaleUFlag_Task163
+* @changes [v1.37.0] Task 163 — ניקוי דגל U ישן (E25/E31) כשR מקבל ערך (מחיקה/כפילות) שמייתר את הבדיקה: נוספה _qa_clearStaleUFlag_Task163, נקראת מ-_qa_applyFixes בשני המקומות שכותבים ל-R (case "write" col=18, case "write_symmetry") — מנקה U רק אם מתחיל ב-"⚠️ E25" או "⚠️ E31" (prefix מדויק, לא נוגע בדגלים אחרים כמו E13/E15). אומת ב-4 תרחישים: E32/E16 מנקים נכון, E13 לא נפגע, col≠18 לא מפעיל ניקוי.
  */
 // ══════════════════════════════════════════════════════════════════
 // קבועים
@@ -106,18 +106,15 @@ const QA_CHECK_STEPS = [
   { code: "E26",     label: "תרגום Q לעברית" },
   { code: "E10",     label: "Q לפני המרה" },
   { code: "E11-E12", label: "סימטריית כפילות (R + עמודה 27)" },
-  { code: "E32",     label: "כפילות תוכן — רשת שנייה (Drive)", heavy: true },
   { code: "E13",     label: "אישור ידני מול M" },
   { code: "E14",     label: "תקינות קטגוריה (L)" },
   { code: "E15",     label: "התאמה ליומן_אירועים_רפואי" },
   { code: "E16",     label: "שורות ארכיון OCR ישנות" },
   { code: "E17-E22", label: "מקור חסר ב-Drive", heavy: true },
-  { code: "E25-E31", label: "לוגו/ריק + טקסט פגום (Drive)", heavy: true },
   { code: "E27",     label: "M תקוע על 'הומר ל-TXT'" },
   { code: "E28",     label: "מיגרציית ערך M ישן" },
-  { code: "E30",     label: "מורכבות מול תוכן (Drive)", heavy: true }
+  { code: "E32-E25-E31-E30", label: "כפילות תוכן + לוגו/ריק + מורכבות — TXT משותף (Drive)", heavy: true }
 ];
-
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה ראשית — נקראת מ-ViewEngine.runQAView
 // ══════════════════════════════════════════════════════════════════
@@ -207,16 +204,22 @@ function s11_runSingleCheck(checkCode, isSingleRow, activeRow, lastRow) {
         case "E26":       rowFindings = _qa_check_E26(v, row); break;
         case "E10":       rowFindings = _qa_check_E10(v, row); break;
         case "E11-E12":   rowFindings = _qa_check_E11_E12(v, row, allData, fileIdRowMap); break;
-        case "E32":       rowFindings = _qa_check_E32(v, row, allData, lastRow); break;
         case "E13":       rowFindings = _qa_check_E13(v, row); break;
         case "E14":       rowFindings = _qa_check_E14(v, row); break;
         case "E15":       rowFindings = _qa_check_E15(v, row, eventsFileIds); break;
         case "E16":       rowFindings = _qa_check_E16(v, row); break;
         case "E17-E22":   rowFindings = _qa_check_E17_E22(v, row); break;
-        case "E25-E31":   rowFindings = _qa_check_E25_E31(v, row, rowData); break;
         case "E27":       rowFindings = _qa_check_E27(v, row, rowData); break;
         case "E28":       rowFindings = _qa_check_E28(v, row); break;
-        case "E30":       rowFindings = _qa_check_E30(v, row); break;
+        case "E32-E25-E31-E30": {
+          // [Task 159 — שלב 2] שליפת TXT פעם אחת לשורה, משותפת לשלוש הבדיקות
+          const txtContent = v.txtUrl ? _qa_getTxtContent_S11(v.txtUrl) : null;
+          rowFindings = []
+            .concat(_qa_check_E32(v, row, allData, lastRow, txtContent))
+            .concat(_qa_check_E25_E31(v, row, rowData, txtContent))
+            .concat(_qa_check_E30(v, row, txtContent));
+          break;
+        }
         default:          rowFindings = [];
       }
 
@@ -227,8 +230,13 @@ function s11_runSingleCheck(checkCode, isSingleRow, activeRow, lastRow) {
       });
     }
 
-   return { error: false, code: checkCode, findings: findings };
-
+   // [Task 159 — שלב 4] דה-דופ מוקדם ל-E32 בשלב הממוזג — כדי שחלון-הביניים
+    // יציג את המספר האמיתי (לאחר דה-דופ), זהה למה שיוצג בדוח הסופי.
+    var findingsToReturn = findings;
+    if (checkCode === "E32-E25-E31-E30") {
+      findingsToReturn = _qa_dedupeE32Findings(findings);
+    }
+    return { error: false, code: checkCode, findings: findingsToReturn };
   } catch (e) {
     Logger.log("[S11 QA] s11_runSingleCheck(" + checkCode + "): " + e.message);
     return { error: true, msg: e.message, code: checkCode };
@@ -667,10 +675,12 @@ function _qa_check_E09(v, row) {
   }
   return findings;
 }
-
 function _qa_check_E26(v, row) {
   const findings = [];
-  if (v.q && QA_COMPLEXITY_EN_TO_HE.hasOwnProperty(v.q)) {
+  // [Task 161 — שלב 2] לא מציעים תרגום אם M='ממתין להמרה ל-TXT' — Q
+  // במצב הזה הוא "פסולת" שתנוקה ע"י E10 בין כה, ואין טעם לתרגם ערך
+  // שעומד להימחק. מונע קונפליקט 2 fix-ים סותרים על אותו תא (E26 מול E10).
+  if (v.q && QA_COMPLEXITY_EN_TO_HE.hasOwnProperty(v.q) && v.m !== "ממתין להמרה ל-TXT") {
     findings.push({ row: row, code: "E26", col: 17, desc: "Q='" + v.q + "' (אנגלית) — מתורגם ל-'" + QA_COMPLEXITY_EN_TO_HE[v.q] + "'", fix: "write", value: QA_COMPLEXITY_EN_TO_HE[v.q] });
   }
   return findings;
@@ -712,6 +722,13 @@ function _qa_check_E32(v, row, allData, lastRow, txtContent) {
     const dup32 = _qa_calculateDuplicates_E32(row, allData, lastRow, txtContent);
     if (dup32) {
       const dupText32 = "כפול מאושר (רשת שנייה) | ניקוד " + dup32.score + "/5";
+      // [Task 161 — שלב 3] מוטציה בפועל של v.r (לא רק fix מוצע) — כדי
+      // ש-_qa_check_E25_E31, שרצה מיד אחרי E32 באותה קריאה עם אותו v
+      // (חלק מהשלב הממוזג E32-E25-E31-E30), תראה שהשורה כבר סומנה
+      // ותדלג עליה (guard קיים שם: !v.r). חוסך קריאת Drive מיותרת על
+      // שורה שכבר עומדת להיות מסומנת ככפולה. נוגע רק ב-v של השורה
+      // הנוכחית — לא ב-v של שורת ה-dup32 (זו שורה אחרת, תטופל בסריקה הבאה).
+      v.r = dupText32;
       findings.push({ row: row, code: "E32", col: 18, desc: "זוהתה כפילות מול שורה " + dup32.row + " (ניקוד " + dup32.score + "/5) — R היה ריק, לא נתפס ע\"י S07", fix: "write_symmetry", value: dupText32, col27Value: dup32.fileId });
       findings.push({ row: dup32.row, code: "E32", col: 18, desc: "זוהתה כפילות מול שורה " + row + " (ניקוד " + dup32.score + "/5) — נמצא ע\"י רשת ביטחון S11", fix: "write_symmetry", value: dupText32, col27Value: v.fileId });
     }
@@ -848,7 +865,12 @@ function _qa_check_E30(v, row, txtContent) {
   const findings = [];
   if (v.fileId && v.txtUrl) {
     const txtComplexity30 = _qa_fetchTxtComplexity_E30(txtContent);
-    if (txtComplexity30 && txtComplexity30 !== v.q) {
+    // [Task 161 — שלב 1] השוואה עצמאית: אם Q עדיין באנגלית (E26 טרם
+    // תיקנה בפועל בגליון, או שהודלגה בזמן הריצה) — מתרגמים כאן זמנית
+    // רק לצורך ההשוואה. לא נוגעים ב-v.q המקורי ולא כותבים דבר. מונע
+    // דיווח E30 שגוי כתלות בסדר/בבחירת "דלג" מול E26 בזמן אמת.
+    const qForCompare30 = QA_COMPLEXITY_EN_TO_HE[v.q] || v.q;
+    if (txtComplexity30 && txtComplexity30 !== qForCompare30) {
       findings.push({ row: row, code: "E30", col: 17, desc: "Q='" + (v.q || "ריק") + "' לא תואם ל'מורכבות:' בכותרת ה-TXT ('" + txtComplexity30 + "') — מתקן לפי הקובץ", fix: "write", value: txtComplexity30 });
     }
   }
@@ -1226,6 +1248,24 @@ function _qa_validateCol(sheet, col, expectedName) {try {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// [v1.37.0] Task 163 — ניקוי דגל U ישן (E25/E31) כש-R מקבל ערך (כפילות/
+// מחיקה) שמייתר את הבדיקה הישנה. נקראת רק מ-_qa_applyFixes, משני
+// המקומות שכותבים ל-col 18 ("write" ו-"write_symmetry"). לא נוגעת
+// בשום דגל U אחר (E13/E15 וכו') — בדיקת prefix מדויקת בלבד.
+// ══════════════════════════════════════════════════════════════════
+function _qa_clearStaleUFlag_Task163(sheet, row) {
+  try {
+    const uCell = sheet.getRange(row, 21);
+    const uVal  = (uCell.getValue() || "").toString().trim();
+    if (uVal.indexOf("⚠️ E25") === 0 || uVal.indexOf("⚠️ E31") === 0) {
+      uCell.clearContent();
+      Logger.log("[S11 QA] Task163 — נוקה דגל U ישן בשורה " + row + " (\"" + uVal + "\")");
+    }
+  } catch (e) {
+    Logger.log("[S11 QA] Task163 — שגיאה בניקוי U בשורה " + row + ": " + e.message);
+  }
+}
+// ══════════════════════════════════════════════════════════════════
 // ביצוע תיקונים — כתיבה לגליון
 // ══════════════════════════════════════════════════════════════════
 function _qa_applyFixes(sheet, findings) {
@@ -1288,24 +1328,31 @@ function _qa_applyFixes(sheet, findings) {
       }
 
       switch (f.fix) {
+     case "write":
+   sheet.getRange(f.row, f.col).setValue(f.value);
+        // [Task 163] R (col 18) מקבל ערך → מנקה דגל U ישן (E25/E31)
+        // שהתייתר, כי R תופס עדיפות סמנטית (מחיקה/כפילות).
+        if (f.col === 18 && f.value) {
+          _qa_clearStaleUFlag_Task163(sheet, f.row);
+        }
+        break;
 
-        case "write":
-          sheet.getRange(f.row, f.col).setValue(f.value);
-          break;
-
-        case "write_symmetry":
-          // [v1.21.0] Task 137 — מסיר "— שורה X" מהטקסט לפני כתיבה לשורת
-          // התאום. הרפרנס האמיתי היחיד הוא עמודה 27 — R הוא תווית סטטוס
-          // בלבד, ואסור שיכיל מספר שורה (במיוחד כשהוא נכתב על שורה אחרת
-          // מזו שממנה הועתק, מה שהופך אותו לעצמי-מתייחס ושגוי).
-          var symmetryText = String(f.value || "")
-            .replace(/\s*—\s*שורה\s+\d+\s*/g, " ")
-            .replace(/\s{2,}/g, " ")
-            .trim();
-          sheet.getRange(f.row, 18).setValue(symmetryText);
-          sheet.getRange(f.row, 27).setValue(f.col27Value);
-          break;
-
+      case "write_symmetry":
+        // [v1.21.0] Task 137 — מסיר "— שורה X" מהטקסט לפני כתיבה לשורת
+        // התאום. הרפרנס האמיתי היחיד הוא עמודה 27 — R הוא תווית סטטוס
+        // בלבד, ואסור שיכיל מספר שורה (במיוחד כשהוא נכתב על שורה אחרת
+        // מזו שממנה הועתק, מה שהופך אותו לעצמי-מתייחס ושגוי).
+        var symmetryText = String(f.value || "")
+          .replace(/\s*—\s*שורה\s+\d+\s*/g, " ")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+        sheet.getRange(f.row, 18).setValue(symmetryText);
+        sheet.getRange(f.row, 27).setValue(f.col27Value);
+        // [Task 163] write_symmetry תמיד כותב ל-R (col 18) — אותו ניקוי.
+        if (symmetryText) {
+          _qa_clearStaleUFlag_Task163(sheet, f.row);
+        }
+        break;
         case "set_note":
           // [v1.7.0] Task 98 — כתיבת Note בלבד, ללא שינוי ערך התא עצמו
           sheet.getRange(f.row, f.col).setNote(f.value);
