@@ -1,5 +1,5 @@
 # MedicalPilot — INDEX
-תאריך עדכון: 05/08/2026 21:50
+תאריך עדכון: 05/08/2026 22:26
 
 ## קבצים src/infrastructure
 - [Auth_Check.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Auth_Check.gs)
@@ -15,6 +15,7 @@
 - [Mod_Ingestion.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Mod_Ingestion.gs)
 - [NetworkDiagnostics.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/NetworkDiagnostics.gs)
 - [QA_Tests.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/QA_Tests.gs)
+- [S02_AccessDialog.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S02_AccessDialog.gs)
 - [S04_DriveSync.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S04_DriveSync.gs)
 - [S05_MetaExtract.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S05_MetaExtract.gs)
 - [S06_ConvertTXT.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S06_ConvertTXT.gs)
