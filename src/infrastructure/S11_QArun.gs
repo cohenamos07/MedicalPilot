@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.37.0 | @updated 02/08/2026 21:27 | @service S11
+ * @version 1.38.0 | @updated 05/08/2026 21:37 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי חוקי QA
  *              (E09-E28 + E30-E32, ללא E23/E24/E29; #149).
@@ -18,7 +18,12 @@
  *            _qa_fetchTxtHeader_E32, _qa_calculateDuplicates_E32, _qa_parseFileSizeToBytes,
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol, _qa_loadEventsFileIds,
  *            findAnchorRowAndAuditVerified, _qa_clearStaleUFlag_Task163
-* @changes [v1.37.0] Task 163 — ניקוי דגל U ישן (E25/E31) כשR מקבל ערך (מחיקה/כפילות) שמייתר את הבדיקה: נוספה _qa_clearStaleUFlag_Task163, נקראת מ-_qa_applyFixes בשני המקומות שכותבים ל-R (case "write" col=18, case "write_symmetry") — מנקה U רק אם מתחיל ב-"⚠️ E25" או "⚠️ E31" (prefix מדויק, לא נוגע בדגלים אחרים כמו E13/E15). אומת ב-4 תרחישים: E32/E16 מנקים נכון, E13 לא נפגע, col≠18 לא מפעיל ניקוי.
+ * @changes [v1.38.0] Task 164 — _qa_check_E25_E31: ענף E25 (wordCountNew<20 ||
+ *          docTitleNew==='לא זוהה' || docIssuerNew==='לא זוהה') תיקן רק את נוסח
+ *          ה-desc/value כך שישקף את הסיבה האמיתית להפעלה (מילים/כותרת/מנפיק,
+ *          כל תנאי שהתקיים בנפרד) במקום להציג תמיד ספירת מילים גם כשזו לא
+ *          הסיבה. תנאי ההפעלה עצמו לא השתנה (חלופה 2, כפי שסוכם). אומת חי:
+ *          מקרה 4 מילים מציג ספירה, מקרה מנפיק-לא-זוהה מציג "מנפיק לא זוהה".
  */
 // ══════════════════════════════════════════════════════════════════
 // קבועים
@@ -821,7 +826,12 @@ function _qa_check_E25_E31(v, row, rowData, txtContent) {
       }
     } else if (wordCountNew < 20 || docTitleNew === "לא זוהה" || docIssuerNew === "לא זוהה") {
       if (vDismissNew.indexOf("(לוגו/ריק)") === -1) {
-        findings.push({ row: row, code: "E25", col: 21, desc: wordCountNew + " מילים בפועל (<20) — חשד לוגו/ריק, נדרש אישור ידני", fix: "flag", value: "⚠️ E25 — חשד לוגו/ריק (" + wordCountNew + " מילים) — נדרש אישור ידני למחיקה" });
+        var reasonParts164 = [];
+        if (wordCountNew < 20)          reasonParts164.push(wordCountNew + " מילים בפועל (<20)");
+        if (docTitleNew === "לא זוהה")  reasonParts164.push("כותרת לא זוהתה");
+        if (docIssuerNew === "לא זוהה") reasonParts164.push("מנפיק לא זוהה");
+        var reasonText164 = reasonParts164.join(" + ");
+        findings.push({ row: row, code: "E25", col: 21, desc: reasonText164 + " — חשד לוגו/ריק, נדרש אישור ידני", fix: "flag", value: "⚠️ E25 — חשד לוגו/ריק (" + reasonText164 + ") — נדרש אישור ידני למחיקה" });
       }
     }
   }
