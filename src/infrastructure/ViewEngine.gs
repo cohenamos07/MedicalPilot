@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.8.4 | @updated 15/07/2026 20:30 | @service VIEWENGINE
+ * @version 2.8.5 | @updated 05/08/2026 21:37 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -42,78 +42,12 @@
  *              runQAView | runArchiveView | runStatusCheck
  *              setupIcons | cleanAndResetIcons | debugIcons
  *              runExpandViewEvents | runS10ViewIconEvents | setupMedicalEventsIcons
- * @changes     [v2.8.4] Task 154 — הוספת runSortLearningExamplesIcon: אייקון
- *          קבוע לשימוש חוזר בגליון "דוגמאות_למידה" (לא ניהול_מיילים) —
- *          ממיין את שורות הדוגמאות לפי מנפיק (עמודה B), לנוחות אנושית
- *          בלבד (אילו מנפיקים כבר מיוצגים). אינו קשור ל-ICON_MAP/setupIcons
- *          (מנגנון נפרד, לא הוחל כאן — הצבת האייקון בגליון עצמו נשארת
- *          פעולה ידנית של עמוס: Drawing + הקצאת סקריפט).
- * @changes     [v2.8.3] Task 147 — runS08ViewIcon/runS09ViewIcon: כשל הרשאה
- *          שקורה לפעמים כשרצף "ui.alert ואז מיד showModalDialog/הרצת שירות"
- *          (חשד: חסימת פופאפ כפול של הדפדפן) נבלע בשקט — רק Logger.log,
- *          בלי שום הודעה למשתמש (האייקון "לא מגיב"). לא תוקן השורש (עדיין
- *          לא מאומת שזו אכן הסיבה) — נוסף ui.alert בתוך ה-catch של שתי
- *          הפונקציות, כדי שבפעם הבאה שזה קורה תוצג הודעה בפועל למשתמש
- *          במקום כישלון שקט. runS10ViewIcon לא טופל — קוד מת, לא מחובר
- *          לאייקון בגליון (ראה הערה קיימת ב-v2.7.0).
- * @changes     [v2.8.2] Task 134 [שלב 6/8, שרשרת עמודה 27] — VIEW_TOTAL_COLS
- *          שונה מ-26 ל-27 (שורה יחידה, קבוע גלובלי). מרחיב אוטומטית את
- *          4 השימושים הקיימים: filterRange ב-switchView, rowRange ב-
- *          runStatusCheck, showColumns ו-row3Full ב-setupIcons — כולם
- *          יכללו כעת גם את עמודה 27 (AA, Duplicate_Target_FileID).
- *          אין מערכים קשיחים אחרים שתלויים במספר 26 בקובץ זה.
- * @changes     [v2.8.1] Task 128 — תוקן באג שהתגלה באימות חי אצל עמוס: לחיצה
- *          על "הרחב" ביטלה פילטרים אך לא גללה בפועל לתחילת הגליון (נשאר
- *          על השורה שבה היה הסמן). שורש: _doExpand קראה activate() רק
- *          על A1 — תא בשורות הקפואות (1-4) שתמיד גלוי, ולכן Sheets לא
- *          מזיז את חלון התצוגה. תוקן: activate() קודם על שורת הנתונים
- *          הראשונה (5, לא קפואה — מכריח גלילה אמיתית), ואז activate()
- *          על A1 (קובע את מיקום הסמן הסופי). ראה @functions/_doExpand.
- *          [v2.8.0] Task 128 — ראה @description לפירוט מלא. בקצרה:
- *          נוסף COLUMN_TO_VIEWKEY (מיפוי עמודה→viewKey ל-8 מבטים).
- *          runExpandView הפך מ-_doExpand() ישיר לדיספצ'ר לפי getActiveCell().getColumn().
- *          נוסף _removeActiveFilter(sheet) — helper מרוכז, מוחלף בכל מקום
- *          שהיה בו קוד remove+flush ידני (switchView, _doExpand, וכל אייקוני הפעולה).
- *          הוסרו קריאות switchView(...) מתוך: runSystemCheckIcon, runAccessCheckIcon,
- *          runGmailIcon, runWhatsAppIcon, runDriveIcon, runS05Icon, runS06Icon,
- *          runS07Icon, runS08ViewIcon, runS09ViewIcon, runArchiveView, runQAView —
- *          כולם מוחלפים ב-_removeActiveFilter(sheet) בתחילת הפונקציה.
- *          הוסר originalRow/_restoreActiveRowAfterSwitch מתוך runS06Icon/runS07Icon/
- *          runS08ViewIcon/runS09ViewIcon (קוד מת — לא רלוונטי יותר בלי switchView שם);
- *          הלוגיקה מרוכזת כעת פעם אחת בתוך runExpandView (המקום היחיד שעדיין
- *          קורא switchView, ולכן היחיד שעדיין עלול לדרוס activeRow).
- *          runArchiveView — הוסרה הפעלת מבט ארכיון מהאייקון עצמו; נוסף מסר
- *          הכוונה למשתמש (הצבת סמן על עמודה V + "הרחב" להצגת שורות ארכיון) —
- *          החלטת עיצוב שלא נדונה במפורש, לסקירת עמוס.
- *          [v2.7.0] הוסר איקון S10 (עמודה 16) מ-ICON_MAP של ניהול_מיילים —
- *          S10 כבר עובד מלא דרך MEDICAL_EVENTS_ICON_MAP ביומן_אירועים_רפואי
- *          (runS10ViewIconEvents, v2.5.0). VIEW_CONFIG.s10, ROW3_COLORS[16]
- *          ו-runS10ViewIcon() נשארו בקוד (קוד מת, לא מזיק) — לא נמחקו.
- *          לאחר הדבקה: יש להריץ cleanAndResetIcons() מהעורך כדי שהאיקון
- *          הקיים בעמודה P יוסר בפועל מהגליון (כותרת+תמונה).
- *              [תיקון] Task 83 — runS08ViewIcon לא קיבל את התיקון שהוחל על S06/S07;
- *          נוסף originalRow + _restoreActiveRowAfterSwitch — מתקן קיפוץ לשורה 4
- *              [תיקון] Task 84 — runS07Icon ענף אצווה קרא ל-executeS07Classification()
- *          בלי row — תוקן לקריאה נכונה ל-_processS07Batch(sheet, 3), כמו S06
- *              [v2.6.0] [Task 83] תיקון switchView דורסת activeRow — הוספת
-*                    _restoreActiveRowAfterSwitch + originalRow ב-runS06Icon/runS07Icon
- *              [v2.5.0] הוספת תמיכה בגליון יומן_אירועים_רפואי:
- *                       MEDICAL_EVENTS_ICON_MAP — מיפוי 2 איקונים (A + C)
- *                       runExpandViewEvents — רענון פילטר על הגליון הפעיל
- *                       runS10ViewIconEvents — S10 ללא switchView (לגליונות יעד)
- *                       setupMedicalEventsIcons — הכנסת איקונים אוטומטית
- *              [v2.4.0] תיקון runQAView — הסרת switchView + filter:null ב-VIEW_CONFIG.qa
- *                       S11 עובד על כל הגליון ללא פילטר שורות
- *              [v2.3.0] הזזת איקון S11 QA מעמודה U(21) לעמודה Q(17)
- *                       עדכון ICON_MAP + VIEW_CONFIG.qa.scrollToCol + ROW3_COLORS
- *                       הוספת runStatusCheck — צביעת שורות שגויות באדום
- *              [v2.2.0] תיקון _doExpand — flush() אחרי remove()
- *                       extractMetaData → runS05Icon | run_MedicalPilot_V2_6_2 → runS06Icon
- *                       classifyDocument → runS07Icon | runQAView → קורא runQAViewMain()
- *              [v2.1.0] שינוי מיפוי — WhatsApp עמודה E(5) | Drive עמודה F(6)
- *              [v1.9.0] ארכיטקטורה חדשה — ביטול הסתרת עמודות לחלוטין
+ * @changes     [v2.8.5] Task 162 — runAccessCheckIcon: הוחלפה קריאה ישירה ל-
+ *          checkUserAccess() בפתיחת דיאלוג מודלי S02_AccessDialog.html
+ *          (HtmlService.createHtmlOutputFromFile, 480x420). checkUserAccess
+ *          עצמה (Auth_Check.gs) שונתה במקביל להחזרת מבנה נתונים במקום alert —
+ *          ראה Auth_Check.gs v97.12 לפירוט מלא.
  */
-
 const VIEW_SHEET_NAME = "ניהול_מיילים";
 const VIEW_TOTAL_COLS = 27;
 
@@ -478,7 +412,12 @@ function runSystemCheckIcon() {
 function runAccessCheckIcon() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
   _removeActiveFilter(sheet);
-  checkUserAccess();
+
+  const html = HtmlService.createHtmlOutputFromFile('S02_AccessDialog')
+    .setWidth(480)
+    .setHeight(420);
+
+  SpreadsheetApp.getUi().showModalDialog(html, 'S02 — בדיקת הרשאות');
 }
 
 // ══════════════════════════════════════════════════════════════════
