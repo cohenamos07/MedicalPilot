@@ -1,7 +1,7 @@
 /**
  * MedicalPilot — S08_Validate.gs
  * @file        S08_Validate.gs
- * @version 1.0.27 | @updated 29/07/2026 19:42 | @service S08
+ * @version 1.0.28 | @updated 06/08/2026 21:01 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
  *              תלויות: S08_Sidebar.html, COLUMN_MAP.gs (SHEET_CONFIG), Drive API.
@@ -16,10 +16,10 @@
  *              _s08_trashDriveFile, _s08_getDuplicateRowNumber,
  *              s08_deleteApproved, s08_fixReferencesAfterDelete,
  *              s08_previewApprovedForDeletion
- * @changes     [v1.0.27] Task 154 — s08_findLearningDuplicate ו-_s08_saveToLearning:
- *              תוקן באג שורש getRange(2,...) קשיח בגיליון "דוגמאות_למידה" —
- *              הוחלף ב-SHEET_CONFIG["דוגמאות_למידה"].FIRST_DATA_ROW (5), זהה
- *              לתיקון שכבר יושם ב-_getLearningExamples_S07 (Task 156).
+ * @changes     [v1.0.28] Task 166 — s08_loadRowByNumber מקבלת פרמטר שלישי
+ *              includeDuplicates: כש-true מבטל את דילוג הניווט האוטומטי
+ *              על שורות "כפול מאושר" (Task 111), כדי לאפשר אימות ידני
+ *              מלא של כל שורה כולל כפולות.
  */
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה — פתיחת חלון אימות
@@ -143,7 +143,7 @@ function s08_loadRowData() {
 // ניווט דינמי — טעינת שורה לפי מספר
 // ══════════════════════════════════════════════════════════════════
 
-function s08_loadRowByNumber(rowNum, skipDirection) {
+function s08_loadRowByNumber(rowNum, skipDirection, includeDuplicates) {
   try {
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName("ניהול_מיילים");
@@ -161,7 +161,10 @@ function s08_loadRowByNumber(rowNum, skipDirection) {
     // מדלגים על שורות שR שלהן מתחיל ב"כפול מאושר" (זיהוי S07 מבוסס תוכן) —
     // אין טעם באימות ידני לזוג כפול. קפיצה ידנית (jumpToRow, ללא skipDirection)
     // תמיד טוענת את השורה המבוקשת במדויק, בלי דילוג.
-    if (skipDirection === 1 || skipDirection === -1) {
+    // [Task 166] includeDuplicates=true (checkbox "כלול כפולים" בסיידבר)
+    // מבטל את הדילוג האוטומטי — כל שורה נטענת, כולל "כפול מאושר".
+    // ברירת מחדל (undefined/false) שומרת על ההתנהגות המקורית (Task 111).
+    if ((skipDirection === 1 || skipDirection === -1) && !includeDuplicates) {
       while (targetRow >= 2 && targetRow <= lastRow) {
         const rText = (sheet.getRange(targetRow, 18).getValue() || "").toString().trim();
         if (rText.indexOf("כפול מאושר") !== 0) break;
