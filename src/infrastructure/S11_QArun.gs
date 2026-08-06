@@ -1,9 +1,9 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.38.0 | @updated 05/08/2026 21:37 | @service S11
+ * @version 1.40.0 | @updated 06/08/2026 22:03 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי חוקי QA
- *              (E09-E28 + E30-E32, ללא E23/E24/E29; #149).
+ *              (E09-E28 + E30-E33, ללא E23/E24/E29; #149).
  * @impacts בודק עקביות עמודות L, M, N, Q, R, S, T, U, וכעת גם עמודה 27 (AA)
  *          לפי ציר התקדמות S03→S09.
  *          כותב לעמודות: M, N, Q, R, S+T, U.
@@ -18,12 +18,11 @@
  *            _qa_fetchTxtHeader_E32, _qa_calculateDuplicates_E32, _qa_parseFileSizeToBytes,
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol, _qa_loadEventsFileIds,
  *            findAnchorRowAndAuditVerified, _qa_clearStaleUFlag_Task163
- * @changes [v1.38.0] Task 164 — _qa_check_E25_E31: ענף E25 (wordCountNew<20 ||
- *          docTitleNew==='לא זוהה' || docIssuerNew==='לא זוהה') תיקן רק את נוסח
- *          ה-desc/value כך שישקף את הסיבה האמיתית להפעלה (מילים/כותרת/מנפיק,
- *          כל תנאי שהתקיים בנפרד) במקום להציג תמיד ספירת מילים גם כשזו לא
- *          הסיבה. תנאי ההפעלה עצמו לא השתנה (חלופה 2, כפי שסוכם). אומת חי:
- *          מקרה 4 מילים מציג ספירה, מקרה מנפיק-לא-זוהה מציג "מנפיק לא זוהה".
+ * @changes [v1.40.0] Task 166 — _qa_fetchTxtWordCount_E25: כשלא נמצא
+ *          "מספר_מילים:" בתוכן, בודקת גם "מספר_גליונות:" (S06 כותב זאת
+ *          לקבצי SHEET במקום מספר מילים). אם נמצא ערך>0, מחזירה סנטינל
+ *          999999 במקום null — מונע E25/E31 כוזבים (TXT "לא נשלף"/"0
+ *          מילים") על קבצי גיליון תקינים. לא משנה התנהגות לקבצים רגילים.
  */
 // ══════════════════════════════════════════════════════════════════
 // קבועים
@@ -824,15 +823,18 @@ function _qa_check_E25_E31(v, row, rowData, txtContent) {
       if (vDismissNew.indexOf("(טקסט פגום)") === -1) {
         findings.push({ row: row, code: "E31", col: 21, desc: "TXT נשלף אך 0 מילים בפועל, גודל " + sizeStrNew + " (לא קטן) — חשד לכשל המרה, לא לוגו/ריק", fix: "flag", value: "⚠️ E31 — חשד לכשל המרה (0 מילים, קובץ לא קטן) — מומלץ להריץ מחדש S06+S07" });
       }
-    } else if (wordCountNew < 20 || docTitleNew === "לא זוהה" || docIssuerNew === "לא זוהה") {
+   } else if (wordCountNew < 20) {
       if (vDismissNew.indexOf("(לוגו/ריק)") === -1) {
-        var reasonParts164 = [];
-        if (wordCountNew < 20)          reasonParts164.push(wordCountNew + " מילים בפועל (<20)");
-        if (docTitleNew === "לא זוהה")  reasonParts164.push("כותרת לא זוהתה");
-        if (docIssuerNew === "לא זוהה") reasonParts164.push("מנפיק לא זוהה");
-        var reasonText164 = reasonParts164.join(" + ");
-        findings.push({ row: row, code: "E25", col: 21, desc: reasonText164 + " — חשד לוגו/ריק, נדרש אישור ידני", fix: "flag", value: "⚠️ E25 — חשד לוגו/ריק (" + reasonText164 + ") — נדרש אישור ידני למחיקה" });
+        findings.push({ row: row, code: "E25", col: 21, desc: wordCountNew + " מילים בפועל (<20) — חשד לוגו/ריק, נדרש אישור ידני", fix: "flag", value: "⚠️ E25 — חשד לוגו/ריק (" + wordCountNew + " מילים בפועל) — נדרש אישור ידני למחיקה" });
       }
+    } else if (docTitleNew === "לא זוהה" || docIssuerNew === "לא זוהה") {
+      // [Task 166] מופרד מ-E25 — כאן word count תקין (≥20), רק מטא-דאטה
+      // חסרה. אין המלצת מחיקה: התיקון הוא השלמת השדה בטופס, לא מחיקת קובץ.
+      var reasonParts166 = [];
+      if (docTitleNew === "לא זוהה")  reasonParts166.push("כותרת לא זוהתה");
+      if (docIssuerNew === "לא זוהה") reasonParts166.push("מנפיק לא זוהה");
+      var reasonText166 = reasonParts166.join(" + ");
+      findings.push({ row: row, code: "E33", col: 21, desc: reasonText166 + " (תוכן תקין, " + wordCountNew + " מילים) — נדרשת השלמת מטא-דאטה ידנית", fix: "flag", value: "⚠️ E33 — מטא-דאטה חסרה (" + reasonText166 + ") — נדרשת השלמה ידנית בטופס" });
     }
   }
 
@@ -846,8 +848,17 @@ function _qa_check_E25_E31(v, row, rowData, txtContent) {
         findings.push({ row: row, code: "E25", col: 18, desc: "דגל ישן 'חשוד כלוגו/ריק' — לא נמצא TXT לבדיקה (כשל שליפה), לא ניתן לאמת/לנקות אוטומטית", fix: "flag", value: "⚠️ E25 — דגל ישן, לא ניתן לאמת (TXT לא נשלף)" });
       } else if (wordCountLeg >= 20 && docTitleLeg !== "לא זוהה" && docIssuerLeg !== "לא זוהה") {
         findings.push({ row: row, code: "E25", col: 18, desc: wordCountLeg + " מילים בפועל (≥20) + I/J תקינים — חשד נשלל, מנקה דגל ישן", fix: "clear", value: "" });
-      } else {
-        findings.push({ row: row, code: "E25", col: 21, desc: wordCountLeg + " מילים בפועל (<20) או I/J לא תקינים — דגל ישן, נדרש אישור ידני", fix: "flag", value: "⚠️ E25 — דגל ישן, נדרש אישור ידני למחיקה (" + wordCountLeg + " מילים)" });
+      } else if (wordCountLeg < 20) {
+        findings.push({ row: row, code: "E25", col: 21, desc: wordCountLeg + " מילים בפועל (<20) — דגל ישן, נדרש אישור ידני", fix: "flag", value: "⚠️ E25 — דגל ישן, נדרש אישור ידני למחיקה (" + wordCountLeg + " מילים)" });
+      } else if (docTitleLeg === "לא זוהה" || docIssuerLeg === "לא זוהה") {
+        // [Task 166] word count תקין (≥20) — הדגל הישן "חשוד כלוגו/ריק"
+        // נשלל בפועל, מנקים R ומעלים E33 במקומו על מטא-דאטה חסרה בלבד.
+        findings.push({ row: row, code: "E25", col: 18, desc: wordCountLeg + " מילים בפועל (≥20) אך מטא-דאטה חסרה — דגל 'לוגו/ריק' הישן נשלל, מנקה R", fix: "clear", value: "" });
+        var reasonPartsLeg166 = [];
+        if (docTitleLeg === "לא זוהה")  reasonPartsLeg166.push("כותרת לא זוהתה");
+        if (docIssuerLeg === "לא זוהה") reasonPartsLeg166.push("מנפיק לא זוהה");
+        var reasonTextLeg166 = reasonPartsLeg166.join(" + ");
+        findings.push({ row: row, code: "E33", col: 21, desc: reasonTextLeg166 + " (תוכן תקין, " + wordCountLeg + " מילים) — נדרשת השלמת מטא-דאטה ידנית", fix: "flag", value: "⚠️ E33 — מטא-דאטה חסרה (" + reasonTextLeg166 + ") — נדרשת השלמה ידנית בטופס" });
       }
     }
   }
@@ -988,9 +999,18 @@ function _qa_getTxtContent_S11(txtUrl) {
 function _qa_fetchTxtWordCount_E25(content) {
   try {
     if (!content) return null;
-    var match = content.match(/מספר_מילים:\s*(\d+)/);
-    return match ? parseInt(match[1], 10) : null;
+   var match = content.match(/מספר_מילים:\s*(\d+)/);
+    if (match) return parseInt(match[1], 10);
 
+    // [Task 166] קבצי SHEET (גיליונות) לא כותבים "מספר_מילים" — S06 כותב
+    // "מספר_גליונות" במקום (ראה finalize_And_Save_To_Drive, ענף isSheet).
+    // ספירת מילים לא רלוונטית סמנטית לגיליון; מחזירים ערך גבוה סנטינלי
+    // כדי לציין "תוכן נשלף בהצלחה, לא ריק" — מונע E25/E31 כוזבים בלי
+    // לשנות את השוואות ה-<20/===0 הקיימות אצל הקורא (_qa_check_E25_E31).
+    var sheetMatch = content.match(/מספר_גליונות:\s*(\d+)/);
+    if (sheetMatch && parseInt(sheetMatch[1], 10) > 0) return 999999;
+
+    return null;
   } catch (e) {
     Logger.log("[S11 QA] E25 — שגיאה בעיבוד תוכן TXT: " + e.message);
     return null;
