@@ -1,22 +1,12 @@
 <!--
   MedicalPilot — S08_Sidebar.html
   @file        S08_Sidebar.html
-  @version 1.0.20 | @updated 16/07/2026 14:10 | @service S08
-  @changes     [v1.0.20] Task 155(ב) (בקשת עמוס) — כרטיס אזהרה חדש
-               qa-warning-card, מוצג רק כש-data.qaStatus מתחיל ב-"⚠️
-               E25" או "⚠️ E31" (חשד לוגו/ריק או טקסט פגום). כפתור יחיד
-               "🚫 בטל חשד" קורא ל-s08_cancelLogoEmptyFlag או
-               s08_cancelCorruptedTextFlag (S08_Validate.gs v1.0.26) לפי
-               הקוד שזוהה ב-qaStatus, מאחורי מודל אישור (בדומה למודל
-               ביטול הכפילות הקיים). qaStatus עצמו נוסף ל-_s08_getRowData
-               (לא היה חשוף כלל ב-Sidebar לפני כן).
-  @changes     [v1.0.19] Task 127 סעיף (4) — .modal-actions: נוסף
-               flex-wrap:wrap (עקבי עם .action-bar הקיים). במודל אישור
-               מחיקה עם חשד כפילות יש 3 כפתורים ("מחק שורה נוכחית" /
-               "מחק שורת תאום" / "ביטול"), כל אחד min-width:110px בתוך
-               modal-box ברוחב 320px (רוחב תוכן זמין 284px לאחר padding)
-               — כפתור "ביטול" חרג ויזואלית מהקופסה. כעת הכפתורים עוטפים
-               לשורה נוספת כשאין מקום, כמו שכבר קורה ב-.action-bar.
+ @version 1.0.21 | @updated 06/08/2026 21:01 | @service S08
+ @changes     [v1.0.21] Task 166 — checkbox "כלול כפולים" בסרגל הניווט
+               (chkIncludeDup + toggleIncludeDuplicates): כשמסומן, Next/Prev
+               טוענים כל שורה כולל "כפול מאושר", לצורך אימות ידני מלא של
+               הגליון לפני מעבר ל-S09. מעביר את הדגל ל-s08_loadRowByNumber
+               (S08_Validate.gs v1.0.28) כפרמטר שלישי.
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Sidebar.html
   @description ממשק Dialog לאימות ידני ולמידה — S08.
                מציג מסמך מקורי + טקסט TXT + שדות עריכה לכותרת/מנפיק/תאריך/קטגוריה.
@@ -47,7 +37,7 @@
                buildNormalColHtml, buildCompareColHtml, toggleDocView,
                renderCompareTxt, cancelDuplicateFlag, closeCancelDupModal,
                confirmCancelDuplicateFlag, confirmDeleteApproved,
-               closeDeleteApprovedModal, doDeleteApproved
+               closeDeleteApprovedModal, doDeleteApproved, toggleIncludeDuplicates
   @changes     [v1.0.17] בקשת עמוס — s08_deleteApproved() (Task 114, 07/07)
                הייתה קיימת בשרת אך מעולם לא חוברה לממשק, ומופעלת עד כה רק
                ידנית מהעורך ללא כל בקשת אישור. נוסף כפתור "🗑️ מחק מאושרות"
@@ -228,7 +218,14 @@
     cursor: pointer; transition: background 0.15s;
   }
   .nav-go-btn:hover { background: rgba(255,255,255,0.32); }
-
+  .nav-checkbox-label {
+    display: flex; align-items: center; gap: 3px;
+    color: #fff; font-size: 10px; font-weight: 600;
+    cursor: pointer; white-space: nowrap; margin: 0 2px;
+  }
+  .nav-checkbox-label input[type="checkbox"] {
+    width: 12px; height: 12px; cursor: pointer; margin: 0;
+  }
   .close-btn {
     background: rgba(198,40,40,0.75);
     border: 1px solid rgba(255,255,255,0.4);
@@ -566,6 +563,9 @@
       <input type="number" class="row-jump-input" id="rowJumpInput" min="2">
       <button class="nav-go-btn" onclick="jumpToRow()">קפוץ</button>
       <button class="nav-btn" id="btnPrev" onclick="prevRow()" title="הקודם">◀</button>
+      <label class="nav-checkbox-label" title="כשמסומן — Next/Prev לא מדלגים על שורות 'כפול מאושר'">
+        <input type="checkbox" id="chkIncludeDup" onchange="toggleIncludeDuplicates()"> כלול כפולים
+      </label>
     </div>
     <div class="header-meta" id="headerMeta"></div>
     <button class="header-delete-btn" id="btnDeleteApproved" onclick="confirmDeleteApproved()"
@@ -625,13 +625,14 @@
   var currentRow  = null;
   var currentData = null;
   var lastRow     = null;
- var dupData          = null;
+  var dupData          = null;
   var qaWarningCategory = null; // [v1.0.20] Task 155(ב) — 'logo' או 'corrupted', נקבע ב-renderRow
   var compareTxtCache  = {};
   var _lastNavRow  = null; // [v1.0.16] Task 123 — retry
   var _lastNavSkip = undefined;
   var _navRetried  = false;
   var _navRequestId = 0;
+  var _includeDuplicatesInNav = false; // [Task 166] מצב checkbox "כלול כפולים"
 
   window.addEventListener('DOMContentLoaded', function () {
     loadInitial();
@@ -856,6 +857,9 @@
     if (!val || val < 2) return;
     navigateTo(val);
   }
+  function toggleIncludeDuplicates() {
+    _includeDuplicatesInNav = document.getElementById('chkIncludeDup').checked;
+  }
 
   function navigateTo(row, skipDirection) {
     var requestId = ++_navRequestId;
@@ -869,7 +873,7 @@
       google.script.run
         .withSuccessHandler(function (result) { handleNavResult(result, requestId); })
         .withFailureHandler(function (err) { if (requestId === _navRequestId) showError(err); })
-        .s08_loadRowByNumber(row, skipDirection);
+       .s08_loadRowByNumber(row, skipDirection, _includeDuplicatesInNav);
     } else {
       google.script.run
         .withSuccessHandler(function (result) { handleNavResult(result, requestId); })
@@ -1302,7 +1306,7 @@
         showStatus('❌ ' + ((err && err.message) || err), false);
       })
       .s08_cancelDuplicateFlag(currentRow, dupData.row);
-  .s08_cancelDuplicateFlag(currentRow, dupData.row);
+  
   }
 
   // ══════════════════════════════════════════════════════════════
