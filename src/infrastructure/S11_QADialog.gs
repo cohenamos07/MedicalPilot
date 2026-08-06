@@ -1,6 +1,6 @@
 <!--
   MedicalPilot — S11_QADialog.html
-  @version 1.33.0 | @updated 30/07/2026 22:00 | @service S11
+  @version 1.34.0 | @updated 06/08/2026 21:51 | @service S11
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QADialog.html
   @description ממשק HTML לדוח ממצאי QA — פתיחה מיידית, סריקה הדרגתית קוד-
                אחרי-קוד (ללא באצ'ים), עצירה על ממצא עם אפשרות תיקון-מיידי
@@ -12,7 +12,7 @@
               _stepApplySelected, finishScan, initFindings, buildFilterButtons,
               filterBy, renderTable, toggleSelectAll, updateSelectedCount,
               applySelected, closeDeleteE17Modal, doDeleteE17Rows
-  @changes [v1.33.0] Task 159 — נוסף MERGED_STEP_GROUPS + _runNextSubStep: השלב הממוזג E32-E25-E31-E30 (S11_QArun.gs v1.35.0, שיתוף שליפת TXT) מפוצל בתצוגה ל-4 עצירות נפרדות (E32, E25, E31, E30 — כל אחת בחלון-ביניים משלה), כדי לשמר את חוויית עצירה-על-ממצא המקורית לכל קוד בנפרד למרות השליפה המשותפת בשרת. _stepResume מעודכנת לקדם _subStepIdx במקום stepIdx ישירות; שאר 19 השלבים הלא-ממוזגים ללא שינוי התנהגותי. אומת מקצה-לקצה: 4 עצירות נפרדות (E32=65, E25=8, E31=5, E30=0), סה"כ 78 תואם לדוח הסופי.
+ @changes [v1.34.0] Task 166 — MERGED_STEP_GROUPS["E32-E25-E31-E30"]: נוספה קבוצה חמישית { code: "E33", label: "מטא-דאטה חסרה (Drive)" }, כי S11_QArun.gs v1.39.0 מעלה עכשיו ממצאי E33 מאותה שליפת TXT משותפת — בלי הרשומה החדשה, ממצאי E33 היו נופלים בשקט מ-.filter() ולא מגיעים לדוח כלל. נוסף גם badge-E33 ב-CSS (צהוב-כתום, כמו E26-E28) לתצוגה עקבית.
 -->
 <!DOCTYPE html>
 <html dir="rtl">
@@ -153,6 +153,7 @@
   .badge-E30 { background: #D1ECF1; color: #0C5460; }
   .badge-E31 { background: #F5C2C7; color: #58151C; }
   .badge-E32 { background: #E2D9F3; color: #4A1C8C; }
+  .badge-E33 { background: #FCE8B2; color: #664D03; }
 
   .fix-label  { font-size: 11px; color: #666; }
   .fix-auto   { color: #1a7a3c; font-weight: 600; }
@@ -417,7 +418,8 @@ var accumulated = [];
       { code: "E32", label: "כפילות תוכן — רשת שנייה (Drive)", filter: function(f) { return f.code === "E32"; } },
       { code: "E25", label: "לוגו/ריק (Drive)",                 filter: function(f) { return f.code === "E25"; } },
       { code: "E31", label: "טקסט פגום (Drive)",                filter: function(f) { return f.code === "E31"; } },
-      { code: "E30", label: "מורכבות מול תוכן (Drive)",         filter: function(f) { return f.code === "E30"; } }
+      { code: "E30", label: "מורכבות מול תוכן (Drive)",         filter: function(f) { return f.code === "E30"; } },
+      { code: "E33", label: "מטא-דאטה חסרה (Drive)",            filter: function(f) { return f.code === "E33"; } }
     ]
   };
   var _subStepQueue = [];
