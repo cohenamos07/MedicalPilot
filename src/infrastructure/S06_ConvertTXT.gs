@@ -1,12 +1,12 @@
 /**
  * MedicalPilot — S06_ConvertTXT.gs
- * @version 1.6.5 | @updated 04/07/2026 21:38 | @service S06
+ * @version 1.6.6 | @updated 09/08/2026 21:40 | @service S06
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S06_ConvertTXT.gs
  * @description המרת קבצים לפורמט TXT מובנה — 6 מסלולים לפי סוג קובץ.
  *              PDF→Visual, DOCX→Direct, GDoc→Doc, IMG→Image, TXT→Text, Sheet→Sheet.
  *              כותב לעמודות M, O, P, Q, S, T, X. שומר קובץ TXT בתיקיית Converted_TXT.
  *              מופעל מהתפריט (שורה / עמודה M לאצווה) ומטריגר לילי.
- * @impacts     ניהול_מיילים: כותב לעמודות M(13), O(15), P(16), Q(17), S(19), T(20), X(24).
+ * @impacts     ניהול_מיילים: כותב לעמודות M(13), O(15), P(16), Q(17), S(19), T(20), X(24), U(21).
  *              תלויות: GEMINI_API_KEY, מנהל_משאבים, Drive API, גליון ניהול_מיילים.
  * @callers     runS06Icon (ViewEngine עמודה K) | Menu_LAB | Menu_PROD
  *              nightlyConvertBatch (S_Scheduler — טריגר לילי)
@@ -17,9 +17,9 @@
  *              createNightlyTrigger, deleteNightlyTrigger, checkTxtUrlIntegrity, 
  *              _extractDriveId_TxtCheck, _writeTxtCheckResults
  *              _callGemini, _safeParseJson, _writeError, _clearErrors
- * @changes     [v1.6.5] [Task 97] הוספת פונקציית אבחון קריאה-בלבד s06_diagnostics_ErrorCodeSummary —
- *                        סופרת שורות ממתינות ל-TXT לפי Error_Code (EMPTY/ACCESS/UNKNOWN/NO_ID/UNSUPPORTED/429/503/OTHER),
- *                        ללא כתיבה לגיליון וללא פעולה על Drive.
+ * @changes     [v1.6.6] [Task 173] finalize_And_Save_To_Drive מזהה בעצמו כשל המרה בזמן אמת —
+ *                        wordCount===0 (מסלול טקסט, גודל מקור≥10KB) או sheetCount===0 (מסלול Sheet) —
+ *                        וכותב מיידית דגל E31 לעמודה U(21), זהה למחרוזת ש-S11 כותב, ללא תלות בסריקת S11/עמודה N.
  *              [v1.6.4] תיקון קריטי — run_MedicalPilot_V2_6_2, _processBatch, nightlyConvertBatch  התחילו משורה 2 (כותרת ישנה) — עכשיו SHEET_CONFIG.FIRST_DATA_ROW (5).
  *              nightlyConvertBatch (טריגר אוטומטי) היה כותב שגיאות לשורות 2-4 מוגנות.
  *              [v1.6.3] [Task 72] הוספת checkTxtUrlIntegrity — אבחון TXT_URL שגוי/ריק, כתיבת תוצאות לגליון TXT_URL_בדיקה. אבחון בלבד — לא נוגע בסטטוסים.
@@ -516,10 +516,13 @@ function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet)
 
   const m   = data.m || {};
   const col = 35;
-  let textContent = "";
+  let textContent  = "";
+  let finalWordCount  = 0;
+  let finalSheetCount = 0;
 
   if (data.isSheet) {
     const sheetCount = data.sheetCount || 0;
+    finalSheetCount   = sheetCount;
     const header = [
       "כותרת: "      + (m.title    || "לא זוהה").padEnd(col) + "סוג_מקור:       " + sysType,
       "מנפיק: "      + (m.issuer   || "לא זוהה").padEnd(col) + "מספר_גליונות:   " + sheetCount,
@@ -538,6 +541,7 @@ function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet)
   } else {
     const words     = data.words || "";
     const wordCount = words ? words.split(" | ").length : 0;
+    finalWordCount   = wordCount;
     textContent = [
       "כותרת: "      + (m.title    || "לא זוהה").padEnd(col) + "סוג_מקור:    " + sysType,
       "מנפיק: "      + (m.issuer   || "לא זוהה").padEnd(col) + "מספר_מילים:  " + wordCount,
@@ -560,6 +564,24 @@ function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet)
   sheet.getRange(row, 24).setValue(newFile.getUrl());
   sheet.getRange(row, 19).clearContent();
   sheet.getRange(row, 20).clearContent();
+
+  const isTextRoute      = !data.isSheet;
+  const sourceSizeBytes  = sourceFile.getSize();
+  let   isConversionFail = false;
+  let   e31FlagValue     = "";
+
+  if (isTextRoute && finalWordCount === 0 && sourceSizeBytes >= 10 * 1024) {
+    isConversionFail = true;
+    e31FlagValue = "⚠️ E31 — חשד לכשל המרה (0 מילים, קובץ לא קטן) — מומלץ להריץ מחדש S06+S07";
+  } else if (data.isSheet && finalSheetCount === 0) {
+    isConversionFail = true;
+    e31FlagValue = "⚠️ E31 — חשד לכשל המרה (0 גליונות זוהו במסמך Sheet) — מומלץ להריץ מחדש S06+S07";
+  }
+
+  if (isConversionFail) {
+    sheet.getRange(row, 21).setValue(e31FlagValue);
+  }
+
   sheet.getRange(row, 13).activate();
 
   console.log("finalize: הושלם — " + fileName);
