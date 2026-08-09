@@ -1,7 +1,7 @@
 /**
  * MedicalPilot — S08_Validate.gs
  * @file        S08_Validate.gs
- * @version 1.0.28 | @updated 06/08/2026 21:01 | @service S08
+ * @version 1.0.29 | @updated 07/08/2026 14:00 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
  *              תלויות: S08_Sidebar.html, COLUMN_MAP.gs (SHEET_CONFIG), Drive API.
@@ -15,11 +15,14 @@
  *              _s08_saveToLearning, s08_delete,
  *              _s08_trashDriveFile, _s08_getDuplicateRowNumber,
  *              s08_deleteApproved, s08_fixReferencesAfterDelete,
- *              s08_previewApprovedForDeletion
- * @changes     [v1.0.28] Task 166 — s08_loadRowByNumber מקבלת פרמטר שלישי
- *              includeDuplicates: כש-true מבטל את דילוג הניווט האוטומטי
- *              על שורות "כפול מאושר" (Task 111), כדי לאפשר אימות ידני
- *              מלא של כל שורה כולל כפולות.
+ *              s08_previewApprovedForDeletion, s08_cancelLogoEmptyFlag,
+ *              s08_cancelCorruptedTextFlag, s08_confirmLogoEmptyFlag,
+ *              s08_resetCorruptedTextForReconvert
+ * @changes     [v1.0.29] Tasks 168+169 — שני כפתורי "עזרה ראשונה" חדשים
+ *              בכרטיסי אזהרת QA: s08_resetCorruptedTextForReconvert (E31,
+ *              #168) מוחקת TXT פגום מ-Drive ומחזירה את השורה לתור המרת
+ *              S06. s08_confirmLogoEmptyFlag (E25, #169) מסמנת R "מאושר
+ *              למחיקה" ישירות, כמקביל הפוך ל-s08_cancelLogoEmptyFlag.
  */
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה — פתיחת חלון אימות
@@ -495,6 +498,78 @@ function s08_cancelCorruptedTextFlag(row) {
     return { success: true, msg: "✅ חשד טקסט פגום בוטל בשורה " + row };
   } catch (e) {
     Logger.log("[S08] שגיאה ב-s08_cancelCorruptedTextFlag: " + e.message);
+    return { success: false, msg: "❌ שגיאה: " + e.message };
+  }
+}
+// ══════════════════════════════════════════════════════════════════
+// [v1.0.29] Tasks 168+169 — "עזרה ראשונה" מ-S08 לחשדות E31/E25, כמקביל
+// הפוך לשתי הפונקציות שמעליהן: שם במקום לבטל את החשד — מתקנים בפועל.
+// s08_resetCorruptedTextForReconvert (E31): מוחקת את קובץ ה-TXT הפגום
+// מ-Drive (משתמשת ב-_s08_trashDriveFile הקיימת, Task 114), מנקה TXT_URL
+// ו-Error_Code/Detail, ומחזירה Pipeline_Status ל-"ממתין להמרה ל-TXT" —
+// כל תנאי הכניסה של S06._processBatch (תנאים 2/3/4) מתקיימים, כך שהשורה
+// תיכנס אוטומטית לתור ההמרה הבא. אינה קוראת ל-S06 ישירות — S06 עדיין
+// היחיד שמריץ המרה בפועל, לפי אותה שיטת עבודה קיימת (batch/ידני).
+// s08_confirmLogoEmptyFlag (E25): כותבת ישירות ל-R "מאושר למחיקה", כדי
+// שהשורה תיכנס לתור s08_deleteApproved הקיים — לא מוחקת בעצמה.
+// ══════════════════════════════════════════════════════════════════
+
+function s08_confirmLogoEmptyFlag(row) {
+  try {
+    if (!row) return { success: false, msg: "❌ חסר מספר שורה" };
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("ניהול_מיילים");
+
+    // מנקה את דגל E25 מ-U אם קיים — R לוקח מעתה עדיפות סמנטית
+    const currentU = (sheet.getRange(row, 21).getValue() || "").toString();
+    if (currentU.indexOf("E25") !== -1) {
+      sheet.getRange(row, 21).clearContent();
+    }
+
+    // כתיבת R — מסמנת את השורה לתור המחיקה המרוכזת (s08_deleteApproved)
+    sheet.getRange(row, 18).setValue("מאושר למחיקה — לוגו/ריק (אושר ידנית)");
+
+    Logger.log("[S08] Task 169 — אושר חשד לוגו/ריק בשורה " + row + " (R סומנה למחיקה, U נוקה).");
+    return { success: true, msg: "✅ שורה " + row + " סומנה למחיקה (לוגו/ריק)" };
+  } catch (e) {
+    Logger.log("[S08] שגיאה ב-s08_confirmLogoEmptyFlag: " + e.message);
+    return { success: false, msg: "❌ שגיאה: " + e.message };
+  }
+}
+
+function s08_resetCorruptedTextForReconvert(row) {
+  try {
+    if (!row) return { success: false, msg: "❌ חסר מספר שורה" };
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("ניהול_מיילים");
+
+    // מוחקת את קובץ ה-TXT הפגום מ-Drive (פונקציית עזר קיימת, Task 114)
+    const txtUrl   = sheet.getRange(row, 24).getValue();
+    const txtTrash = _s08_trashDriveFile(txtUrl);
+    if (!txtTrash.success) {
+      return { success: false, msg: "❌ מחיקת קובץ TXT מ-Drive נכשלה: " + txtTrash.msg };
+    }
+
+    // מנקה TXT_URL — תנאי 2 ב-S06._processBatch (חייב להיות ריק לעיבוד מחדש)
+    sheet.getRange(row, 24).clearContent();
+
+    // מחזירה Pipeline_Status לממתין — כדי שתנאי 3 ב-S06._processBatch לא ידלג
+    sheet.getRange(row, 13).setValue("ממתין להמרה ל-TXT");
+
+    // מנקה Error_Code/Error_Detail — תנאי 4 ב-S06._processBatch, מונע דילוג
+    sheet.getRange(row, 19).clearContent();
+    sheet.getRange(row, 20).clearContent();
+
+    // מנקה את דגל E31 מ-U — כבר לא רלוונטי, S11 יבדוק מחדש אחרי ההמרה
+    const currentU = (sheet.getRange(row, 21).getValue() || "").toString();
+    if (currentU.indexOf("E31") !== -1) {
+      sheet.getRange(row, 21).clearContent();
+    }
+
+    Logger.log("[S08] Task 168 — שורה " + row + ": TXT נמחק מ-Drive, Pipeline_Status אופס להמרה מחדש.");
+    return { success: true, msg: "✅ TXT נמחק, שורה " + row + " הוחזרה לתור המרת S06" };
+  } catch (e) {
+    Logger.log("[S08] שגיאה ב-s08_resetCorruptedTextForReconvert: " + e.message);
     return { success: false, msg: "❌ שגיאה: " + e.message };
   }
 }
