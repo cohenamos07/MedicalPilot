@@ -1,12 +1,13 @@
 <!--
   MedicalPilot — S08_Sidebar.html
   @file        S08_Sidebar.html
- @version 1.0.21 | @updated 06/08/2026 21:01 | @service S08
- @changes     [v1.0.21] Task 166 — checkbox "כלול כפולים" בסרגל הניווט
-               (chkIncludeDup + toggleIncludeDuplicates): כשמסומן, Next/Prev
-               טוענים כל שורה כולל "כפול מאושר", לצורך אימות ידני מלא של
-               הגליון לפני מעבר ל-S09. מעביר את הדגל ל-s08_loadRowByNumber
-               (S08_Validate.gs v1.0.28) כפרמטר שלישי.
+ @version 1.0.22 | @updated 08/08/2026 17:46 | @service S08
+ @changes     [v1.0.22] Tasks 168+169 — כרטיס אזהרת E25/E31 מקבל כפתור
+               שני ("עזרה ראשונה"): qaWarningActionBtn. לוגו/ריק (E25) —
+               "אשר לוגו/ריק → סמן למחיקה" (s08_confirmLogoEmptyFlag).
+               טקסט פגום (E31) — "מחק TXT + החזר להמרה" (s08_reset
+               CorruptedTextForReconvert, S08_Validate.gs v1.0.29). מודל
+               אישור נפרד (qaWarningActionModal) — פעולה הרסנית/בלתי הפיכה.
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Sidebar.html
   @description ממשק Dialog לאימות ידני ולמידה — S08.
                מציג מסמך מקורי + טקסט TXT + שדות עריכה לכותרת/מנפיק/תאריך/קטגוריה.
@@ -37,7 +38,9 @@
                buildNormalColHtml, buildCompareColHtml, toggleDocView,
                renderCompareTxt, cancelDuplicateFlag, closeCancelDupModal,
                confirmCancelDuplicateFlag, confirmDeleteApproved,
-               closeDeleteApprovedModal, doDeleteApproved, toggleIncludeDuplicates
+               closeDeleteApprovedModal, doDeleteApproved, toggleIncludeDuplicates,
+               confirmCancelQaWarning, closeCancelQaWarningModal, qaWarningDoCancel,
+               confirmQaWarningAction, closeQaWarningActionModal, qaWarningDoAction
   @changes     [v1.0.17] בקשת עמוס — s08_deleteApproved() (Task 114, 07/07)
                הייתה קיימת בשרת אך מעולם לא חוברה לממשק, ומופעלת עד כה רק
                ידנית מהעורך ללא כל בקשת אישור. נוסף כפתור "🗑️ מחק מאושרות"
@@ -609,6 +612,18 @@
       </div>
     </div>
   </div>
+<!-- ════ [v1.0.22] Tasks 168+169 — מודל אישור פעולת "עזרה ראשונה" QA
+       (מקביל למודל הביטול למעלה, פעולה הפוכה — לא מבטלת חשד אלא מתקנת) ════ -->
+  <div class="modal-overlay" id="qaWarningActionModal">
+    <div class="modal-box">
+      <div class="modal-title">⚠️ פעולת תיקון QA</div>
+      <div class="modal-text" id="qaWarningActionModalText"></div>
+      <div class="modal-actions">
+        <button class="btn" style="background:#00796b" onclick="qaWarningDoAction()">כן, בצע</button>
+        <button class="btn" style="background:#999" onclick="closeQaWarningActionModal()">ביטול</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ════ [v1.0.17] בקשת עמוס — מודל אישור מחיקה מרוכזת (s08_deleteApproved) ════ -->
   <div class="modal-overlay" id="deleteApprovedModal">
@@ -680,13 +695,16 @@
     // בנתונים סינכרונית (לא כמו duplicateFlag שדורש טעינה נוספת) —
     // מוצג/מוסתר ישירות כאן, בלי קריאה נוספת לשרת.
     var qaCard = document.getElementById('qaWarningCard');
+    var qaActionBtn = document.getElementById('qaWarningActionBtn');
     if (currentData.qaStatus && currentData.qaStatus.indexOf('E25') !== -1) {
       qaWarningCategory = 'logo';
       document.getElementById('qaWarningText').textContent = currentData.qaStatus;
+      qaActionBtn.textContent = '🗑️ אשר לוגו/ריק → סמן למחיקה';
       qaCard.classList.add('visible');
     } else if (currentData.qaStatus && currentData.qaStatus.indexOf('E31') !== -1) {
       qaWarningCategory = 'corrupted';
       document.getElementById('qaWarningText').textContent = currentData.qaStatus;
+      qaActionBtn.textContent = '🔄 מחק TXT + החזר להמרה';
       qaCard.classList.add('visible');
     } else {
       qaWarningCategory = null;
@@ -754,6 +772,7 @@
         '<div class="qa-warning-card" id="qaWarningCard">' +
           '<div class="qa-warning-text" id="qaWarningText"></div>' +
           '<button class="qa-warning-cancel-btn" id="qaWarningCancelBtn" onclick="confirmCancelQaWarning()">🚫 בטל חשד — לא רלוונטי</button>' +
+          '<button class="qa-warning-cancel-btn" id="qaWarningActionBtn" style="background:#00796b" onclick="confirmQaWarningAction()"></button>' +
         '</div>' +
 
         '<div class="learn-dup-card" id="learnDupCard">' +
@@ -1336,6 +1355,52 @@
     if (btn) btn.disabled = true;
 
     var fnName = qaWarningCategory === 'logo' ? 's08_cancelLogoEmptyFlag' : 's08_cancelCorruptedTextFlag';
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        showStatus(res.msg, res.success);
+        if (res.success) {
+          setTimeout(function () { navigateTo(currentRow); }, 900);
+        } else if (btn) {
+          btn.disabled = false;
+        }
+      })
+      .withFailureHandler(function (err) {
+        if (btn) btn.disabled = false;
+        showStatus('❌ ' + ((err && err.message) || err), false);
+      })
+      [fnName](currentRow);
+  }
+// ══════════════════════════════════════════════════════════════
+  // [v1.0.22] Tasks 168+169 — פעולת "עזרה ראשונה" בכרטיס E25/E31.
+  // אותו דפוס בדיוק כמו confirmCancelQaWarning/qaWarningDoCancel למעלה —
+  // ההבדל: מתקנת בפועל במקום לבטל חשד. שם הפונקציה בשרת נבחר לפי
+  // qaWarningCategory, בדיוק כמו qaWarningDoCancel.
+  // ══════════════════════════════════════════════════════════════
+
+  function confirmQaWarningAction() {
+    if (!qaWarningCategory) return;
+    var text = qaWarningCategory === 'logo'
+      ? 'לאשר שמדובר בלוגו/ריק ולסמן את שורה ' + currentRow + ' למחיקה (R)? ' +
+        'הפעולה אינה מוחקת מיד — רק מכניסה לתור "מחק מאושרות". ניתן לבטל לפני המחיקה בפועל.'
+      : 'למחוק את קובץ ה-TXT הפגום מ-Drive ולהחזיר את שורה ' + currentRow +
+        ' לתור המרת S06? הקובץ הישן יימחק לצמיתות (לא ניתן לשחזור), ' +
+        'והשורה תעובד מחדש בריצת S06 הבאה.';
+    document.getElementById('qaWarningActionModalText').textContent = text;
+    document.getElementById('qaWarningActionModal').classList.add('visible');
+  }
+
+  function closeQaWarningActionModal() {
+    document.getElementById('qaWarningActionModal').classList.remove('visible');
+  }
+
+  function qaWarningDoAction() {
+    closeQaWarningActionModal();
+    if (!qaWarningCategory) return;
+    var btn = document.getElementById('qaWarningActionBtn');
+    if (btn) btn.disabled = true;
+
+    var fnName = qaWarningCategory === 'logo' ? 's08_confirmLogoEmptyFlag' : 's08_resetCorruptedTextForReconvert';
 
     google.script.run
       .withSuccessHandler(function (res) {
