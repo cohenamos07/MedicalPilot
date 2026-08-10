@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.40.0 | @updated 06/08/2026 22:03 | @service S11
+ * @version 1.41.0 | @updated 10/08/2026 16:35 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי חוקי QA
  *              (E09-E28 + E30-E33, ללא E23/E24/E29; #149).
@@ -14,15 +14,19 @@
  * @functions runQAViewMain, s11_runSingleCheck, s11_runSingleCheckBatch, s11_storeFindings,
  *            qa_getFindings, qa_applySelectedFixes, qa_deleteE17Findings, _qa_scanRow,
  *            _qa_scanAll, _qa_checkRow, _qa_check_E01..._qa_check_E30, _qa_dedupeE11Findings,
+ *            _qa_computeDuplicateGroups,
  *            _qa_dedupeE32Findings, _qa_fetchTxtWordCount_E25, _qa_fetchTxtComplexity_E30,
  *            _qa_fetchTxtHeader_E32, _qa_calculateDuplicates_E32, _qa_parseFileSizeToBytes,
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol, _qa_loadEventsFileIds,
  *            findAnchorRowAndAuditVerified, _qa_clearStaleUFlag_Task163
- * @changes [v1.40.0] Task 166 — _qa_fetchTxtWordCount_E25: כשלא נמצא
- *          "מספר_מילים:" בתוכן, בודקת גם "מספר_גליונות:" (S06 כותב זאת
- *          לקבצי SHEET במקום מספר מילים). אם נמצא ערך>0, מחזירה סנטינל
- *          999999 במקום null — מונע E25/E31 כוזבים (TXT "לא נשלף"/"0
- *          מילים") על קבצי גיליון תקינים. לא משנה התנהגות לקבצים רגילים.
+ * @changes [v1.41.0] Task 165 — פתרון מעגל-תיקון-נצחי בקבוצות כפילות
+ *          3+ חברים: פונקציית קיבוץ חדשה _qa_computeDuplicateGroups
+ *          (Union-Find + עוגן=Capture_Date מוקדם, טיברייק File_ID),
+ *          _qa_check_E11_E12 עברה למודל כוכב עם תיקון-עצמי (כל חבר
+ *          מצביע ישירות על העוגן, במקום זוגות שדורסים זה את זה),
+ *          _qa_dedupeE11Findings הפכה לרשת-ביטחון (לוג אזהרה בלבד —
+ *          no-op תחת המודל החדש). write_symmetry לא שונתה — כבר
+ *          אגנוסטית לעוגן. אומת בקוד ובשטח (4/4 שורות תוקנו נכון).
  */
 // ══════════════════════════════════════════════════════════════════
 // קבועים
@@ -555,14 +559,19 @@ function _qa_scanAll(allData, lastRow, eventsFileIds, fileIdRowMap, rNotesAll) {
 // ══════════════════════════════════════════════════════════════════
 
 function _qa_dedupeE11Findings(findings) {
-  // כשכמה שורות מקור שונות (למשל 20/34/52) יוצרות ממצא E11 עבור אותה
-  // שורת-יעד (למשל 11) — נשמר רק הראשון שנסרק (מספר השורה הנמוך ביותר,
-  // בזכות סדר הסריקה העולה ב-_qa_scanAll). שאר הממצאים לאותו יעד מוסרים,
-  // כדי למנוע דריסה שקטה של אחד ע"י השני ב-_qa_applyFixes.
+  // [Task 165] תחת מודל הכוכב החדש (עוגן קבוצתי), _qa_check_E11_E12
+  // מחזירה לכל היותר ממצא E11 אחד לכל שורה נסרקת, עם f.row === שורת
+  // המקור עצמה (לא שורת-יעד אחרת) — לכן לא ייתכן יותר מבנית ששני
+  // ממצאים יחלקו אותו f.row. הפונקציה הפכה בפועל ל-no-op, אך נשמרת
+  // כרשת ביטחון: אם בכל זאת יתגלה מקרה כזה (רגרסיה עתידית), נרשמת
+  // אזהרה בלוג במקום סינון שקט — כדי שהבעיה תתגלה ולא תוסתר.
   var seenTargets = {};
   return findings.filter(function(f) {
     if (f.code !== "E11") return true;
-    if (seenTargets[f.row]) return false;
+    if (seenTargets[f.row]) {
+      Logger.log("[S11 QA] ⚠️ לא צפוי: שני ממצאי E11 לאותה שורה " + f.row + " — ייתכן רגרסיה במודל הכוכב (Task 165)");
+      return false;
+    }
     seenTargets[f.row] = true;
     return true;
   });
@@ -698,25 +707,127 @@ function _qa_check_E10(v, row) {
   return findings;
 }
 
-function _qa_check_E11_E12(v, row, allData, fileIdRowMap) {
-  const findings = [];
-  if (v.r && (v.r.indexOf("כפול מאושר") === 0 || v.r.indexOf("חשוד ככפול") === 0)) {
-    if (!v.col27) {
-      findings.push({ row: row, code: "E12", col: 18, desc: "R מסומן ככפול אך עמודה 27 ריקה — אין רפרנס לשחזר ממנו", fix: "clear", value: "" });
-    } else {
-      const actualRow = fileIdRowMap[v.col27];
-      if (!actualRow) {
-        findings.push({ row: row, code: "E12", col: 18, desc: "עמודה 27 מצביעה על File_ID שלא קיים יותר בגליון — יש לנקות R ועמודה 27", fix: "clear", value: "" });
-      } else {
-        const targetIdx   = actualRow - QA_DATA_START;
-        const targetR     = (allData[targetIdx][17] || "").toString().trim();
-        const targetCol27 = (allData[targetIdx][26] || "").toString().trim();
-        if (!targetR || targetCol27 !== v.fileId) {
-          findings.push({ row: actualRow, code: "E11", col: 18, desc: "שורה " + actualRow + " חסרה הפניה חזרה (R ו/או עמודה 27) לשורה " + row, fix: "write_symmetry", value: v.r, col27Value: v.fileId });
-        }
-      }
+// ══════════════════════════════════════════════════════════════════
+// [Task 165] קיבוץ טרנזיטיבי של כפילות (רכיבי-קשירות) + חישוב עוגן
+// ══════════════════════════════════════════════════════════════════
+// גישה A (אושרה 07/08/2026): בונה גרף לא-מכוון מתוך זוגות "R מסומן
+// ככפול + עמודה 27 מצביעה על File_ID אחר קיים", מאתר רכיבי-קשירות
+// (Union-Find עם דחיסת נתיב), ולכל רכיב בגודל 2+ קובע עוגן יחיד =
+// השורה עם Capture_Date המוקדם ביותר; בשוויון — File_ID המינימלי
+// (השוואה מחרוזתית). מחליף את ההנחה הישנה של יעד-כתיבה יחיד לכל
+// שורה, שיצרה מעגל-תיקון-נצחי בקבוצות 3+ חברים (עמודה 27 תומכת
+// ברפרנס יחיד בלבד — כל write_symmetry דרס את הקודם).
+function _qa_computeDuplicateGroups(allData, fileIdRowMap) {
+  const parent = {}; // fileId -> fileId (מבנה Union-Find)
+
+  function find(x) {
+    if (!(x in parent)) parent[x] = x;
+    while (parent[x] !== x) {
+      parent[x] = parent[parent[x]]; // דחיסת נתיב
+      x = parent[x];
+    }
+    return x;
+  }
+
+  function union(a, b) {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  }
+
+  // שלב 1 — בניית הגרף: קשת בין כל זוג File_ID-ים ששורה אחת מהם
+  // מסומנת ככפולה (R) ומצביעה (עמודה 27) על ה-File_ID השני, כאשר
+  // ה-File_ID השני עדיין קיים בגליון (fileIdRowMap).
+  for (let i = 0; i < allData.length; i++) {
+    const rowData = allData[i];
+    const fileId  = (rowData[0]  || "").toString().trim(); // A=1
+    const r       = (rowData[17] || "").toString().trim(); // R=18
+    const col27   = (rowData[26] || "").toString().trim(); // AA=27
+    if (!fileId) continue;
+    find(fileId); // רישום כרכיב עצמאי גם ללא קשתות
+    if (r && (r.indexOf("כפול מאושר") === 0 || r.indexOf("חשוד ככפול") === 0) &&
+        col27 && fileIdRowMap[col27]) {
+      union(fileId, col27);
     }
   }
+
+  // שלב 2 — קיבוץ File_ID-ים לפי שורש משותף
+  const groupsByRoot = {};
+  Object.keys(parent).forEach(function(fid) {
+    const root = find(fid);
+    if (!groupsByRoot[root]) groupsByRoot[root] = [];
+    groupsByRoot[root].push(fid);
+  });
+
+  // שלב 3 — לכל רכיב בגודל 2+: חישוב עוגן (Capture_Date מוקדם
+  // ביותר, טיברייק File_ID מינימלי). רכיבים בגודל 1 מדולגים —
+  // אין כפילות אמיתית.
+  const anchorByFileId = {}; // fileId -> anchorFileId
+  const groups = [];         // [{ anchorFileId, memberFileIds: [...] }]
+
+  Object.keys(groupsByRoot).forEach(function(root) {
+    const members = groupsByRoot[root];
+    if (members.length < 2) return;
+
+    let anchorFileId = null;
+    let anchorTime   = null;
+
+    members.forEach(function(fid) {
+      const row = fileIdRowMap[fid];
+      if (!row) return;
+      const rowData = allData[row - QA_DATA_START];
+      if (!rowData) return;
+      const captureRaw  = rowData[1]; // B=2 — Capture_Date
+      const captureDate = captureRaw ? new Date(captureRaw) : null;
+      const captureTime = (captureDate && !isNaN(captureDate.getTime()))
+        ? captureDate.getTime() : Infinity;
+
+      if (anchorFileId === null || captureTime < anchorTime) {
+        anchorFileId = fid; anchorTime = captureTime;
+      } else if (captureTime === anchorTime && fid < anchorFileId) {
+        anchorFileId = fid; // טיברייק: File_ID מינימלי
+      }
+    });
+
+    if (!anchorFileId) return;
+    members.forEach(function(fid) { anchorByFileId[fid] = anchorFileId; });
+    groups.push({ anchorFileId: anchorFileId, memberFileIds: members.slice() });
+  });
+
+  return { anchorByFileId: anchorByFileId, groups: groups };
+}
+function _qa_check_E11_E12(v, row, allData, fileIdRowMap) {
+  const findings = [];
+  if (!(v.r && (v.r.indexOf("כפול מאושר") === 0 || v.r.indexOf("חשוד ככפול") === 0))) {
+    return findings;
+  }
+
+  // [Task 165] המרה ממודל זוגי (פר-שורה מול שורה יחידה) למודל כוכב
+  // סביב עוגן קבוצתי — פותר את מעגל-התיקון-הנצחי בקבוצות 3+ חברים,
+  // כי עמודה 27 יכולה להחזיק רפרנס יחיד בלבד ולא יכולה לייצג "מצביעים
+  // אליי N חברים בו-זמנית". לכן כל חבר לא-עוגן מתקן את עצמו (col27 שלו)
+  // להצביע ישירות על העוגן — במקום שהעוגן ינסה להחזיק רפרנס-חזרה
+  // לכל חבר (בלתי אפשרי עם שדה יחיד), או ששני חברים "יתקנו" זה את זה
+  // בסבב אינסופי.
+  if (!v.col27) {
+    findings.push({ row: row, code: "E12", col: 18, desc: "R מסומן ככפול אך עמודה 27 ריקה — אין רפרנס לשחזר ממנו", fix: "clear", value: "" });
+    return findings;
+  }
+  if (!fileIdRowMap[v.col27]) {
+    findings.push({ row: row, code: "E12", col: 18, desc: "עמודה 27 מצביעה על File_ID שלא קיים יותר בגליון — יש לנקות R ועמודה 27", fix: "clear", value: "" });
+    return findings;
+  }
+
+  const groups        = _qa_computeDuplicateGroups(allData, fileIdRowMap);
+  const anchorFileId   = groups.anchorByFileId[v.fileId];
+  if (!anchorFileId || v.fileId === anchorFileId) {
+    return findings; // אין קבוצה (לא אמור לקרות אם col27 תקין), או שזו שורת העוגן עצמה
+  }
+
+  if (v.col27 !== anchorFileId) {
+    const anchorRow = fileIdRowMap[anchorFileId];
+    findings.push({ row: row, code: "E11", col: 18, desc: "שורה " + row + " שייכת לקבוצת כפילות (עוגן: שורה " + anchorRow + ") — עמודה 27 מפנה לחבר אחר בקבוצה ולא לעוגן", fix: "write_symmetry", value: v.r, col27Value: anchorFileId });
+  }
+
   return findings;
 }
 
