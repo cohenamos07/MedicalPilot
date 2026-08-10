@@ -1,6 +1,6 @@
 /**
  * @file        S07_Classify.gs
- * @version     2.13.0 | @updated 19/07/2026 17:45 | @service S07
+ * @version     2.14.0 | @updated 10/08/2026 19:30 | @service S07
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S07_Classify.gs
  * @description סיווג מסמכים רפואיים בעזרת Gemini API.
  *              קורא טקסט מ-TXT_URL (X) או Raw_Text (Z).
@@ -24,10 +24,20 @@
  *              _processS07Batch | _getS07ColumnMap | _getColDefByName
  *              _safeWrite | _safeClear | _callAiWithFullPrompt_S07
  *              _validateAiResult_S07 | _isFilled_S07 | _countFilledFields_S07
+ *              _isAiUnknownSentinel_S07
  *              _fetchTextFromUrl_S07 | _getLearningExamples_S07
  *              _calculateDuplicates_S07 | _extractTxtHeader_S07
  *              _guardAlreadyClassified_S07 | _s07_syncComplexityToTxt
  *              S07_ValidateWritePermissions
+ * @changes     [v2.14.0] Task 176 — תיקון שורש: _isFilled_S07 סופרת ערכי-
+ *              סנטינל של AI ('לא זוהה') כ"שדה מלא", מה שגרם למסמכים עם
+ *              0 מילים (כשל OCR/סריקה) "לעבור סיווג" עם ערכים כוזבים.
+ *              נוספה _isAiUnknownSentinel_S07 + בדיקה מוקדמת ב-
+ *              executeS07Classification: אם title+issuer+date כולם
+ *              סנטינל — זורקת AI_NO_MEANINGFUL_CONTENT לפני כתיבה, במקום
+ *              להמשיך בשקט. אומת בשטח על שורות 19+25 (שני מסמכים עם
+ *              0 מילים אמיתי) — Error_Code/Detail נכתבים נכון, M/N לא
+ *              מתקדמים יותר בטעות.
  * @changes     [v2.12.1] Task 146 — תיקון קוסמטי בלבד: טקסט דיאלוג האישור
  *              ב-_guardAlreadyClassified_S07 הזכיר "R+Note" — מנגנון ה-Note
  *              הוסר לגמרי מהארכיטקטורה ב-Task 131 (הוחלף בעמודה 27,
@@ -399,6 +409,16 @@ function executeS07Classification(row) {
 
     _validateAiResult_S07(aiResult);
 
+    // [Task 176] בדיקת תוכן-ריק אמיתי: אם כותרת, מנפיק ותאריך כולם
+    // ערכי-סנטינל (AI לא זיהה כלום בהם) — זהו כשל חילוץ במקור (למשל
+    // OCR שנכשל על סריקה פגומה), לא סיווג חלקי-לגיטימי. עוצר כאן
+    // במקום להמשיך ולכתוב Extraction_Status='חולץ מלא'/'חולץ חלקי'
+    // שגוי + Pipeline_Status='עבר סיווג' על מסמך שבפועל ריק.
+    if (_isAiUnknownSentinel_S07(aiResult.title) &&
+        _isAiUnknownSentinel_S07(aiResult.issuer) &&
+        _isAiUnknownSentinel_S07(aiResult.date)) {
+      throw new Error("AI_NO_MEANINGFUL_CONTENT: AI לא זיהה תוכן משמעותי (כותרת/מנפיק/תאריך כולם 'לא זוהה') — כנראה כשל חילוץ במקור, לא כשל AI");
+    }
     const filled = _countFilledFields_S07(aiResult);
     if (filled < 2)
       throw new Error("AI_RESULT_TOO_WEAK: רק " + filled + " שדות — לא מספיק");
@@ -765,6 +785,16 @@ function _isFilled_S07(v) {
   return v !== null && v !== undefined && String(v).trim() !== "";
 }
 
+// [Task 176] מזהה ערכי-סנטינל של "AI לא הצליח לזהות" — שונים מ"ריק"
+// טכנית (מחרוזת לא-ריקה: 'לא זוהה' באורך 4 תווים עובר את _isFilled_S07
+// בלי בעיה), אך מהותית אין כאן תוכן אמיתי שחולץ. בלי הבדיקה הזו,
+// _countFilledFields_S07 סופר 'לא זוהה' כ"שדה מלא" — מה שגורם למסמך
+// עם 0 מילים (למשל כשל OCR) "לעבור סיווג בהצלחה" עם ערכים כוזבים.
+function _isAiUnknownSentinel_S07(v) {
+  if (!_isFilled_S07(v)) return true;
+  var t = String(v).trim();
+  return t === "לא זוהה" || t === "לא";
+}
 function _countFilledFields_S07(ai) {
   return [ai.title, ai.issuer, ai.date, ai.category].filter(_isFilled_S07).length;
 }
