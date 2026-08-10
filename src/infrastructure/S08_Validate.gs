@@ -1,7 +1,7 @@
 /**
  * MedicalPilot — S08_Validate.gs
  * @file        S08_Validate.gs
- * @version 1.0.29 | @updated 07/08/2026 14:00 | @service S08
+ * @version 1.0.31 | @updated 10/08/2026 19:30 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
  *              תלויות: S08_Sidebar.html, COLUMN_MAP.gs (SHEET_CONFIG), Drive API.
@@ -18,11 +18,13 @@
  *              s08_previewApprovedForDeletion, s08_cancelLogoEmptyFlag,
  *              s08_cancelCorruptedTextFlag, s08_confirmLogoEmptyFlag,
  *              s08_resetCorruptedTextForReconvert
- * @changes     [v1.0.29] Tasks 168+169 — שני כפתורי "עזרה ראשונה" חדשים
- *              בכרטיסי אזהרת QA: s08_resetCorruptedTextForReconvert (E31,
- *              #168) מוחקת TXT פגום מ-Drive ומחזירה את השורה לתור המרת
- *              S06. s08_confirmLogoEmptyFlag (E25, #169) מסמנת R "מאושר
- *              למחיקה" ישירות, כמקביל הפוך ל-s08_cancelLogoEmptyFlag.
+ * @changes     [v1.0.31] Task 176 — s08_resetCorruptedTextForReconvert:
+ *              מנקה גם Doc_Title/Doc_Issuer/Doc_Date/Doc_Category/
+ *              Extraction_Status/Complexity (כל פלט S07) בעת איפוס —
+ *              מונע שאריות ישנות/כוזבות שנשארות עד ש-S07 (ידני בלבד)
+ *              ירוץ שוב. משלים תיקון S07_Classify.gs
+ *              (_isAiUnknownSentinel_S07) — יחד פותרים "0 מילים → מסווג
+ *              בהצלחה בטעות" (שורות 19+25, אומת בשטח פעמיים).
  */
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה — פתיחת חלון אימות
@@ -560,6 +562,19 @@ function s08_resetCorruptedTextForReconvert(row) {
     sheet.getRange(row, 19).clearContent();
     sheet.getRange(row, 20).clearContent();
 
+    // [Task 176] מנקה גם Doc_Title/Doc_Issuer/Doc_Date/Doc_Category/
+    // Extraction_Status/Complexity — כל הפלט של S07. שדות אלו עלולים
+    // להישאר עם ערכים ישנים/כוזבים (למשל 'לא זוהה'/'חולץ מלא' משריד
+    // סיווג קודם שנכשל) עד שS07 ירוץ שוב על ה-TXT החדש (S07 ידני
+    // בלבד — לא רץ אוטומטית אחרי S06). בלי הניקוי, השורה נשארת
+    // במצב לא-עקבי בין האיפוס לסיווג-מחדש: הטופס ב-S08 מציג נתונים
+    // ישנים כאילו הם עדכניים, ו-E27 עלולה לדווח שווא בינתיים.
+    sheet.getRange(row, 9).clearContent();  // Doc_Title
+    sheet.getRange(row, 10).clearContent(); // Doc_Issuer
+    sheet.getRange(row, 11).clearContent(); // Doc_Date
+    sheet.getRange(row, 12).clearContent(); // Doc_Category
+    sheet.getRange(row, 14).clearContent(); // Extraction_Status
+    sheet.getRange(row, 17).clearContent(); // Complexity
     // מנקה את דגל E31 מ-U — כבר לא רלוונטי, S11 יבדוק מחדש אחרי ההמרה
     const currentU = (sheet.getRange(row, 21).getValue() || "").toString();
     if (currentU.indexOf("E31") !== -1) {
@@ -957,14 +972,11 @@ function s08_fixReferencesAfterDelete() {
     const lastRow  = sheet.getLastRow();
     if (lastRow < firstRow) return;
 
-    // [v1.0.21] Task 133 — פישוט מלא (אישור עמוס, אפשרות א'). File_ID
-    // בעמודה 27 לא "זז" יותר אחרי מחיקת שורות, אז אין יותר "שורה X"
-    // שמתיישנת בטקסט לתקן. נשאר רק ניקוי מיידי של רפרנס יתום: אם
-    // ה-File_ID שבעמודה 27 נמחק לגמרי מהגליון, מנקים R+עמודה27.
-    const numRows   = lastRow - firstRow + 1;
-    const colAVals  = sheet.getRange(firstRow, 1, numRows, 1).getValues();
-    const rVals     = sheet.getRange(firstRow, 18, numRows, 1).getValues();
-    const col27Vals = sheet.getRange(firstRow, 27, numRows, 1).getValues();
+    const numRows      = lastRow - firstRow + 1;
+    const colAVals     = sheet.getRange(firstRow, 1, numRows, 1).getValues();
+    const rVals        = sheet.getRange(firstRow, 18, numRows, 1).getValues();
+    const col27Vals    = sheet.getRange(firstRow, 27, numRows, 1).getValues();
+    const captureVals  = sheet.getRange(firstRow, 2, numRows, 1).getValues(); // B=2 — Capture_Date
 
     // מפת File_ID → שורה נוכחית, לפי המצב האמיתי אחרי המחיקה
     const fileIdRowMap = {};
@@ -973,30 +985,72 @@ function s08_fixReferencesAfterDelete() {
       if (fid) fileIdRowMap[fid] = firstRow + i;
     });
 
-    let fixedCount = 0;
-
+    // [Task 165] קיבוץ שורות-יתומות לפי היעד המשותף שנמחק — שורות
+    // ששיתפו אותו col27 (שהצביע על עוגן שנמחק פיזית) הן עדיין קבוצת
+    // כפילות אחת, וזקוקות לעוגן חדש, לא רק לניקוי. יעד עם שורד יחיד =
+    // באמת אין עוד כפילות לשמר, מנוקה כמו קודם.
+    const orphansByDeadTarget = {};
     for (let i = 0; i < numRows; i++) {
       const row     = firstRow + i;
-      const rText   = (rVals[i][0]    || "").toString().trim();
+      const fileId  = (colAVals[i][0]  || "").toString().trim();
+      const rText   = (rVals[i][0]     || "").toString().trim();
       const col27Id = (col27Vals[i][0] || "").toString().trim();
-      if (!rText || !col27Id) continue;
+      if (!fileId || !rText || !col27Id) continue;
+      if (fileIdRowMap[col27Id]) continue; // היעד עדיין קיים — לא יתום
 
-      if (!fileIdRowMap[col27Id]) {
-        // ה-File_ID שבעמודה 27 לא נמצא יותר בגליון (נמחק כרגע) —
-        // אין יותר שורת תאום קיימת להצביע עליה. מנקים R+עמודה27.
-        sheet.getRange(row, 18).clearContent();
-        sheet.getRange(row, 27).setValue("");
-        fixedCount++;
-        Logger.log("[S08] s08_fixReferencesAfterDelete — שורה " + row + ": File_ID (" + col27Id + ") נמחק — R+עמודה27 נוקו");
-      }
+      if (!orphansByDeadTarget[col27Id]) orphansByDeadTarget[col27Id] = [];
+      orphansByDeadTarget[col27Id].push({ row: row, fileId: fileId, captureRaw: captureVals[i][0] });
     }
 
-    Logger.log("[S08] s08_fixReferencesAfterDelete — נוקו " + fixedCount + " רפרנסים יתומים");
+    let fixedCount = 0, promotedCount = 0;
+
+    Object.keys(orphansByDeadTarget).forEach(function(deadTargetId) {
+      const orphans = orphansByDeadTarget[deadTargetId];
+
+      if (orphans.length === 1) {
+        // יתום אמיתי — אין שורדים נוספים שהצביעו על אותו יעד. ניקוי כרגיל.
+        const o = orphans[0];
+        sheet.getRange(o.row, 18).clearContent();
+        sheet.getRange(o.row, 27).setValue("");
+        fixedCount++;
+        Logger.log("[S08] s08_fixReferencesAfterDelete — שורה " + o.row + ": File_ID (" + deadTargetId + ") נמחק, ללא שורדים נוספים — R+עמודה27 נוקו");
+        return;
+      }
+
+      // 2+ שורדים ששיתפו אותו יעד מת — קבוצת כפילות עדיין קיימת,
+      // דורשת עוגן חדש: Capture_Date מוקדם ביותר, טיברייק File_ID
+      // מינימלי (אותה גישה A שאושרה 07/08/2026).
+      let anchor = null;
+      orphans.forEach(function(o) {
+        const captureDate = o.captureRaw ? new Date(o.captureRaw) : null;
+        const captureTime = (captureDate && !isNaN(captureDate.getTime())) ? captureDate.getTime() : Infinity;
+        if (!anchor || captureTime < anchor.captureTime ||
+            (captureTime === anchor.captureTime && o.fileId < anchor.fileId)) {
+          anchor = { row: o.row, fileId: o.fileId, captureTime: captureTime };
+        }
+      });
+
+      orphans.forEach(function(o) {
+        if (o.fileId === anchor.fileId) {
+          // קידום לעוגן — הופך לרשומה קנונית, ללא סימון כפילות עצמי
+          sheet.getRange(o.row, 18).clearContent();
+          sheet.getRange(o.row, 27).setValue("");
+        } else {
+          // שורד רגיל — R נשאר, רק col27 מתעדכן להצביע על העוגן החדש
+          sheet.getRange(o.row, 27).setValue(anchor.fileId);
+        }
+      });
+
+      promotedCount++;
+      fixedCount += orphans.length;
+      Logger.log("[S08] s08_fixReferencesAfterDelete — קבוצה מול יעד מת (" + deadTargetId + "): קודם עוגן חדש בשורה " + anchor.row + " (" + anchor.fileId + "), " + (orphans.length - 1) + " שורדים עודכנו להצביע אליו");
+    });
+
+    Logger.log("[S08] s08_fixReferencesAfterDelete — נוקו/עודכנו " + fixedCount + " רפרנסים (" + promotedCount + " קידומי עוגן)");
   } catch (e) {
     Logger.log("[S08] שגיאת s08_fixReferencesAfterDelete: " + e.message);
   }
 }
-
 function _s08_formatDateForDisplay(value) {
   if (!value) return "";
   if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
