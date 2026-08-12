@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S06_ConvertTXT.gs
- * @version 1.6.6 | @updated 09/08/2026 21:40 | @service S06
+ * @version 1.7.0 | @updated 11/08/2026 17:38 | @service S06
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S06_ConvertTXT.gs
  * @description המרת קבצים לפורמט TXT מובנה — 6 מסלולים לפי סוג קובץ.
  *              PDF→Visual, DOCX→Direct, GDoc→Doc, IMG→Image, TXT→Text, Sheet→Sheet.
@@ -17,18 +17,12 @@
  *              createNightlyTrigger, deleteNightlyTrigger, checkTxtUrlIntegrity, 
  *              _extractDriveId_TxtCheck, _writeTxtCheckResults
  *              _callGemini, _safeParseJson, _writeError, _clearErrors
- * @changes     [v1.6.6] [Task 173] finalize_And_Save_To_Drive מזהה בעצמו כשל המרה בזמן אמת —
- *                        wordCount===0 (מסלול טקסט, גודל מקור≥10KB) או sheetCount===0 (מסלול Sheet) —
- *                        וכותב מיידית דגל E31 לעמודה U(21), זהה למחרוזת ש-S11 כותב, ללא תלות בסריקת S11/עמודה N.
- *              [v1.6.4] תיקון קריטי — run_MedicalPilot_V2_6_2, _processBatch, nightlyConvertBatch  התחילו משורה 2 (כותרת ישנה) — עכשיו SHEET_CONFIG.FIRST_DATA_ROW (5).
- *              nightlyConvertBatch (טריגר אוטומטי) היה כותב שגיאות לשורות 2-4 מוגנות.
- *              [v1.6.3] [Task 72] הוספת checkTxtUrlIntegrity — אבחון TXT_URL שגוי/ריק, כתיבת תוצאות לגליון TXT_URL_בדיקה. אבחון בלבד — לא נוגע בסטטוסים.
- *              [v1.6.2] תיקון Tasks 9,10,11 — עדכון @git ל-GitHub API URL + @callers + @changes מלא
- *              [v1.6.1] הוספת @impacts וכותרת מלאה לפי סטנדרט
- *              [FIX-4] דילוג חכם — שגיאות זמניות ינסו שוב, קבועות ידולגו
- *              [FIX-3] Sleep(8000) בין שורות באצווה ידנית
- *              [FIX-2] גודל אצווה מ-5 ל-3
- *              [FIX-1] לוגיקת כניסה — שורה שלמה / עמודה M / תא אחר
+ *              _visualPathFallbackFreeText_S06
+ * @changes     [v1.7.0] Task #175/#176 — execute_Visual_Path: JSON_PARSE_FAIL נבדל מכשל AI אמיתי
+ *              (_safeParseJson זורקת שגיאה, לא מחזירה {words:"",...} בשקט — משפיע על כל 6 המסלולים);
+ *              maxOutputTokens:16384; fallback טקסט-חופשי חדש (_visualPathFallbackFreeText_S06) כשה-JSON
+ *              נכשל — פענוח סלחני שלא תלוי ב-===META===/===END=== (שומר תוכן חלקי בתשובה שנחתכה);
+ *              frequencyPenalty/presencePenalty ב-generationConfig להפחתת סיכון ללולאות חזרה של Gemini.
  */
 // ══════════════════════════════════════════════════════════════════
 // פונקציית ליבה — קריאת Gemini דרך מנהל מחלצים
@@ -73,7 +67,7 @@ function _safeParseJson(text, callerName) {
     return JSON.parse(clean);
   } catch (e) {
     Logger.log(callerName + " — JSON פגום: " + e.message + " | טקסט: " + text.substring(0, 200));
-    return { words: "", metadata: {} };
+   throw new Error("JSON_PARSE_FAIL: " + callerName + " — תשובת AI לא תקינה כ-JSON (ככל הנראה נחתכה) — " + e.message);
   }
 }
 
@@ -82,17 +76,20 @@ function _safeParseJson(text, callerName) {
 // ══════════════════════════════════════════════════════════════════
 
 function _writeError(sheet, row, msg) {
-  const isOverload = msg.includes("503") || msg.includes("UNAVAILABLE");
-  const isQuota    = msg.includes("429") || msg.includes("quota");
-  const isAccess   = msg.includes("ACCESS") || msg.includes("Drive");
+  const isOverload  = msg.includes("503") || msg.includes("UNAVAILABLE");
+  const isQuota     = msg.includes("429") || msg.includes("quota");
+  const isAccess    = msg.includes("ACCESS") || msg.includes("Drive");
+  const isJsonParse = msg.includes("JSON_PARSE_FAIL");
 
-  const errorCode = isOverload ? "503" :
-                    isQuota    ? "429" :
-                    isAccess   ? "ACCESS" : "UNKNOWN";
+  const errorCode = isOverload  ? "503" :
+                    isQuota     ? "429" :
+                    isAccess    ? "ACCESS" :
+                    isJsonParse ? "JSON_PARSE" : "UNKNOWN";
 
-  const errorDetail = isOverload ? "עומס — דולג לעכשיו" :
-                      isQuota    ? "מכסה יומית מוצתה — נסה מחר" :
-                      isAccess   ? "שגיאת גישה: " + msg.substring(0, 80) :
+  const errorDetail = isOverload  ? "עומס — דולג לעכשיו" :
+                      isQuota     ? "מכסה יומית מוצתה — נסה מחר" :
+                      isAccess    ? "שגיאת גישה: " + msg.substring(0, 80) :
+                      isJsonParse ? "תשובת AI לא תקינה — כנראה נחתכה — כדאי לנסות שוב: " + msg.substring(0, 80) :
                                    "שגיאה: " + msg.substring(0, 100);
 
   sheet.getRange(row, 19).setValue(errorCode);
@@ -293,12 +290,83 @@ Return ONLY this JSON:
 }`;
   const payload = {
     contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: blob.getContentType(), data: base64Data } }] }],
-    generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
+   generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 16384, frequencyPenalty: 0.5, presencePenalty: 0.4 }
   };
-  const response  = _callGemini(apiKey, payload, "מסלול 1 PDF", "MEDIUM");
+  try {
+    const response  = _callGemini(apiKey, payload, "מסלול 1 PDF", "MEDIUM");
+    const res       = JSON.parse(response.getContentText());
+    const cleanJson = _safeParseJson(res.candidates[0].content.parts[0].text, "מסלול 1");
+    return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
+  } catch (jsonErr) {
+    if (jsonErr.message.indexOf("JSON_PARSE_FAIL") === -1) throw jsonErr;
+    Logger.log("[S06] מסלול 1 — JSON נכשל, עובר לניסיון fallback בטקסט חופשי: " + jsonErr.message);
+    return _visualPathFallbackFreeText_S06(blob, base64Data, apiKey);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// מסלול 1 — Fallback טקסט חופשי (כש-JSON הרגיל נכשל בפענוח)
+// ══════════════════════════════════════════════════════════════════
+
+function _visualPathFallbackFreeText_S06(blob, base64Data, apiKey) {
+  const prompt = `You are analyzing a document image.
+Do NOT use JSON. Return plain text in EXACTLY this format, with no extra commentary:
+===WORDS===
+word1 | word2 | word3 | ...
+===META===
+TITLE: document title in Hebrew
+ISSUER: issuing organization in Hebrew
+CATEGORY: one of: רפואי/חשבונאי/משפטי/ביטוחי/אחר
+COMPLEXITY: one of: פשוט/בינוני/מורכב
+DOCDATE: date if visible
+===END===`;
+  const payload = {
+    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: blob.getContentType(), data: base64Data } }] }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 16384, frequencyPenalty: 0.5, presencePenalty: 0.4 }
+  };
+  const response = _callGemini(apiKey, payload, "מסלול 1 PDF fallback", "MEDIUM");
   const res       = JSON.parse(response.getContentText());
-  const cleanJson = _safeParseJson(res.candidates[0].content.parts[0].text, "מסלול 1");
-  return { words: cleanJson.words || "", m: cleanJson.metadata || {}, isSheet: false };
+  const rawText   = res.candidates[0].content.parts[0].text || "";
+
+  // [H] תיעוד תמיד — לפני כל ניסיון פענוח, כדי לדעת בדיוק מה חזר גם בכישלון
+  Logger.log("[S06] מסלול 1 fallback — טקסט גולמי (300 תווים ראשונים): " + rawText.substring(0, 300));
+
+  const wordsStartIdx = rawText.indexOf("===WORDS===");
+  if (wordsStartIdx === -1) {
+    throw new Error("VISUAL_FALLBACK_PARSE_FAIL: מסלול 1 fallback — הסמן ===WORDS=== לא נמצא בתשובה בכלל");
+  }
+
+  const afterWords   = rawText.substring(wordsStartIdx + "===WORDS===".length);
+  const metaStartIdx = afterWords.indexOf("===META===");
+
+  // [I] פענוח סלחני — לוקח את מה שיש גם אם ===META===/===END=== חסרים (תשובה נחתכה)
+  const words = (metaStartIdx === -1 ? afterWords : afterWords.substring(0, metaStartIdx)).trim();
+
+  const m = {};
+  if (metaStartIdx !== -1) {
+    const afterMeta   = afterWords.substring(metaStartIdx + "===META===".length);
+    const endIdx      = afterMeta.indexOf("===END===");
+    const metaBlock   = endIdx === -1 ? afterMeta : afterMeta.substring(0, endIdx);
+    const titleM      = metaBlock.match(/TITLE:\s*(.+)/);
+    const issuerM     = metaBlock.match(/ISSUER:\s*(.+)/);
+    const categoryM   = metaBlock.match(/CATEGORY:\s*(.+)/);
+    const complexityM = metaBlock.match(/COMPLEXITY:\s*(.+)/);
+    const docDateM    = metaBlock.match(/DOCDATE:\s*(.+)/);
+    if (titleM)      m.title      = titleM[1].trim();
+    if (issuerM)     m.issuer     = issuerM[1].trim();
+    if (categoryM)   m.category   = categoryM[1].trim();
+    if (complexityM) m.complexity = complexityM[1].trim();
+    if (docDateM)    m.docDate    = docDateM[1].trim();
+  } else {
+    Logger.log("[S06] מסלול 1 fallback — ===META=== לא נמצא, נשמרות רק המילים ללא מטא-דאטה (תשובה כנראה נחתכה)");
+  }
+
+  if (!words) {
+    throw new Error("VISUAL_FALLBACK_PARSE_FAIL: מסלול 1 fallback — נמצא ===WORDS=== אך התוכן שאחריו ריק");
+  }
+
+  Logger.log("[S06] מסלול 1 fallback הצליח — " + words.split(" | ").length + " מילים" + (metaStartIdx === -1 ? " (ללא מטא-דאטה מלאה)" : ""));
+  return { words: words, m: m, isSheet: false };
 }
 
 // ══════════════════════════════════════════════════════════════════
