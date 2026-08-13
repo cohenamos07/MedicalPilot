@@ -1,7 +1,7 @@
 /**
  * MedicalPilot — S08_Validate.gs
  * @file        S08_Validate.gs
- * @version 1.0.31 | @updated 10/08/2026 19:30 | @service S08
+ * @version 1.0.32 | @updated 13/08/2026 16:04 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
  *              תלויות: S08_Sidebar.html, COLUMN_MAP.gs (SHEET_CONFIG), Drive API.
@@ -18,7 +18,14 @@
  *              s08_previewApprovedForDeletion, s08_cancelLogoEmptyFlag,
  *              s08_cancelCorruptedTextFlag, s08_confirmLogoEmptyFlag,
  *              s08_resetCorruptedTextForReconvert
- * @changes     [v1.0.31] Task 176 — s08_resetCorruptedTextForReconvert:
+ * @changes     [v1.0.32] Task 179 — s08_updateAndLearn: הוסרה בדיקת
+ *              כפילות מוקדמת (s08_findLearningDuplicate) שביצעה return
+ *              מיידי לפני שמירת נתוני השורה (כותרת/מנפיק/תאריך/קטגוריה),
+ *              גם כשקיימת דוגמת למידה תואמת. בדיקת הכפילות הנכונה כבר
+ *              קיימת ב-_s08_saveToLearning (נקראת בהמשך אותה פונקציה) —
+ *              היא כעת האחראית היחידה לדילוג על הוספה לגיליון הלמידה,
+ *              בלי לחסום את שמירת השורה עצמה. אומת בבדיקת שטח מבודדת.
+ *              [v1.0.31] Task 176 — s08_resetCorruptedTextForReconvert:
  *              מנקה גם Doc_Title/Doc_Issuer/Doc_Date/Doc_Category/
  *              Extraction_Status/Complexity (כל פלט S07) בעת איפוס —
  *              מונע שאריות ישנות/כוזבות שנשארות עד ש-S07 (ידני בלבד)
@@ -26,6 +33,7 @@
  *              (_isAiUnknownSentinel_S07) — יחד פותרים "0 מילים → מסווג
  *              בהצלחה בטעות" (שורות 19+25, אומת בשטח פעמיים).
  */
+
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה — פתיחת חלון אימות
 // ══════════════════════════════════════════════════════════════════
@@ -618,14 +626,6 @@ function s08_updateAndLearn(row, title, issuer, date, category, note) {
   try {
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName("ניהול_מיילים");
-    const existingLearning = s08_findLearningDuplicate(issuer, category);
-    if (existingLearning) {
-      return {
-        success: false,
-        isDuplicate: true,
-        msg: '⚠️ קיימת כבר דוגמת למידה תואמת בשורה ' + existingLearning.dupRow
-      };
-    }
     sheet.getRange(row, 9).setValue(title     || "");
     sheet.getRange(row, 10).setValue(issuer   || "");
     sheet.getRange(row, 11).setValue(date     || "");
