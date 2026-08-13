@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.41.0 | @updated 10/08/2026 16:35 | @service S11
+ * @version 1.42.0 | @updated 13/08/2026 17:18 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי חוקי QA
  *              (E09-E28 + E30-E33, ללא E23/E24/E29; #149).
@@ -19,6 +19,15 @@
  *            _qa_fetchTxtHeader_E32, _qa_calculateDuplicates_E32, _qa_parseFileSizeToBytes,
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol, _qa_loadEventsFileIds,
  *            findAnchorRowAndAuditVerified, _qa_clearStaleUFlag_Task163
+ * @changes [v1.42.0] Task 178 — _qa_check_E32 עברה לקרוא את עמודה V
+ *          (QA_Dismiss_Note, rowData[21]) לפני סימון זוג ככפול —
+ *          מונע זיהוי חוזר של חשד שבוטל ידנית דרך s08_cancelDuplicateFlag
+ *          (R מתנקה במכוון, V מסומן "(כפול)"). תבנית זהה ל-vDismissNew
+ *          הקיים ב-_qa_check_E25_E31. הפונקציה מקבלת כעת rowData כפרמטר
+ *          נוסף; שני מקומות הקריאה (s11_runSingleCheck, _qa_checkRow)
+ *          עודכנו להעביר אותו — שניהם כבר מחזיקים rowData בהיקף.
+ *          לא אושש בנתונים חיים (R ריק בכל הגליון נכון לתאריך זה) —
+ *          תיקון מונע, ממתין למקרה חי לאימות שטח.
  * @changes [v1.41.0] Task 165 — פתרון מעגל-תיקון-נצחי בקבוצות כפילות
  *          3+ חברים: פונקציית קיבוץ חדשה _qa_computeDuplicateGroups
  *          (Union-Find + עוגן=Capture_Date מוקדם, טיברייק File_ID),
@@ -223,7 +232,7 @@ function s11_runSingleCheck(checkCode, isSingleRow, activeRow, lastRow) {
           // [Task 159 — שלב 2] שליפת TXT פעם אחת לשורה, משותפת לשלוש הבדיקות
           const txtContent = v.txtUrl ? _qa_getTxtContent_S11(v.txtUrl) : null;
           rowFindings = []
-            .concat(_qa_check_E32(v, row, allData, lastRow, txtContent))
+            .concat(_qa_check_E32(v, row, allData, lastRow, txtContent, rowData))
             .concat(_qa_check_E25_E31(v, row, rowData, txtContent))
             .concat(_qa_check_E30(v, row, txtContent));
           break;
@@ -831,9 +840,13 @@ function _qa_check_E11_E12(v, row, allData, fileIdRowMap) {
   return findings;
 }
 
-function _qa_check_E32(v, row, allData, lastRow, txtContent) {
+function _qa_check_E32(v, row, allData, lastRow, txtContent, rowData) {
   const findings = [];
-  if (v.fileId && !v.r && v.n && v.txtUrl) {
+  // [Task 178] קריאת V (QA_Dismiss_Note) — מונעת זיהוי חוזר של זוג
+  // שחשד הכפילות שלו בוטל ידנית דרך s08_cancelDuplicateFlag (R מתנקה
+  // במכוון, V מסומן). תבנית זהה ל-_qa_check_E25_E31 (vDismissNew).
+  const vDismiss32 = (rowData ? (rowData[21] || "") : "").toString().trim();
+  if (v.fileId && !v.r && v.n && v.txtUrl && vDismiss32.indexOf("(כפול)") === -1) {
     const dup32 = _qa_calculateDuplicates_E32(row, allData, lastRow, txtContent);
     if (dup32) {
       const dupText32 = "כפול מאושר (רשת שנייה) | ניקוד " + dup32.score + "/5";
@@ -1035,7 +1048,7 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds, fileIdRowMa
   findings = findings.concat(_qa_check_E26(v, row));
   findings = findings.concat(_qa_check_E10(v, row));
   findings = findings.concat(_qa_check_E11_E12(v, row, allData, fileIdRowMap));
-  findings = findings.concat(_qa_check_E32(v, row, allData, lastRow, txtContent));
+  findings = findings.concat(_qa_check_E32(v, row, allData, lastRow, txtContent, rowData));
   findings = findings.concat(_qa_check_E13(v, row));
   findings = findings.concat(_qa_check_E14(v, row));
   findings = findings.concat(_qa_check_E15(v, row, eventsFileIds));
