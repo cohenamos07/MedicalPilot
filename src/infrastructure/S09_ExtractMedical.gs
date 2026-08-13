@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S09_ExtractMedical.gs
- * @version 1.2.5 | @updated 04/07/2026 21:26 | @service S09
+ * @version 1.3.0 | @updated 13/08/2026 21:23 | @service S09
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S09_ExtractMedical.gs
  * @impacts חילוץ אירועים רפואיים ממסמכים מאומתים לגליונות יעד — מנגנון דואלי (שורה בודדת / אצווה).
  *          תנאי סף: עמודה M = "אומת ידנית" + עמודה L = רפואי + עמודה X לא ריקה.
@@ -10,6 +10,23 @@
  *          בדיקות_דם, בדיקות_גנטיות, הנחיות_רפואיות_ומשימות.
  *          תלויות: GEMINI_API_KEY (gemini-2.0-flash), Drive API, COLUMN_MAP.gs.
  *          מופעל מהתפריט ומאייקון עמודה O בגליון ניהול_מיילים.
+ * @changes [v1.3.0] [Task 68 — הכנה] _s09_callGemini פוצלה ל-2 קריאות
+ *          נפרדות במקום קריאה יחידה: mode="general" (events, medical_
+ *          status, medications, genetic_tests, instructions — ביחד,
+ *          כמו קודם) + mode="blood" (רק blood_tests, בפרומפט ובסכימה
+ *          נפרדים). פותר PARSE/maxOutputTokens במסמכים עתירי-פרמטרים
+ *          (פאנל בדיקות דם נרחב, כמו שורה 7 בניהול_מיילים — 40+
+ *          פרמטרים גרמו לחריגת 8192 טוקנים בקריאה המשולבת הישנה).
+ *          _s09_processRow: כישלון קריאת "blood" בלבד אינו מפיל את
+ *          כל השורה — נכתב "חילוץ חלקי — בדיקות דם נכשל" ל-M, קוד
+ *          PARSE_PARTIAL ל-S, פירוט ל-T. שאר 5 הקטגוריות נכתבות
+ *          לגליונות היעד כרגיל. לא אושש עדיין בהרצה חיה על שורה 7.
+ * @changes [v1.2.6] [Task 68 — הכנה] _s09_writeToSheets: שדה מערכת_רפואית
+ *                   (Medical_System, יומן_אירועים_רפואי) קיבל ברירת מחדל
+ *                   "כללי" כש-Gemini לא מחזיר ערך — קורה במסמכים ללא זיקה
+ *                   לאיבר/מערכת ספציפית (למשל אישורי כושר עבודה תעסוקתיים).
+ *                   שאר שדות extracted.events כבר קיבלו fallback דומה קודם
+ *                   (docData.docDate/docIssuer) — זה השלים את העקביות.
  * @changes [v1.2.4] [Task 79] תיקון _s09_fetchTxtContent — הכשל החזיר שגיאת ACCESS
  *                   גנרית ("שגיאת גישה לקובץ TXT") בלי לרשום fileId/txtUrl/e.message
  *                   בפועל. נבדק חיצונית — הקובץ ב-Drive תקין ונגיש (text/plain,
@@ -170,21 +187,31 @@ function _s09_processRow(ss, sheet, row) {
     // [v1.1.0] שליפת דוגמאות למידה מ-S10
     const fewShotExamples = _s09_fetchFewShotExamples(ss);
 
-    const extracted = _s09_callGemini(txtContent, docData, fewShotExamples);
-    if (!extracted) {
-      _s09_writeError(sheet, row, "PARSE", "Gemini לא החזיר JSON תקין");
+  const generalResult = _s09_callGemini(txtContent, docData, fewShotExamples, "general");
+    if (!generalResult) {
+      _s09_writeError(sheet, row, "PARSE", "Gemini לא החזיר JSON תקין (קריאה כללית)");
       return { success: false, msg: "❌ שגיאת עיבוד Gemini" };
     }
 
+    const bloodResult = _s09_callGemini(txtContent, docData, fewShotExamples, "blood");
+    const bloodFailed = !bloodResult;
+    const extracted = Object.assign({}, generalResult, {
+      blood_tests: bloodFailed ? [] : (bloodResult.blood_tests || [])
+    });
+    if (bloodFailed) {
+      Logger.log("[S09] שורה " + row + " — קריאת בדיקות דם נכשלה, ממשיך עם שאר הקטגוריות");
+    }
     const sheetsWritten = _s09_writeToSheets(ss, extracted, docData);
 
-    const statusText = sheetsWritten.length === 1
+    let statusText = sheetsWritten.length === 1
       ? "חולץ ל" + sheetsWritten[0]
       : "חולץ לגליונות";
 
+    if (bloodFailed) statusText = "חילוץ חלקי — בדיקות דם נכשל";
+
     sheet.getRange(row, 13).setValue(statusText);
-    sheet.getRange(row, 19).setValue("");
-    sheet.getRange(row, 20).setValue("");
+    sheet.getRange(row, 19).setValue(bloodFailed ? "PARSE_PARTIAL" : "");
+    sheet.getRange(row, 20).setValue(bloodFailed ? "קריאה כללית הצליחה, קריאת בדיקות הדם נכשלה — נדרש אימות ידני ב-S10" : "");
 
     Logger.log("[S09] שורה " + row + " → " + statusText +
       (fewShotExamples.length > 0 ? " | דוגמאות: " + fewShotExamples.length : " | ללא דוגמאות"));
@@ -305,29 +332,34 @@ function _s09_fetchTxtContent(txtUrl) {
 // קריאת Gemini — חילוץ מובנה + Few-Shot
 // ══════════════════════════════════════════════════════════════════
 
-function _s09_callGemini(txtContent, docData, fewShotExamples) {
+function _s09_callGemini(txtContent, docData, fewShotExamples, mode) {
   let raw = null;
   try {
     const apiKey = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY");
     const url    = "https://generativelanguage.googleapis.com/v1beta/models/" +
                    S09_GEMINI_MODEL + ":generateContent?key=" + apiKey;
 
-    // [v1.1.0] בניית בלוק הדוגמאות
+   // [v1.1.0] בניית בלוק הדוגמאות
     const fewShotBlock = _s09_buildFewShotBlock(fewShotExamples);
 
-    const prompt = `אתה מומחה לניתוח מסמכים רפואיים בעברית.
-קרא את המסמך הבא וחלץ ממנו מידע רפואי מובנה.
-${fewShotBlock}
-פרטי המסמך:
-- כותרת: ${docData.docTitle}
-- מנפיק: ${docData.docIssuer}
-- תאריך: ${docData.docDate}
-
-תוכן המסמך:
-${txtContent}
-
-החזר JSON בלבד (ללא טקסט נוסף) במבנה הבא:
-{
+    // [Task 68/S09-split] מצב "blood" — סכימה ממוקדת בדיקות דם בלבד,
+    // מונע חריגת maxOutputTokens במסמכים עם פאנל מעבדה נרחב (עשרות
+    // פרמטרים). מצב "general" (ברירת מחדל) — 5 הקטגוריות האחרות.
+    const schemaBlock = (mode === "blood")
+      ? `{
+  "blood_tests": [
+    {
+      "תאריך_בדיקה": "",
+      "שם_בדיקה": "",
+      "קטגוריה": "",
+      "ערך": "",
+      "טווח_נורמה": "",
+      "סטטוס": "",
+      "הערת_רופא": ""
+    }
+  ]
+}`
+      : `{
   "events": [
     {
       "תאריך_אירוע": "",
@@ -362,17 +394,6 @@ ${txtContent}
       "סטטוס": "פעיל"
     }
   ],
-  "blood_tests": [
-    {
-      "תאריך_בדיקה": "",
-      "שם_בדיקה": "",
-      "קטגוריה": "",
-      "ערך": "",
-      "טווח_נורמה": "",
-      "סטטוס": "",
-      "הערת_רופא": ""
-    }
-  ],
   "genetic_tests": [
     {
       "תאריך_בדיקה": "",
@@ -393,13 +414,35 @@ ${txtContent}
       "סטטוס": "פתוח"
     }
   ]
-}
+}`;
 
-כללים:
+    const rulesBlock = (mode === "blood")
+      ? `כללים:
+- אם אין בדיקות דם במסמך — החזר מערך ריק []
+- תאריכים בפורמט DD/MM/YYYY
+- אל תמציא מידע שאינו במסמך
+- חלץ כל פרמטר בדיקה כרשומה נפרדת, גם אם יש עשרות פרמטרים`
+      : `כללים:
 - אם אין נתונים לקטגוריה מסוימת — החזר מערך ריק []
 - events תמיד יכיל לפחות רשומה אחת
 - תאריכים בפורמט DD/MM/YYYY
 - אל תמציא מידע שאינו במסמך`;
+
+    const prompt = `אתה מומחה לניתוח מסמכים רפואיים בעברית.
+קרא את המסמך הבא וחלץ ממנו מידע רפואי מובנה.
+${fewShotBlock}
+פרטי המסמך:
+- כותרת: ${docData.docTitle}
+- מנפיק: ${docData.docIssuer}
+- תאריך: ${docData.docDate}
+
+תוכן המסמך:
+${txtContent}
+
+החזר JSON בלבד (ללא טקסט נוסף) במבנה הבא:
+${schemaBlock}
+
+${rulesBlock}`;
 
     const payload = {
       contents: [{ parts: [{ text: prompt }] }],
@@ -500,7 +543,7 @@ function _s09_writeToSheets(ss, extracted, docData) {
       sheet.appendRow([
         e["תאריך_אירוע"]    || docData.docDate,
         e["סוג_אירוע"]      || "",
-        e["מערכת_רפואית"]   || "",
+        e["מערכת_רפואית"]   || "כללי",
         e["מוסד_רופא"]      || docData.docIssuer,
         e["סיכום_ממצא"]     || "",
         e["קטגוריית_ניתוב"] || "",
