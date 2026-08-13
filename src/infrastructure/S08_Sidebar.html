@@ -1,7 +1,13 @@
 <!--
   MedicalPilot — S08_Sidebar.html
   @file        S08_Sidebar.html
- @version 1.0.22 | @updated 08/08/2026 17:46 | @service S08
+ @version 1.0.23 | @updated 13/08/2026 16:04 | @service S08
+ @changes     [v1.0.23] Task 179 — updateAndLearn(): הוסרה בדיקת
+              res.isDuplicate שקדמה ל-res.success והציגה "השמירה נעצרה"
+              גם כש-success:true (הנתונים כן נשמרו בפועל בשרת). כעת
+              showStatus מציג ישירות את res.msg לפי res.success בלבד,
+              בהתאמה לתיקון המקביל ב-S08_Validate.gs v1.0.32. אומת
+              בבדיקת שטח מבודדת.
  @changes     [v1.0.22] Tasks 168+169 — כרטיס אזהרת E25/E31 מקבל כפתור
                שני ("עזרה ראשונה"): qaWarningActionBtn. לוגו/ריק (E25) —
                "אשר לוגו/ריק → סמן למחיקה" (s08_confirmLogoEmptyFlag).
@@ -1137,10 +1143,7 @@
     google.script.run
       .withSuccessHandler(function (res) {
         setButtonsEnabled(true);
-        if (res && res.isDuplicate) {
-          showStatus('⚠️ השמירה נעצרה: קיימת כבר דוגמת למידה תואמת. לא נוצרה דוגמה חדשה.', false);
-          return;
-        }
+        
         showStatus((res && res.msg) || 'לא התקבלה תשובה מהשרת', !!(res && res.success));
         if (res && res.success) setTimeout(nextRow, 900);
       })
