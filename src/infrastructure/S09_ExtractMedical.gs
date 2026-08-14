@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S09_ExtractMedical.gs
- * @version 1.3.0 | @updated 13/08/2026 21:23 | @service S09
+ * @version 1.5.0 | @updated 14/08/2026 18:05 | @service S09
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S09_ExtractMedical.gs
  * @impacts חילוץ אירועים רפואיים ממסמכים מאומתים לגליונות יעד — מנגנון דואלי (שורה בודדת / אצווה).
  *          תנאי סף: עמודה M = "אומת ידנית" + עמודה L = רפואי + עמודה X לא ריקה.
@@ -10,7 +10,21 @@
  *          בדיקות_דם, בדיקות_גנטיות, הנחיות_רפואיות_ומשימות.
  *          תלויות: GEMINI_API_KEY (gemini-2.0-flash), Drive API, COLUMN_MAP.gs.
  *          מופעל מהתפריט ומאייקון עמודה O בגליון ניהול_מיילים.
- * @changes [v1.3.0] [Task 68 — הכנה] _s09_callGemini פוצלה ל-2 קריאות
+ * @changes [v1.5.0] [Task 182] Event_Date/תאריכי-שדות לא עקביים ביומן_אירועים_רפואי
+ *          (Gemini מחזיר לפעמים DD.MM.YYYY עם נקודות במקום DD/MM/YYYY עם קו נטוי,
+ *          למרות הנחיית הפרומפט — Sheets לא מזהה זאת כתאריך אמיתי). תוקן בשתי
+ *          שכבות: (1) הידוק rulesBlock בפרומפט בשני המצבים (general/blood).
+ *          (2) פונקציית עזר חדשה _s09_normalizeDate() — רשת ביטחון שממירה
+ *          נקודות/מקפים ל-/ בכל 6 נקודות הכתיבה לגליונות (events, medical_status,
+ *          blood_tests, genetic_tests, medications×2), גם אם Gemini לא יציית.
+ *          [v1.4.0] [Task 180] MAX_TOKENS ב-general call: הגורם האמיתי אינו כמות
+ *          רשומות (blood_tests) אלא thinking tokens של gemini-2.5-flash שנצרכים
+ *          מתוך maxOutputTokens עוד לפני הפלט. תוקן: thinkingConfig:{budget:0} +
+ *          maxOutputTokens 8192→32768. נוסף לוג ייעודי (_s09_lastFailReason) —
+ *          כל כשל Gemini מתויג בעמודה S כ-PARSE_<סיבה> (HTTP_xxx/NO_CANDIDATE/
+ *          MAX_TOKENS/SAFETY/NO_TEXT_PART/JSON_PARSE/EXCEPTION) במקום PARSE גנרי.
+ *          אומת בשטח על 6 שורות רפואיות (6,7,8,11,12,13) — כולן "חולץ לגליונות".
+ *          [v1.3.0] [Task 68 — הכנה] _s09_callGemini פוצלה ל-2 קריאות
  *          נפרדות במקום קריאה יחידה: mode="general" (events, medical_
  *          status, medications, genetic_tests, instructions — ביחד,
  *          כמו קודם) + mode="blood" (רק blood_tests, בפרומפט ובסכימה
@@ -69,6 +83,7 @@ const S09_CATEGORIES      = ["רפואי", "מסמך רפואי"];
 const S09_STATUS_TRIGGER = "מאושר";
 const S09_GEMINI_MODEL    = "gemini-2.5-flash";
 const S09_MAX_EXAMPLES    = 5;
+let _s09_lastFailReason = ""; // [v1.4.0 — Task 180] קוד סיבת כשל אחרון מ-_s09_callGemini, ללוג ייעודי
 
 const S09_TARGET_SHEETS  = {
   events:       "יומן_אירועים_רפואי",
@@ -189,17 +204,20 @@ function _s09_processRow(ss, sheet, row) {
 
   const generalResult = _s09_callGemini(txtContent, docData, fewShotExamples, "general");
     if (!generalResult) {
-      _s09_writeError(sheet, row, "PARSE", "Gemini לא החזיר JSON תקין (קריאה כללית)");
-      return { success: false, msg: "❌ שגיאת עיבוד Gemini" };
+      const failReason = _s09_lastFailReason || "UNKNOWN"; // [v1.4.0 — Task 180]
+      _s09_writeError(sheet, row, "PARSE_" + failReason,
+        "Gemini לא החזיר JSON תקין (קריאה כללית) — סיבה: " + failReason);
+      return { success: false, msg: "❌ שגיאת עיבוד Gemini (" + failReason + ")" };
     }
 
     const bloodResult = _s09_callGemini(txtContent, docData, fewShotExamples, "blood");
     const bloodFailed = !bloodResult;
+    const bloodFailReason = bloodFailed ? (_s09_lastFailReason || "UNKNOWN") : ""; // [v1.4.0 — Task 180]
     const extracted = Object.assign({}, generalResult, {
       blood_tests: bloodFailed ? [] : (bloodResult.blood_tests || [])
     });
     if (bloodFailed) {
-      Logger.log("[S09] שורה " + row + " — קריאת בדיקות דם נכשלה, ממשיך עם שאר הקטגוריות");
+      Logger.log("[S09] שורה " + row + " — קריאת בדיקות דם נכשלה (" + bloodFailReason + "), ממשיך עם שאר הקטגוריות");
     }
     const sheetsWritten = _s09_writeToSheets(ss, extracted, docData);
 
@@ -211,8 +229,7 @@ function _s09_processRow(ss, sheet, row) {
 
     sheet.getRange(row, 13).setValue(statusText);
     sheet.getRange(row, 19).setValue(bloodFailed ? "PARSE_PARTIAL" : "");
-    sheet.getRange(row, 20).setValue(bloodFailed ? "קריאה כללית הצליחה, קריאת בדיקות הדם נכשלה — נדרש אימות ידני ב-S10" : "");
-
+    sheet.getRange(row, 20).setValue(bloodFailed ? "קריאה כללית הצליחה, קריאת בדיקות הדם נכשלה (" + bloodFailReason + ") — נדרש אימות ידני ב-S10" : "");
     Logger.log("[S09] שורה " + row + " → " + statusText +
       (fewShotExamples.length > 0 ? " | דוגמאות: " + fewShotExamples.length : " | ללא דוגמאות"));
 
@@ -334,6 +351,7 @@ function _s09_fetchTxtContent(txtUrl) {
 
 function _s09_callGemini(txtContent, docData, fewShotExamples, mode) {
   let raw = null;
+  _s09_lastFailReason = ""; // [v1.4.0 — Task 180]
   try {
     const apiKey = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY");
     const url    = "https://generativelanguage.googleapis.com/v1beta/models/" +
@@ -419,13 +437,13 @@ function _s09_callGemini(txtContent, docData, fewShotExamples, mode) {
     const rulesBlock = (mode === "blood")
       ? `כללים:
 - אם אין בדיקות דם במסמך — החזר מערך ריק []
-- תאריכים בפורמט DD/MM/YYYY
+- תאריכים חובה בפורמט DD/MM/YYYY עם קו נטוי (/) בלבד — לעולם לא עם נקודות (.) או מקפים (-)
 - אל תמציא מידע שאינו במסמך
 - חלץ כל פרמטר בדיקה כרשומה נפרדת, גם אם יש עשרות פרמטרים`
       : `כללים:
 - אם אין נתונים לקטגוריה מסוימת — החזר מערך ריק []
 - events תמיד יכיל לפחות רשומה אחת
-- תאריכים בפורמט DD/MM/YYYY
+- תאריכים חובה בפורמט DD/MM/YYYY עם קו נטוי (/) בלבד — לעולם לא עם נקודות (.) או מקפים (-)
 - אל תמציא מידע שאינו במסמך`;
 
     const prompt = `אתה מומחה לניתוח מסמכים רפואיים בעברית.
@@ -447,7 +465,10 @@ ${rulesBlock}`;
     const payload = {
       contents: [{ parts: [{ text: prompt }] }],
       // [v1.2.3 — Task 79] maxOutputTokens — מניעת קיטוע תשובה ארוכה (JSON חצי)
-      generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
+      // [v1.4.0 — Task 180] thinkingConfig:0 מבטל "חשיבה" פנימית שצורכת טוקנים
+      // מהתקציב עוד לפני כתיבת הפלט בפועל (התנהגות ברירת מחדל ב-gemini-2.5-flash);
+      // maxOutputTokens הוגדל כרשת ביטחון נוספת למסמכים ארוכים באמת
+      generationConfig: { temperature: 0.1, maxOutputTokens: 32768, thinkingConfig: { thinkingBudget: 0 } }
     };
 
     const response = UrlFetchApp.fetch(url, {
@@ -462,6 +483,7 @@ ${rulesBlock}`;
 
     // [v1.2.3 — Task 79] BUG-A: בדיקת קוד HTTP לפני כל ניסיון פענוח
     if (responseCode !== 200) {
+      _s09_lastFailReason = "HTTP_" + responseCode; // [v1.4.0 — Task 180]
       Logger.log("[S09] שגיאת HTTP מ-Gemini — קוד: " + responseCode +
         " | גוף תשובה (1000 תווים ראשונים): " + bodyText.substring(0, 1000));
       return null;
@@ -471,6 +493,7 @@ ${rulesBlock}`;
     const candidate = json.candidates && json.candidates[0];
 
     if (!candidate) {
+      _s09_lastFailReason = "NO_CANDIDATE"; // [v1.4.0 — Task 180]
       Logger.log("[S09] Gemini לא החזיר candidates — promptFeedback: " +
         JSON.stringify(json.promptFeedback || {}));
       return null;
@@ -479,6 +502,7 @@ ${rulesBlock}`;
     // [v1.2.3 — Task 79] BUG-B: בדיקת finishReason — SAFETY/MAX_TOKENS גורמים
     // ל-content.parts חסר, וקודם לכן זה היה קורס בלי הסבר
     if (candidate.finishReason && candidate.finishReason !== "STOP") {
+      _s09_lastFailReason = candidate.finishReason; // [v1.4.0 — Task 180] למשל MAX_TOKENS/SAFETY
       Logger.log("[S09] Gemini הסתיים עם finishReason לא תקין: " + candidate.finishReason +
         " | candidate (1000 תווים ראשונים): " + JSON.stringify(candidate).substring(0, 1000));
       return null;
@@ -488,6 +512,7 @@ ${rulesBlock}`;
                      candidate.content.parts[0] && candidate.content.parts[0].text;
 
     if (!textPart) {
+      _s09_lastFailReason = "NO_TEXT_PART"; // [v1.4.0 — Task 180]
       Logger.log("[S09] Gemini החזיר candidate בלי content.parts[0].text — candidate " +
         "(1000 תווים ראשונים): " + JSON.stringify(candidate).substring(0, 1000));
       return null;
@@ -507,23 +532,38 @@ ${rulesBlock}`;
         try {
           return JSON.parse(raw.substring(firstBrace, lastBrace + 1));
         } catch (innerErr) {
+          _s09_lastFailReason = "JSON_PARSE"; // [v1.4.0 — Task 180]
           Logger.log("[S09] חילוץ תת-מחרוזת JSON נכשל גם הוא — raw (1000 תווים ראשונים): " +
             raw.substring(0, 1000));
           return null;
         }
       }
+      _s09_lastFailReason = "JSON_PARSE"; // [v1.4.0 — Task 180]
       Logger.log("[S09] JSON.parse נכשל ולא נמצאו סוגריים מסולסלים תואמים — raw " +
         "(1000 תווים ראשונים): " + raw.substring(0, 1000));
       return null;
     }
 
   } catch (e) {
+    _s09_lastFailReason = "EXCEPTION"; // [v1.4.0 — Task 180]
     // [v1.2.3 — Task 79] BUG-D: כעת רושם גם את raw (אם הגענו אליו) — בעבר נרשמה
     // רק e.message בלי שום הקשר לתוכן שגרם לכשל
     Logger.log("[S09] שגיאת Gemini: " + e.message +
       (raw ? " | raw (1000 תווים ראשונים): " + raw.substring(0, 1000) : ""));
     return null;
   }
+}
+// ══════════════════════════════════════════════════════════════════
+// נורמליזציית תאריכים — [v1.5.0 — Task 182]
+// ══════════════════════════════════════════════════════════════════
+
+function _s09_normalizeDate(dateStr) {
+  // ממיר DD.MM.YYYY או DD-MM-YYYY ל-DD/MM/YYYY (רשת ביטחון אם Gemini
+  // לא ציית להנחיית הפרומפט). אם הפורמט כבר תקין או ריק — מוחזר כמו שהוא.
+  if (!dateStr) return dateStr;
+  const m = String(dateStr).trim().match(/^(\d{1,2})[.\-](\d{1,2})[.\-](\d{4})$/);
+  if (!m) return dateStr;
+  return m[1].padStart(2, "0") + "/" + m[2].padStart(2, "0") + "/" + m[3];
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -541,7 +581,7 @@ function _s09_writeToSheets(ss, extracted, docData) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.events);
     extracted.events.forEach(e => {
       sheet.appendRow([
-        e["תאריך_אירוע"]    || docData.docDate,
+        _s09_normalizeDate(e["תאריך_אירוע"]) || docData.docDate,
         e["סוג_אירוע"]      || "",
         e["מערכת_רפואית"]   || "כללי",
         e["מוסד_רופא"]      || docData.docIssuer,
@@ -562,8 +602,8 @@ function _s09_writeToSheets(ss, extracted, docData) {
         m["מינון"]           || "",
         m["תדירות"]          || "",
         m["סיבת_טיפול"]     || "",
-        m["תאריך_התחלה"]    || "",
-        m["תאריך_סיום"]     || "",
+        _s09_normalizeDate(m["תאריך_התחלה"]) || "",
+        _s09_normalizeDate(m["תאריך_סיום"]) || "",
         m["סטטוס"]           || "פעיל",
         docData.docIssuer,
         sourceUrl,
@@ -577,7 +617,7 @@ function _s09_writeToSheets(ss, extracted, docData) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.medStatus);
     extracted.medical_status.forEach(s => {
       sheet.appendRow([
-        s["תאריך_אירוע"]     || docData.docDate,
+        _s09_normalizeDate(s["תאריך_אירוע"]) || docData.docDate,
         s["סוג_אירוע"]       || "",
         s["מערכת_איבר"]      || "",
         s["מוסד_רופא"]       || docData.docIssuer,
@@ -597,7 +637,7 @@ function _s09_writeToSheets(ss, extracted, docData) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.bloodTests);
     extracted.blood_tests.forEach(b => {
       sheet.appendRow([
-        b["תאריך_בדיקה"]  || docData.docDate,
+        _s09_normalizeDate(b["תאריך_בדיקה"]) || docData.docDate,
         b["שם_בדיקה"]     || "",
         b["קטגוריה"]       || "",
         b["ערך"]           || "",
@@ -616,7 +656,7 @@ function _s09_writeToSheets(ss, extracted, docData) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.geneticTests);
     extracted.genetic_tests.forEach(g => {
       sheet.appendRow([
-        g["תאריך_בדיקה"]      || docData.docDate,
+        _s09_normalizeDate(g["תאריך_בדיקה"]) || docData.docDate,
         g["שם_פאנל"]          || "",
         g["גן_וריאנט"]        || "",
         g["ממצא"]              || "",
