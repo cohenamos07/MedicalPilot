@@ -1,15 +1,37 @@
 /**
  * MedicalPilot — S09_ExtractMedical.gs
- * @version 1.5.0 | @updated 14/08/2026 18:05 | @service S09
+ * @version 2.0.0 | @updated 16/08/2026 21:29 | @service S09
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S09_ExtractMedical.gs
- * @impacts חילוץ אירועים רפואיים ממסמכים מאומתים לגליונות יעד — מנגנון דואלי (שורה בודדת / אצווה).
- *          תנאי סף: עמודה M = "אומת ידנית" + עמודה L = רפואי + עמודה X לא ריקה.
- *          קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,W,X + גליון S10_למידה_רפואי (few-shot).
- *          כתיבה: ניהול_מיילים עמודות M,S,T + 6 גליונות יעד:
- *          יומן_אירועים_רפואי, תרופות_קבועות, יומן_מצב_רפואי,
- *          בדיקות_דם, בדיקות_גנטיות, הנחיות_רפואיות_ומשימות.
- *          תלויות: GEMINI_API_KEY (gemini-2.0-flash), Drive API, COLUMN_MAP.gs.
+ * @impacts חילוץ אירועים רפואיים ממסמכים מאומתים — קריאה יחידה לכל מסמך,
+ *          כותב אך ורק ליומן_אירועים_רפואי (שורת אירוע גנרית לכל נושא/ממצא
+ *          נבדל, כולל קטגוריית_ניתוב מתוך Enum סגור של 7 ערכים). פענוח מפורט
+ *          לגליונות היעד (תרופות_קבועות/יומן_מצב_רפואי/בדיקות_דם/
+ *          בדיקות_גנטיות/הנחיות_רפואיות_ומשימות) עבר ל-S13 — לאחר אימות
+ *          S10/S12, לא כאן.
+ *          תנאי סף: עמודה M = "אושר ידנית" + עמודה L = רפואי + עמודה X לא ריקה.
+ *          קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,W,X + גליון דוגמאות_למידה_S10
+ *          (few-shot, סכימה שטוחה — מקובצת לפי Source_File_ID למסמכים שלמים).
+ *          כתיבה: ניהול_מיילים עמודות M,S,T + יומן_אירועים_רפואי בלבד.
+ *          תלויות: GEMINI_API_KEY (gemini-2.5-flash), Drive API, COLUMN_MAP.gs.
  *          מופעל מהתפריט ומאייקון עמודה O בגליון ניהול_מיילים.
+ * @changes [v2.0.0] Task 185 (בקשת עמוס) — שכתוב ארכיטקטוני: S09 כותב כעת
+ *                   אך ורק ליומן_אירועים_רפואי (S09_TARGET_SHEETS צומצם
+ *                   ליעד יחיד; _s09_writeToSheets — 5 בלוקים הוסרו). קריאת
+ *                   Gemini יחידה במקום פיצול general/blood (_s09_processRow,
+ *                   _s09_callGemini — פרמטר mode הוסר). סכימה יחידה בפרומפט
+ *                   עם Enum סגור לקטגוריית_ניתוב (7 ערכים: בדיקת דם/בדיקה
+ *                   גנטית/מרשם תרופה/מצב רפואי/ניתוח-פעולה רפואית/הנחיה/
+ *                   כללי). כלל פיצול-שורות עודכן פעמיים בהתבסס על בדיקה
+ *                   בפועל: קיבוץ פרטים לפי קטגוריית_ניתוב (לא לפי "החלטה
+ *                   קלינית" גורפת) + דוגמה מוטמעת בפרומפט למקרה הבעייתי
+ *                   שאותר (קביעת כושר עבודה + הגבלה + תוקף → 3 שורות: מצב
+ *                   רפואי, הנחיה, הנחיה — לא שורה אחת ולא 5). S09_LEARNING_SHEET
+ *                   → דוגמאות_למידה_S10 (גליון חדש, שטוח); _s09_fetchFewShotExamples
+ *                   נכתבה מחדש — קוראת buffer של שורות אחרונות, מקבצת לפי
+ *                   Source_File_ID לפירוק-מסמך-שלם (לא שורה בודדת), מציגה
+ *                   ל-Gemini S09_MAX_EXAMPLES מסמכים מלאים כדוגמה. תיקון
+ *                   סטטוס: "חולץ ליומן אירועים" תמיד (ענף "חולץ לגליונות"
+ *                   הוסר — כבר לא רלוונטי עם יעד יחיד).
  * @changes [v1.5.0] [Task 182] Event_Date/תאריכי-שדות לא עקביים ביומן_אירועים_רפואי
  *          (Gemini מחזיר לפעמים DD.MM.YYYY עם נקודות במקום DD/MM/YYYY עם קו נטוי,
  *          למרות הנחיית הפרומפט — Sheets לא מזהה זאת כתאריך אמיתי). תוקן בשתי
@@ -78,20 +100,18 @@
 // ══════════════════════════════════════════════════════════════════
 
 const S09_SOURCE_SHEET    = "ניהול_מיילים";
-const S09_LEARNING_SHEET  = "S10_למידה_רפואי";
+const S09_LEARNING_SHEET  = "דוגמאות_למידה_S10"; // [v2.0.0 — Task 185] גליון חדש, סכימה שטוחה
 const S09_CATEGORIES      = ["רפואי", "מסמך רפואי"];
 const S09_STATUS_TRIGGER = "מאושר";
 const S09_GEMINI_MODEL    = "gemini-2.5-flash";
 const S09_MAX_EXAMPLES    = 5;
 let _s09_lastFailReason = ""; // [v1.4.0 — Task 180] קוד סיבת כשל אחרון מ-_s09_callGemini, ללוג ייעודי
 
+// [v2.0.0 — Task 185] S09 כותב כעת רק ליומן_אירועים_רפואי — 5 היעדים
+// האחרים (תרופות_קבועות/יומן_מצב_רפואי/בדיקות_דם/בדיקות_גנטיות/
+// הנחיות_רפואיות_ומשימות) עוברים ל-S13 (חילוץ עמוק, אחרי אימות S10/S12).
 const S09_TARGET_SHEETS  = {
-  events:       "יומן_אירועים_רפואי",
-  medications:  "תרופות_קבועות",
-  medStatus:    "יומן_מצב_רפואי",
-  bloodTests:   "בדיקות_דם",
-  geneticTests: "בדיקות_גנטיות",
-  instructions: "הנחיות_רפואיות_ומשימות"
+  events: "יומן_אירועים_רפואי"
 };
 
 // ══════════════════════════════════════════════════════════════════
@@ -202,34 +222,23 @@ function _s09_processRow(ss, sheet, row) {
     // [v1.1.0] שליפת דוגמאות למידה מ-S10
     const fewShotExamples = _s09_fetchFewShotExamples(ss);
 
-  const generalResult = _s09_callGemini(txtContent, docData, fewShotExamples, "general");
-    if (!generalResult) {
+    // [v2.0.0 — Task 185] קריאה יחידה בלבד — אין יותר קריאת "blood" נפרדת
+    const result = _s09_callGemini(txtContent, docData, fewShotExamples);
+    if (!result) {
       const failReason = _s09_lastFailReason || "UNKNOWN"; // [v1.4.0 — Task 180]
       _s09_writeError(sheet, row, "PARSE_" + failReason,
-        "Gemini לא החזיר JSON תקין (קריאה כללית) — סיבה: " + failReason);
+        "Gemini לא החזיר JSON תקין — סיבה: " + failReason);
       return { success: false, msg: "❌ שגיאת עיבוד Gemini (" + failReason + ")" };
     }
 
-    const bloodResult = _s09_callGemini(txtContent, docData, fewShotExamples, "blood");
-    const bloodFailed = !bloodResult;
-    const bloodFailReason = bloodFailed ? (_s09_lastFailReason || "UNKNOWN") : ""; // [v1.4.0 — Task 180]
-    const extracted = Object.assign({}, generalResult, {
-      blood_tests: bloodFailed ? [] : (bloodResult.blood_tests || [])
-    });
-    if (bloodFailed) {
-      Logger.log("[S09] שורה " + row + " — קריאת בדיקות דם נכשלה (" + bloodFailReason + "), ממשיך עם שאר הקטגוריות");
-    }
-    const sheetsWritten = _s09_writeToSheets(ss, extracted, docData);
-
-    let statusText = sheetsWritten.length === 1
-      ? "חולץ ל" + sheetsWritten[0]
-      : "חולץ לגליונות";
-
-    if (bloodFailed) statusText = "חילוץ חלקי — בדיקות דם נכשל";
+    // [v2.0.0 — Task 185] כתיבה תמיד ליומן_אירועים_רפואי בלבד — סטטוס קבוע,
+    // אין יותר ענף "חולץ לגליונות" (שהיה רלוונטי כשהיו עד 6 יעדים אפשריים)
+    _s09_writeToSheets(ss, result, docData);
+    const statusText = "חולץ ליומן אירועים";
 
     sheet.getRange(row, 13).setValue(statusText);
-    sheet.getRange(row, 19).setValue(bloodFailed ? "PARSE_PARTIAL" : "");
-    sheet.getRange(row, 20).setValue(bloodFailed ? "קריאה כללית הצליחה, קריאת בדיקות הדם נכשלה (" + bloodFailReason + ") — נדרש אימות ידני ב-S10" : "");
+    sheet.getRange(row, 19).setValue("");
+    sheet.getRange(row, 20).setValue("");
     Logger.log("[S09] שורה " + row + " → " + statusText +
       (fewShotExamples.length > 0 ? " | דוגמאות: " + fewShotExamples.length : " | ללא דוגמאות"));
 
@@ -254,44 +263,58 @@ function _s09_fetchFewShotExamples(ss) {
       return [];
     }
 
-    const lastRow = learnSheet.getLastRow();
-    if (lastRow < 2) {
+    // [v2.0.0 — Task 185] FIRST_DATA_ROW נקרא מ-SHEET_CONFIG (COLUMN_MAP.gs) —
+    // הגליון עם 4 שורות מוגנות, לא 1 כמו בגרסה הישנה
+    const firstData = (SHEET_CONFIG[S09_LEARNING_SHEET] && SHEET_CONFIG[S09_LEARNING_SHEET].FIRST_DATA_ROW) || 2;
+    const lastRow   = learnSheet.getLastRow();
+    if (lastRow < firstData) {
       Logger.log("[S09] גליון למידה ריק — ממשיך ללא דוגמאות");
       return [];
     }
 
-    // שליפת עד S09_MAX_EXAMPLES שורות אחרונות
-    const startRow  = Math.max(2, lastRow - S09_MAX_EXAMPLES + 1);
-    const numRows   = lastRow - startRow + 1;
-    const data      = learnSheet.getRange(startRow, 1, numRows, 7).getValues();
+    // [v2.0.0 — Task 185] סכימה שטוחה — שורה לכל אירוע, לא לכל מסמך.
+    // קוראים buffer גדול מהשורות האחרונות ומקבצים לפי Source_File_ID,
+    // כדי לא לחתוך פירוק של מסמך באמצע (מסמך אחד = עד כמה שורות אירוע).
+    const bufferRows = Math.min(lastRow - firstData + 1, S09_MAX_EXAMPLES * 6);
+    const startRow   = lastRow - bufferRows + 1;
+    const data       = learnSheet.getRange(startRow, 1, bufferRows, 11).getValues();
 
-    const examples = [];
+    const grouped = {}; // Source_File_ID -> { complexity, events: [...] }
+    const order   = [];  // סדר הופעה — לשמירת "המסמכים האחרונים" בסוף
 
     data.forEach(function(row) {
-      const fileId       = (row[0] || "").toString().trim();
-      const splitIndex   = (row[1] || "").toString().trim();
-      const targetSheet  = (row[2] || "").toString().trim();
-      const jsonRaw      = (row[3] || "").toString().trim();
-      const complexity   = (row[4] || "").toString().trim();
-      const correction   = (row[5] || "").toString().trim();
+      const fileId          = (row[0] || "").toString().trim();
+      const eventDate        = (row[2] || "").toString().trim();
+      const eventType         = (row[3] || "").toString().trim();
+      const medicalSystem      = (row[4] || "").toString().trim();
+      const issuer               = (row[5] || "").toString().trim();
+      const summary               = (row[6] || "").toString().trim();
+      const routingCategory        = (row[7] || "").toString().trim();
+      const complexity               = (row[8] || "").toString().trim();
 
-      if (!jsonRaw || !targetSheet) return;
+      if (!fileId || !eventDate) return;
 
-      try {
-        const parsed = JSON.parse(jsonRaw);
-        examples.push({
-          targetSheet: targetSheet,
-          splitIndex:  splitIndex,
-          complexity:  complexity,
-          correction:  correction,
-          data:        parsed
-        });
-      } catch (e) {
-        Logger.log("[S09] לא ניתן לפרסר JSON בדוגמת למידה — fileId: " + fileId);
+      if (!grouped[fileId]) {
+        grouped[fileId] = { complexity: complexity, events: [] };
+        order.push(fileId);
       }
+      grouped[fileId].events.push({
+        "תאריך_אירוע":     eventDate,
+        "סוג_אירוע":       eventType,
+        "מערכת_רפואית":    medicalSystem,
+        "מוסד_רופא":       issuer,
+        "סיכום_ממצא":      summary,
+        "קטגוריית_ניתוב":  routingCategory
+      });
     });
 
-    Logger.log("[S09] נטענו " + examples.length + " דוגמאות למידה מ-" + S09_LEARNING_SHEET);
+    // לוקחים את S09_MAX_EXAMPLES המסמכים (לא שורות) האחרונים
+    const fileIds  = order.slice(-S09_MAX_EXAMPLES);
+    const examples = fileIds.map(function(fid) {
+      return { complexity: grouped[fid].complexity, events: grouped[fid].events };
+    });
+
+    Logger.log("[S09] נטענו " + examples.length + " דוגמאות למידה (מסמכים שלמים) מ-" + S09_LEARNING_SHEET);
     return examples;
 
   } catch (e) {
@@ -307,20 +330,19 @@ function _s09_fetchFewShotExamples(ss) {
 function _s09_buildFewShotBlock(examples) {
   if (!examples || examples.length === 0) return "";
 
-  let block = "\n--- דוגמאות מאומתות מהעבר (למד מהן) ---\n";
+  // [v2.0.0 — Task 185] כל דוגמה = פירוק שלם ומאומת של מסמך אחד למספר
+  // שורות אירוע (בדיוק התבנית שה-Enum/כלל הקיבוץ בפרומפט אמור לשכפל)
+  let block = "\n--- דוגמאות מאומתות מהעבר (למד מהן איך לפרק ולתייג נכון) ---\n";
 
   examples.forEach(function(ex, i) {
-    block += "\nדוגמה " + (i + 1) + " | גליון: " + ex.targetSheet;
+    block += "\nדוגמה " + (i + 1);
     if (ex.complexity) block += " | מורכבות: " + ex.complexity;
-    block += "\n";
-    block += JSON.stringify(ex.data, null, 2) + "\n";
-    if (ex.correction) block += "הערת מאמת: " + ex.correction + "\n";
+    block += "\n" + JSON.stringify({ events: ex.events }, null, 2) + "\n";
   });
 
   block += "--- סוף דוגמאות ---\n";
   return block;
 }
-
 // ══════════════════════════════════════════════════════════════════
 // קריאת קובץ TXT מ-Drive
 // ══════════════════════════════════════════════════════════════════
@@ -349,7 +371,7 @@ function _s09_fetchTxtContent(txtUrl) {
 // קריאת Gemini — חילוץ מובנה + Few-Shot
 // ══════════════════════════════════════════════════════════════════
 
-function _s09_callGemini(txtContent, docData, fewShotExamples, mode) {
+function _s09_callGemini(txtContent, docData, fewShotExamples) {
   let raw = null;
   _s09_lastFailReason = ""; // [v1.4.0 — Task 180]
   try {
@@ -360,24 +382,10 @@ function _s09_callGemini(txtContent, docData, fewShotExamples, mode) {
    // [v1.1.0] בניית בלוק הדוגמאות
     const fewShotBlock = _s09_buildFewShotBlock(fewShotExamples);
 
-    // [Task 68/S09-split] מצב "blood" — סכימה ממוקדת בדיקות דם בלבד,
-    // מונע חריגת maxOutputTokens במסמכים עם פאנל מעבדה נרחב (עשרות
-    // פרמטרים). מצב "general" (ברירת מחדל) — 5 הקטגוריות האחרות.
-    const schemaBlock = (mode === "blood")
-      ? `{
-  "blood_tests": [
-    {
-      "תאריך_בדיקה": "",
-      "שם_בדיקה": "",
-      "קטגוריה": "",
-      "ערך": "",
-      "טווח_נורמה": "",
-      "סטטוס": "",
-      "הערת_רופא": ""
-    }
-  ]
-}`
-      : `{
+    // [v2.0.0 — Task 185] קריאה יחידה, סכימה יחידה — S09 כותב רק אירועים
+    // גנריים ליומן_אירועים_רפואי. פענוח מפורט (תרופות/בדיקות/הנחיות)
+    // עובר ל-S13, אחרי אימות S10/S12. אין יותר פיצול mode="general"/"blood".
+    const schemaBlock = `{
   "events": [
     {
       "תאריך_אירוע": "",
@@ -387,65 +395,35 @@ function _s09_callGemini(txtContent, docData, fewShotExamples, mode) {
       "סיכום_ממצא": "",
       "קטגוריית_ניתוב": ""
     }
-  ],
-  "medical_status": [
-    {
-      "תאריך_אירוע": "",
-      "סוג_אירוע": "",
-      "מערכת_איבר": "",
-      "מוסד_רופא": "",
-      "אבחנה_עיקרית": "",
-      "חומרה_מצב": "",
-      "המלצות_קצרות": "",
-      "סטטוס_רשומה": "חדש"
-    }
-  ],
-  "medications": [
-    {
-      "שם_תרופה": "",
-      "חומר_פעיל": "",
-      "מינון": "",
-      "תדירות": "",
-      "סיבת_טיפול": "",
-      "תאריך_התחלה": "",
-      "תאריך_סיום": "",
-      "סטטוס": "פעיל"
-    }
-  ],
-  "genetic_tests": [
-    {
-      "תאריך_בדיקה": "",
-      "שם_פאנל": "",
-      "גן_וריאנט": "",
-      "ממצא": "",
-      "משמעות_קלינית": "",
-      "המלצה": ""
-    }
-  ],
-  "instructions": [
-    {
-      "תאריך_הנחיה": "",
-      "מקור": "",
-      "תיאור_משימה": "",
-      "סוג_משימה": "",
-      "תאריך_יעד": "",
-      "סטטוס": "פתוח"
-    }
   ]
 }`;
 
-    const rulesBlock = (mode === "blood")
-      ? `כללים:
-- אם אין בדיקות דם במסמך — החזר מערך ריק []
-- תאריכים חובה בפורמט DD/MM/YYYY עם קו נטוי (/) בלבד — לעולם לא עם נקודות (.) או מקפים (-)
-- אל תמציא מידע שאינו במסמך
-- חלץ כל פרמטר בדיקה כרשומה נפרדת, גם אם יש עשרות פרמטרים`
-      : `כללים:
-- אם אין נתונים לקטגוריה מסוימת — החזר מערך ריק []
+    // [v2.0.0 — Task 185] קטגוריית_ניתוב מוגבלת לרשימה סגורה (Enum) —
+    // זהו ה"רמז" היחיד ש-S13 יקבל כדי לדעת לאן לנתב את החילוץ העמוק בעתיד.
+  const rulesBlock = `כללים:
 - events תמיד יכיל לפחות רשומה אחת
+- קבץ פרטים לפי קטגוריית_ניתוב: פרטים ששייכים לאותה קטגוריה מתאחדים לשורה אחת
+- הבחנה חשובה בתוך "מצב רפואי" מול "הנחיה": פרמטרים כמותיים ישירים של
+  הממצא/הקביעה עצמה (כמו אחוז משרה בקביעת כושר עבודה, דרגת חומרה) שייכים
+  ל"מצב רפואי" — לעומת הוראות התנהגות/הגבלה (כמו הימנעות ממגע, איסור נהיגה)
+  ותנאי מעקב/מנהלה (תוקף, מועד ביקורת הבא) ששייכים ל"הנחיה"
+- אם יש כמה תת-נושאים שונים בתוך ה"הנחיות" עצמן (למשל גם הגבלה התנהגותית
+  וגם תוקף/מעקב) — פצל לשורת "הנחיה" נפרדת לכל תת-נושא, אל תאחד את כולם יחד
+
+דוגמה ממחישה:
+מסמך שמכיל: "כשיר לעבודה ב-80% משרה (4 ימים בשבוע). להימנע מחשיפה לקהל.
+תוקף הקביעה 6 חודשים, לחזור לביקורת לפי הצורך" → 3 שורות אירוע:
+1. קטגוריית_ניתוב="מצב רפואי", סיכום_ממצא="כשיר לעבודתו הרגילה. מגבלות: 80%
+   משרה (עד 4 ימים בשבוע)"
+2. קטגוריית_ניתוב="הנחיה", סיכום_ממצא="הימנעות מחשיפה לקהל"
+3. קטגוריית_ניתוב="הנחיה", סיכום_ממצא="תוקף הקביעה: 6 חודשים. לחזור למרפאה
+   לפי הצורך"
+
+- קטגוריית_ניתוב חייבת להיות אחד מהערכים הבאים בדיוק, ללא שינוי או תרגום:
+  "בדיקת דם" | "בדיקה גנטית" | "מרשם תרופה" | "מצב רפואי" | "ניתוח/פעולה רפואית" | "הנחיה" | "כללי"
+- אם אינך בטוח לאיזו קטגוריה שייך הנושא — בחר "כללי"
 - תאריכים חובה בפורמט DD/MM/YYYY עם קו נטוי (/) בלבד — לעולם לא עם נקודות (.) או מקפים (-)
 - אל תמציא מידע שאינו במסמך`;
-
     const prompt = `אתה מומחה לניתוח מסמכים רפואיים בעברית.
 קרא את המסמך הבא וחלץ ממנו מידע רפואי מובנה.
 ${fewShotBlock}
@@ -571,11 +549,9 @@ function _s09_normalizeDate(dateStr) {
 // ══════════════════════════════════════════════════════════════════
 
 function _s09_writeToSheets(ss, extracted, docData) {
-  const sheetsWritten = [];
-  const sourceUrl     = docData.sourceUrl ||
-                        "https://drive.google.com/file/d/" + docData.fileId + "/view";
-
-  // [Task 65 — v1.2.2] תוקן: 7 ערכים מדויקים לפי COLUMN_MAP של "יומן_אירועים_רפואי"
+  // [v2.0.0 — Task 185] נשאר רק בלוק events — 5 הבלוקים האחרים
+  // (medications/medical_status/blood_tests/genetic_tests/instructions)
+  // הוסרו לגמרי. חילוץ מפורט עובר ל-S13, אחרי אימות S10/S12.
   // Event_Date | Event_Type | Medical_System | Issuer | Summary | Routing_Category | File_ID
   if (extracted.events && extracted.events.length > 0) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.events);
@@ -590,105 +566,8 @@ function _s09_writeToSheets(ss, extracted, docData) {
         docData.fileId
       ]);
     });
-    sheetsWritten.push("יומן אירועים");
   }
-
-  if (extracted.medications && extracted.medications.length > 0) {
-    const sheet = ss.getSheetByName(S09_TARGET_SHEETS.medications);
-    extracted.medications.forEach(m => {
-      sheet.appendRow([
-        m["שם_תרופה"]       || "",
-        m["חומר_פעיל"]      || "",
-        m["מינון"]           || "",
-        m["תדירות"]          || "",
-        m["סיבת_טיפול"]     || "",
-        _s09_normalizeDate(m["תאריך_התחלה"]) || "",
-        _s09_normalizeDate(m["תאריך_סיום"]) || "",
-        m["סטטוס"]           || "פעיל",
-        docData.docIssuer,
-        sourceUrl,
-        docData.fileId
-      ]);
-    });
-    sheetsWritten.push("תרופות");
-  }
-
-  if (extracted.medical_status && extracted.medical_status.length > 0) {
-    const sheet = ss.getSheetByName(S09_TARGET_SHEETS.medStatus);
-    extracted.medical_status.forEach(s => {
-      sheet.appendRow([
-        _s09_normalizeDate(s["תאריך_אירוע"]) || docData.docDate,
-        s["סוג_אירוע"]       || "",
-        s["מערכת_איבר"]      || "",
-        s["מוסד_רופא"]       || docData.docIssuer,
-        s["אבחנה_עיקרית"]    || "",
-        s["חומרה_מצב"]       || "",
-        s["המלצות_קצרות"]    || "",
-        sourceUrl,
-        docData.fileId,
-        docData.docIssuer,
-        s["סטטוס_רשומה"]     || "חדש"
-      ]);
-    });
-    sheetsWritten.push("מצב רפואי");
-  }
-
-  if (extracted.blood_tests && extracted.blood_tests.length > 0) {
-    const sheet = ss.getSheetByName(S09_TARGET_SHEETS.bloodTests);
-    extracted.blood_tests.forEach(b => {
-      sheet.appendRow([
-        _s09_normalizeDate(b["תאריך_בדיקה"]) || docData.docDate,
-        b["שם_בדיקה"]     || "",
-        b["קטגוריה"]       || "",
-        b["ערך"]           || "",
-        b["טווח_נורמה"]   || "",
-        b["סטטוס"]         || "",
-        b["הערת_רופא"]    || "",
-        sourceUrl,
-        docData.fileId,
-        docData.docIssuer
-      ]);
-    });
-    sheetsWritten.push("בדיקות דם");
-  }
-
-  if (extracted.genetic_tests && extracted.genetic_tests.length > 0) {
-    const sheet = ss.getSheetByName(S09_TARGET_SHEETS.geneticTests);
-    extracted.genetic_tests.forEach(g => {
-      sheet.appendRow([
-        _s09_normalizeDate(g["תאריך_בדיקה"]) || docData.docDate,
-        g["שם_פאנל"]          || "",
-        g["גן_וריאנט"]        || "",
-        g["ממצא"]              || "",
-        g["משמעות_קלינית"]    || "",
-        g["המלצה"]             || "",
-        sourceUrl,
-        docData.fileId
-      ]);
-    });
-    sheetsWritten.push("בדיקות גנטיות");
-  }
-
-  if (extracted.instructions && extracted.instructions.length > 0) {
-    const sheet = ss.getSheetByName(S09_TARGET_SHEETS.instructions);
-    extracted.instructions.forEach(i => {
-      sheet.appendRow([
-        i["תאריך_הנחיה"]  || docData.docDate,
-        i["מקור"]          || docData.docIssuer,
-        i["תיאור_משימה"]  || "",
-        i["סוג_משימה"]    || "",
-        i["תאריך_יעד"]    || "",
-        i["סטטוס"]         || "פתוח",
-        sourceUrl,
-        docData.fileId
-      ]);
-    });
-    sheetsWritten.push("הנחיות");
-  }
-
-  return sheetsWritten;
 }
-
 // ══════════════════════════════════════════════════════════════════
 // כתיבת שגיאה לעמודות S ו-T
 // ══════════════════════════════════════════════════════════════════
