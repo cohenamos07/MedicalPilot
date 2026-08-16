@@ -1,18 +1,23 @@
 <!--
   MedicalPilot — S10_Sidebar.html
-  @version 1.0.2 | @updated 01/07/2026 20:27 | @service S10
+  @version 1.1.0 | @updated 16/08/2026 21:10 | @service S10
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S10_Sidebar.html
   @description ממשק Dialog לאימות ידני של אירועים רפואיים שחולצו על ידי S09.
-               מציג אירוע מחולץ לעריכה ואישור לפני שמירה לגליונות יעד.
+               מציג אירוע מחולץ (יומן_אירועים_רפואי בלבד, ברמת תת-אירוע)
+               לעריכה ואישור לפני שמירה כדוגמת למידה.
   @impacts כפתורים: אישור, עדכון ולמידה, למידה יזומה, מחיקה.
            תלוי ב: S10_Validate.gs — כל הלוגיקה מתבצעת שם.
   @callers S10_Validate.gs (showS10Sidebar)
   @functions initUI, buildFields, collectFields, switchView,
-             showSourceView, showTxtView, prevSibling, nextSibling,
+             showSourceView, showTxtView, prevSibling, goNextSibling,
              navigateToSibling, prevRow, nextRow, jumpToRow,
              navigateTo, closeDialog, doApprove, doUpdate,
              doLearn, doDelete, handleResult, handleError
-  @changes [v1.0.2] Tasks 15+16 — תיקון @git לAPI URL, המרת "שינוי:" ל-@changes,
+  @changes [v1.1.0] Task 185 (בקשת עמוס) — שינוי שם nextSibling ל-goNextSibling:
+                    "nextSibling" הוא שם תכונת DOM מובנית (Node.nextSibling),
+                    התנגשות שם גרמה ל-TypeError כשנקרא מתוך onclick בתוך תג
+                    הכפתור — באג קיים-מקודם, התגלה רק בבדיקה קצה-לקצה בפועל.
+           [v1.0.2] Tasks 15+16 — תיקון @git לAPI URL, המרת "שינוי:" ל-@changes,
                     הוספת @description/@callers/@functions לכותרת.
            [v1.0.1] הוספת @impacts וכותרת מלאה לפי סטנדרט.
            [v1.0.0] גרסה ראשונה.
@@ -410,7 +415,7 @@
       <span style="font-size:10px; opacity:0.8;">אירוע:</span>
       <button class="nav-btn" id="btnSiblingPrev" title="אירוע קודם" onclick="prevSibling()">◀</button>
       <span class="split-label" id="splitLabel">—</span>
-      <button class="nav-btn" id="btnSiblingNext" title="אירוע הבא" onclick="nextSibling()">▶</button>
+    <button class="nav-btn" id="btnSiblingNext" title="אירוע הבא" onclick="goNextSibling()">▶</button>
     </div>
 
     <!-- ניווט מסמכים (שורות) -->
@@ -704,7 +709,10 @@
     if (targetRow) navigateToSibling(targetRow);
   }
 
-  function nextSibling() {
+  // [Task 185] שונה שם מ-nextSibling ל-goNextSibling — "nextSibling" הוא שם
+  // תכונת DOM מובנית (Node.nextSibling), והתנגשות שם גרמה ל-TypeError
+  // כשנקרא מתוך onclick בתוך תג הכפתור (הפונקציה הגלובלית לא הייתה נגישה).
+  function goNextSibling() {
     if (SPLIT_X >= SIBLING_ROWS.length) return;
     var targetRow = SIBLING_ROWS[SPLIT_X];
     if (targetRow) navigateToSibling(targetRow);
