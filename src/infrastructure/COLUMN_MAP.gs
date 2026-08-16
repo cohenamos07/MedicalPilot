@@ -1,15 +1,21 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.9.3 | @updated 16/07/2026 13:30 | @service COLUMN_MAP
+ * @version 2.9.4 | @updated 16/08/2026 15:40 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
  *          יומן_אירועים_רפואי (7 עמודות).
+ *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (11), בדיקות_דם (10),
+ *          בדיקות_גנטיות (8), הנחיות_רפואיות_ומשימות (8) — 5 גליונות יעד של S09,
+ *          נוספו ל-SHEET_CONFIG/SHEETS_MAP עם כותרות באנגלית, יושרו בפועל
+ *          לתקן 4-השורות המוגן (Task 183/184).
  *          תלויים ישירים: S03 (A-H), S05 (M,O,P,R,S,T), S06 (M,O,P,Q,S,T,X,Y,Z),
  *          S07 (I,J,K,L,M,N,Q,R,S,T), S08 (I,J,K,L,M,U), S09 (גיליון S10),
- *          S09 (יומן_אירועים_רפואי A-G).
+ *          S09 (יומן_אירועים_רפואי A-G, ו-5 גליונות היעד לעיל).
  *          שינוי מספר עמודה = שבירת כל שירות שכותב אליה — לא לשנות ללא בדיקת כל התלויים.
  *          פונקציות printSheetMap, restoreHeaders, checkWritePermissions — כלי אבחון ידני בלבד.
+ *          restoreHeaders() אינה ניתנת להרצה ישירה מהעורך (getUi()) — לגליונות היעד
+ *          החדשים בוצע עדכון ידני חד-פעמי דרך QA_Tests.gs (ראה שם).
  * @callers System_Doc_Builder (buildSheetFromMap, buildMedicalEventsSheet), ViewEngine (restoreHeaders),
  *          כל שירותי ה-Pipeline
  * @functions SHEET_CONFIG, SHEETS_MAP, SHEETS_DEFAULT_DATA,
@@ -17,7 +23,18 @@
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol
- * @changes [v2.9.3] Task 155(א) (בקשת עמוס) — עמודה 22 (V) ב-"ניהול_מיילים"
+ * @changes [v2.9.4] Task 183/184 (בקשת עמוס) — רול-בק מלא: איפוס 20 שורות
+ *                   ב-ניהול_מיילים (לא 6 כפי שהוערך תחילה — אומת מול הנתונים
+ *                   החיים) לסטטוס "מאושר", וניקוי מלא של 6 הגליונות הנלווים
+ *                   (כולל יומן_אירועים_רפואי). בהמשך: רישום 5 גליונות היעד של S09
+ *                   (תרופות_קבועות, יומן_מצב_רפואי, בדיקות_דם, בדיקות_גנטיות,
+ *                   הנחיות_רפואיות_ומשימות) ב-SHEET_CONFIG וב-SHEETS_MAP —
+ *                   FROZEN_ROWS:4/HEADER_ROW:4/FIRST_DATA_ROW:5, עם שמות עמודה
+ *                   באנגלית (החלטה חדשה — כל הגליונות מתוקננים לאנגלית, לא רק
+ *                   ניהול_מיילים/יומן_אירועים_רפואי). תוקן גם פער תיעוד קיים:
+ *                   עמודה J בבדיקות_דם ("Doc_Issuer") נכתבה בפועל ע"י S09 אך
+ *                   הייתה חסרת כותרת בגליון החי. היישום בפועל בגליונות בוצע דרך
+ *                   שתי פונקציות חד-פעמיות
  *                   יצאה משימוש "שמור לעתיד" — משמשת כעת כ-QA_Dismiss_Note:
  *                   סימון ידני של דחיית חשד QA (כפול/לוגו-ריק/טקסט-פגום),
  *                   נכתבת ע"י S08 (s08_cancelDuplicateFlag ודומיו), נקראת
@@ -92,6 +109,39 @@ const SHEET_CONFIG = {
     FROZEN_ROWS:    4,  // שורות 1-4 מוקפאות — לא לגעת בקוד
     HEADER_ROW:     4,  // שורת כותרות
     FIRST_DATA_ROW: 5   // שורת נתונים ראשונה — כל לולאה מתחילה כאן
+  },
+  // [Task 184] 5 גליונות יעד של S09 — יושרו לתקן 4-השורות המוגן
+  "תרופות_קבועות": {
+    FROZEN_ROWS:    4,
+    HEADER_ROW:     4,
+    FIRST_DATA_ROW: 5
+  },
+  "יומן_מצב_רפואי": {
+    FROZEN_ROWS:    4,
+    HEADER_ROW:     4,
+    FIRST_DATA_ROW: 5
+  },
+  "בדיקות_דם": {
+    FROZEN_ROWS:    4,
+    HEADER_ROW:     4,
+    FIRST_DATA_ROW: 5
+  },
+  "בדיקות_גנטיות": {
+    FROZEN_ROWS:    4,
+    HEADER_ROW:     4,
+    FIRST_DATA_ROW: 5
+  },
+  "הנחיות_רפואיות_ומשימות": {
+    FROZEN_ROWS:    4,
+    HEADER_ROW:     4,
+    FIRST_DATA_ROW: 5
+  },
+  // [Task 185] גליון למידה חדש ל-S10 — שורה אחת לכל אירוע (לא לכל מסמך),
+  // מחליף בפועל את S10_למידה_רפואי הישן (נשאר יתום, לא נמחק אוטומטית)
+  "דוגמאות_למידה_S10": {
+    FROZEN_ROWS:    4,
+    HEADER_ROW:     4,
+    FIRST_DATA_ROW: 5
   }
 };
 
@@ -135,7 +185,83 @@ const SHEETS_MAP = {
     { col: 4, name: "Issuer",            zone: "אירוע",  writers: ["S09"], readers: ["S10"], values: "טקסט חופשי",          notes: "מוסד / רופא מנפיק — זהה ל-Doc_Issuer בניהול_מיילים" },
     { col: 5, name: "Summary",           zone: "תוכן",   writers: ["S09"], readers: ["S10"], values: "טקסט חופשי — ארוך",  notes: "סיכום ממצא — טקסט דינמי וארוך — עמודה E במכוון בסוף הגלויות" },
     { col: 6, name: "Routing_Category",  zone: "טכני",   writers: ["S09"], readers: ["S10"], values: "טקסט חופשי",          notes: "קטגוריית ניתוב — לאיזה גליון יעד נוסף המידע" },
-    { col: 7, name: "File_ID",           zone: "טכני",   writers: ["S09"], readers: ["S10"], values: "Drive ID",             notes: "מזהה קובץ מקורי — מפתח מקשר חזרה לניהול_מיילים — זהה לעמודה A שם" }
+   { col: 7, name: "File_ID",           zone: "טכני",   writers: ["S09"], readers: ["S10"], values: "Drive ID",             notes: "מזהה קובץ מקורי — מפתח מקשר חזרה לניהול_מיילים — זהה לעמודה A שם" },
+    // [Task 185] 2 עמודות סטטוס חדשות — ברמת תת-האירוע (שורה בודדת), לא
+    // ברמת המסמך כולו. Validation_Status נכתב ע"י S10 (אישור/עדכון/למידה
+    // יזומה — שלושתם). Extraction_Status ייכתב ע"י S13 (עתידי) אחרי כתיבה
+    // מוצלחת של השורה הזו לגליון היעד שלה.
+    { col: 8, name: "Validation_Status",  zone: "טכני",   writers: ["S10"], readers: ["S12","S13"], values: "מאומת",           notes: "ריק=ממתין לאימות S10 | \"מאומת\"=עבר אישור/עדכון/למידה" },
+    { col: 9, name: "Extraction_Status",  zone: "טכני",   writers: ["S13"], readers: [],            values: "חולץ",             notes: "ריק=ממתין לחילוץ S13 | \"חולץ\"=נכתב בהצלחה לגליון היעד שלו" }
+  ],
+
+  // [Task 184] גליון יעד — תרופות קבועות שחולצו ע"י S09 (כותרות אנגלית)
+
+  // [Task 184] גליון יעד — תרופות קבועות שחולצו ע"י S09 (כותרות אנגלית)
+  "תרופות_קבועות": [
+    { col: 1,  name: "Drug_Name",         zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",        notes: "שם מסחרי של התרופה" },
+    { col: 2,  name: "Active_Ingredient", zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",        notes: "החומר הפעיל, אם צוין במסמך" },
+    { col: 3,  name: "Dosage",            zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",        notes: "לדוגמה: 25 mg" },
+    { col: 4,  name: "Frequency",         zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",        notes: "לדוגמה: 1 ביום" },
+    { col: 5,  name: "Treatment_Reason",  zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",        notes: "האבחנה/הסיבה למרשם" },
+    { col: 6,  name: "Start_Date",        zone: "אירוע", writers: ["S09"], readers: [], values: "תאריך DD/MM/YYYY",  notes: "אם צוין במסמך" },
+    { col: 7,  name: "End_Date",          zone: "אירוע", writers: ["S09"], readers: [], values: "תאריך DD/MM/YYYY",  notes: "אם צוין במסמך" },
+    { col: 8,  name: "Status",            zone: "אירוע", writers: ["S09"], readers: [], values: "פעיל|הופסק",        notes: "ברירת מחדל: פעיל" },
+    { col: 9,  name: "Doc_Issuer",        zone: "טכני",  writers: ["S09"], readers: [], values: "טקסט חופשי",        notes: "מנפיק המסמך — docIssuer" },
+    { col: 10, name: "Source_URL",        zone: "טכני",  writers: ["S09"], readers: [], values: "https://drive.google.com/...", notes: "קישור לקובץ המקור" },
+    { col: 11, name: "File_ID",           zone: "טכני",  writers: ["S09"], readers: [], values: "Drive ID",          notes: "מזהה קובץ מקורי — מפתח מקשר חזרה לניהול_מיילים" }
+  ],
+
+  // [Task 184] גליון יעד — מצב רפואי (medical_status) שחולץ ע"י S09 (כותרות אנגלית)
+  "יומן_מצב_רפואי": [
+    { col: 1,  name: "Event_Date",         zone: "אירוע", writers: ["S09"], readers: [], values: "תאריך DD/MM/YYYY", notes: "מהמסמך או תאריך המסמך כברירת מחדל" },
+    { col: 2,  name: "Event_Type",         zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 3,  name: "Medical_System",     zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 4,  name: "Issuer",             zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 5,  name: "Primary_Diagnosis",  zone: "תוכן",  writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 6,  name: "Severity_Status",    zone: "תוכן",  writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 7,  name: "Recommendations",    zone: "תוכן",  writers: ["S09"], readers: [], values: "טקסט חופשי — ארוך", notes: "מקור MAX_TOKENS ב-Task 180" },
+    { col: 8,  name: "Source_URL",         zone: "טכני",  writers: ["S09"], readers: [], values: "https://drive.google.com/...", notes: "" },
+    { col: 9,  name: "File_ID",            zone: "טכני",  writers: ["S09"], readers: [], values: "Drive ID",          notes: "" },
+    { col: 10, name: "Doc_Issuer",         zone: "טכני",  writers: ["S09"], readers: [], values: "טקסט חופשי",        notes: "docIssuer" },
+    { col: 11, name: "Record_Status",      zone: "טכני",  writers: ["S09"], readers: [], values: "חדש",               notes: "" }
+  ],
+
+  // [Task 184] גליון יעד — בדיקות דם שחולצו ע"י S09 (כותרות אנגלית)
+  "בדיקות_דם": [
+    { col: 1,  name: "Test_Date",     zone: "אירוע", writers: ["S09"], readers: [], values: "תאריך DD/MM/YYYY", notes: "" },
+    { col: 2,  name: "Test_Name",     zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "לדוגמה: WBC, HB" },
+    { col: 3,  name: "Category",      zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "לדוגמה: המטולוגיה" },
+    { col: 4,  name: "Value",         zone: "תוכן",  writers: ["S09"], readers: [], values: "מספר/טקסט",        notes: "" },
+    { col: 5,  name: "Normal_Range",  zone: "תוכן",  writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 6,  name: "Status",        zone: "תוכן",  writers: ["S09"], readers: [], values: "תקין|גבוה|נמוך|לא תקין", notes: "" },
+    { col: 7,  name: "Doctor_Note",   zone: "תוכן",  writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 8,  name: "Source_URL",    zone: "טכני",  writers: ["S09"], readers: [], values: "https://drive.google.com/...", notes: "" },
+    { col: 9,  name: "File_ID",       zone: "טכני",  writers: ["S09"], readers: [], values: "Drive ID",          notes: "" },
+    { col: 10, name: "Doc_Issuer",    zone: "טכני",  writers: ["S09"], readers: [], values: "טקסט חופשי",        notes: "docIssuer — [Task 184] תוקן: הייתה חסרת כותרת בגליון החי" }
+  ],
+
+  // [Task 184] גליון יעד — בדיקות גנטיות שחולצו ע"י S09 (כותרות אנגלית)
+  "בדיקות_גנטיות": [
+    { col: 1, name: "Test_Date",              zone: "אירוע", writers: ["S09"], readers: [], values: "תאריך DD/MM/YYYY", notes: "" },
+    { col: 2, name: "Panel_Name",             zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "לדוגמה: נוטריגנטי" },
+    { col: 3, name: "Gene_Variant",           zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 4, name: "Finding",                zone: "תוכן",  writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 5, name: "Clinical_Significance",  zone: "תוכן",  writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 6, name: "Recommendation",         zone: "תוכן",  writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 7, name: "Source_URL",             zone: "טכני",  writers: ["S09"], readers: [], values: "https://drive.google.com/...", notes: "" },
+    { col: 8, name: "File_ID",                zone: "טכני",  writers: ["S09"], readers: [], values: "Drive ID",          notes: "" }
+  ],
+
+  // [Task 184] גליון יעד — הנחיות ומשימות שחולצו ע"י S09 (כותרות אנגלית)
+  "הנחיות_רפואיות_ומשימות": [
+    { col: 1, name: "Instruction_Date",  zone: "אירוע", writers: ["S09"], readers: [], values: "תאריך DD/MM/YYYY", notes: "" },
+    { col: 2, name: "Doc_Issuer",        zone: "אירוע", writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "מנפיק — docIssuer" },
+    { col: 3, name: "Task_Description",  zone: "תוכן",  writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 4, name: "Task_Type",         zone: "תוכן",  writers: ["S09"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 5, name: "Due_Date",          zone: "תוכן",  writers: ["S09"], readers: [], values: "תאריך DD/MM/YYYY", notes: "" },
+    { col: 6, name: "Status",            zone: "תוכן",  writers: ["S09"], readers: [], values: "פתוח|בוצע",        notes: "" },
+    { col: 7, name: "Source_URL",        zone: "טכני",  writers: ["S09"], readers: [], values: "https://drive.google.com/...", notes: "" },
+    { col: 8, name: "File_ID",           zone: "טכני",  writers: ["S09"], readers: [], values: "Drive ID",          notes: "" }
   ],
 
   "דוגמאות_למידה": [
@@ -159,6 +285,23 @@ const SHEETS_MAP = {
     { col: 5, name: "Complexity_Level",     zone: "תוכן",   writers: ["S10"], readers: ["S09"], values: "1|2|3|4|5",          notes: "רמת מורכבות האירוע 1=פשוט, 5=מורכב מאוד" },
     { col: 6, name: "User_Correction_Note", zone: "תוכן",   writers: ["S10"], readers: ["S09"], values: "טקסט חופשי",         notes: "הסבר המשתמש לתיקון — מה Gemini טעה ולמה" },
     { col: 7, name: "Timestamp",            zone: "טכני",   writers: ["S10"], readers: [],      values: "תאריך ושעה",         notes: "מועד אימות האירוע" }
+  ],
+
+  // [Task 185] גליון למידה חדש — שורה אחת לכל אירוע (לא לכל מסמך), מאפשר
+  // סינון/קיבוץ לפי Source_File_ID (מסמך) או Routing_Category (קטגוריה).
+  // מחליף בפועל את S10_למידה_רפואי לעיל.
+  "דוגמאות_למידה_S10": [
+    { col: 1,  name: "Source_File_ID",       zone: "מפתח",  writers: ["S10"], readers: ["S09"], values: "Drive ID",           notes: "מזהה קובץ המקור — מפתח קיבוץ: כל השורות עם אותו מזהה = פירוק אחד שלם של מסמך אחד" },
+    { col: 2,  name: "Event_Index",          zone: "מפתח",  writers: ["S10"], readers: ["S09"], values: "מספר שלם",           notes: "סדר האירוע בתוך אותו מסמך (1, 2, 3...) — לשחזור סדר מקורי" },
+    { col: 3,  name: "Event_Date",           zone: "תוכן",  writers: ["S10"], readers: ["S09"], values: "תאריך DD/MM/YYYY",   notes: "" },
+    { col: 4,  name: "Event_Type",           zone: "תוכן",  writers: ["S10"], readers: ["S09"], values: "טקסט חופשי",         notes: "" },
+    { col: 5,  name: "Medical_System",       zone: "תוכן",  writers: ["S10"], readers: ["S09"], values: "טקסט חופשי",         notes: "" },
+    { col: 6,  name: "Issuer",               zone: "תוכן",  writers: ["S10"], readers: ["S09"], values: "טקסט חופשי",         notes: "" },
+    { col: 7,  name: "Summary",              zone: "תוכן",  writers: ["S10"], readers: ["S09"], values: "טקסט חופשי",         notes: "כולל כל הפרטים המקובצים לאותו נושא — ראה כלל הקיבוץ בפרומפט S09" },
+    { col: 8,  name: "Routing_Category",     zone: "מפתח",  writers: ["S10"], readers: ["S09"], values: "בדיקת דם|בדיקה גנטית|מרשם תרופה|מצב רפואי|ניתוח/פעולה רפואית|הנחיה|כללי", notes: "מפתח סינון/פיצול — עמודה רגילה, ניתנת ל-Filter/Pivot" },
+    { col: 9,  name: "Complexity_Level",     zone: "תוכן",  writers: ["S10"], readers: ["S09"], values: "1|2|3|4|5",          notes: "רמת מורכבות המסמך כולו 1=פשוט, 5=מורכב מאוד" },
+    { col: 10, name: "User_Correction_Note", zone: "תוכן",  writers: ["S10"], readers: ["S09"], values: "טקסט חופשי",         notes: "הסבר המשתמש לתיקון — מה Gemini טעה ולמה (למשל: פיצול/איחוד שגוי)" },
+    { col: 11, name: "Timestamp",            zone: "טכני",  writers: ["S10"], readers: [],      values: "תאריך ושעה",         notes: "מועד אימות האירוע" }
   ],
 
   "מנהל_משאבים": [
