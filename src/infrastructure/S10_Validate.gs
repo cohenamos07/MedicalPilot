@@ -1,20 +1,35 @@
 /**
  * MedicalPilot — S10_Validate.gs
- * @version 1.1.0 | @updated 01/07/2026 13:05 | @service S10
+ * @version 2.0.0 | @updated 16/08/2026 21:10 | @service S10
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S10_Validate.gs
  * @description אימות ידני ולמידה של אירועים רפואיים שחולצו על ידי S09.
- *              פותח Sidebar לעריכה, אישור ולמידה של שדות מחולצים.
- * @impacts קריאה: גליונות יעד של S09 + ניהול_מיילים (TXT_URL לפי File_ID).
- *          כתיבה: S10_למידה_רפואי + גליון היעד הפעיל (עדכון שדות).
+ *              פותח Dialog לעריכה, אישור ולמידה של שדות מחולצים —
+ *              עובד כעת אך ורק על יומן_אירועים_רפואי, ברמת תת-אירוע (שורה בודדת).
+ * @impacts קריאה: יומן_אירועים_רפואי בלבד (5 היעדים האחרים של S09 הוסרו — Task 185).
+ *          כתיבה: דוגמאות_למידה_S10 (סכימה שטוחה, שורה לכל אירוע) +
+ *          עמודה H (Validation_Status="מאומת") ביומן_אירועים_רפואי, ברמת
+ *          השורה הבודדת בלבד — לא ברמת כל האירועים של אותו מסמך.
  *          תלויות: S10_Sidebar.html, COLUMN_MAP.gs.
- *          מופעל מהתפריט — ממשק Dialog לעריכה ואישור אירועים.
- * @callers ViewEngine.gs (עמודה P), Menu_PROD.gs
+ *          מופעל מהכפתור "[ S10 אימות ]" בגליון יומן_אירועים_רפואי (ViewEngine.gs).
+ * @callers ViewEngine.gs (runS10ViewIconEvents), Menu_PROD.gs
  * @functions showS10Sidebar, _s10_buildPayload, _s10_calcSplitIndex,
  *            _s10_fetchTxtUrl, s10_loadRowData, s10_loadRowByNumber,
  *            s10_loadSiblingRow, s10_fetchTxtContent, s10_approve,
  *            s10_updateAndLearn, s10_learnOnly, s10_delete,
- *            _s10_saveToLearning, _s10_getCurrentPayload
- * @changes [v1.1.0] Task 67 — הוספת אימות שדות חובה ב-s10_approve (שכבה ב):
+ *            _s10_fieldValue, _s10_saveToLearning, _s10_getCurrentPayload
+ * @changes [v2.0.0] Task 185 (בקשת עמוס) — התאמה מלאה לארכיטקטורה החדשה:
+ *                   S10_SHEET_CONFIG צומצם ליומן_אירועים_רפואי בלבד + שדה
+ *                   Routing_Category נוסף לאימות (היה חסר). S10_LEARNING_SHEET
+ *                   → דוגמאות_למידה_S10 (גליון חדש, שטוח). _s10_saveToLearning
+ *                   נכתב מחדש לסכימה השטוחה (Event_Index במקום Split_Index/
+ *                   Target_Sheet/Extracted_Data_JSON). תוקן באג קיים-מקודם
+ *                   (לא קשור לשינוי הארכיטקטוני): s10_loadRowData/
+ *                   s10_loadRowByNumber החזירו עטיפה {success,payload} בעוד
+ *                   ה-JS מצפה ל-payload ישירות — גרם ל"undefined/9999" ולשדות
+ *                   ריקים בטעינה. הוספת validationStatusCol=8 ל-3 הכפתורים
+ *                   (approve/updateAndLearn/learnOnly) — כותבים "מאומת" ברמת
+ *                   השורה הבודדת בלבד, לא ברמת המסמך כולו.
+ *          [v1.1.0] Task 67 — הוספת אימות שדות חובה ב-s10_approve (שכבה ב):
  *                   בדיקת מילוי כל שדות הגליון הפעיל לפי S10_SHEET_CONFIG לפני אישור.
  *                   Tasks 17+18+19 — תיקון @git לAPI URL, המרת "שינוי:" ל-@changes,
  *                   הוספת @description/@callers/@functions לכותרת.
@@ -28,93 +43,29 @@
 // קבועים
 // ══════════════════════════════════════════════════════════════════
 
-const S10_LEARNING_SHEET  = "S10_למידה_רפואי";
+const S10_LEARNING_SHEET  = "דוגמאות_למידה_S10"; // [v2.0.0 — Task 185] גליון חדש, סכימה שטוחה
 const S10_SOURCE_SHEET    = "ניהול_מיילים";
 
 // מבנה כל גליון יעד:
 // fileIdCol  — עמודת File_ID בגליון
 // sourceCol  — עמודת Source_URL בגליון
 // fields     — שדות הניתנים לאימות ועריכה: { label, col }
+// [v2.0.0 — Task 185] S09 כותב כעת רק ל-יומן_אירועים_רפואי — 5 הקונפיגורציות
+// האחרות (תרופות_קבועות/יומן_מצב_רפואי/בדיקות_דם/בדיקות_גנטיות/
+// הנחיות_רפואיות_ומשימות) הוסרו — S09 כבר לא כותב אליהן, יאוכלסו ע"י S13.
 const S10_SHEET_CONFIG = {
   "יומן_אירועים_רפואי": {
     icon:      "🏥",
     fileIdCol: 7,
     sourceCol: 6,
+    validationStatusCol: 8, // [Task 185] Validation_Status — נכתב ב-approve/updateAndLearn/learnOnly
     fields: [
-      { label: "תאריך אירוע",  col: 1 },
-      { label: "סוג אירוע",    col: 2 },
-      { label: "מערכת רפואית", col: 3 },
-      { label: "מוסד / רופא",  col: 4 },
-      { label: "סיכום ממצא",   col: 5 }
-    ]
-  },
-  "תרופות_קבועות": {
-    icon:      "💊",
-    fileIdCol: 11,
-    sourceCol: 10,
-    fields: [
-      { label: "שם תרופה",      col: 1 },
-      { label: "חומר פעיל",     col: 2 },
-      { label: "מינון",          col: 3 },
-      { label: "תדירות",         col: 4 },
-      { label: "סיבת טיפול",    col: 5 },
-      { label: "תאריך התחלה",   col: 6 },
-      { label: "תאריך סיום",    col: 7 },
-      { label: "סטטוס",          col: 8 }
-    ]
-  },
-  "יומן_מצב_רפואי": {
-    icon:      "📋",
-    fileIdCol: 9,
-    sourceCol: 8,
-    fields: [
-      { label: "תאריך אירוע",    col: 1 },
-      { label: "סוג אירוע",      col: 2 },
-      { label: "מערכת / איבר",   col: 3 },
-      { label: "מוסד / רופא",    col: 4 },
-      { label: "אבחנה עיקרית",   col: 5 },
-      { label: "חומרת מצב",      col: 6 },
-      { label: "המלצות קצרות",   col: 7 }
-    ]
-  },
-  "בדיקות_דם": {
-    icon:      "🩸",
-    fileIdCol: 9,
-    sourceCol: 8,
-    fields: [
-      { label: "תאריך בדיקה",  col: 1 },
-      { label: "שם בדיקה",     col: 2 },
-      { label: "קטגוריה",       col: 3 },
-      { label: "ערך",           col: 4 },
-      { label: "טווח נורמה",   col: 5 },
-      { label: "סטטוס",         col: 6 },
-      { label: "הערת רופא",    col: 7 }
-    ]
-  },
-  "בדיקות_גנטיות": {
-    icon:      "🧬",
-    fileIdCol: 8,
-    sourceCol: 7,
-    fields: [
-      { label: "תאריך בדיקה",    col: 1 },
-      { label: "שם פאנל",        col: 2 },
-      { label: "גן / וריאנט",    col: 3 },
-      { label: "ממצא",            col: 4 },
-      { label: "משמעות קלינית",  col: 5 },
-      { label: "המלצה",           col: 6 }
-    ]
-  },
-  "הנחיות_רפואיות_ומשימות": {
-    icon:      "📌",
-    fileIdCol: 8,
-    sourceCol: 7,
-    fields: [
-      { label: "תאריך הנחיה",  col: 1 },
-      { label: "מקור",          col: 2 },
-      { label: "תיאור משימה",  col: 3 },
-      { label: "סוג משימה",    col: 4 },
-      { label: "תאריך יעד",    col: 5 },
-      { label: "סטטוס",         col: 6 }
+      { label: "תאריך אירוע",     col: 1 },
+      { label: "סוג אירוע",       col: 2 },
+      { label: "מערכת רפואית",    col: 3 },
+      { label: "מוסד / רופא",     col: 4 },
+      { label: "סיכום ממצא",      col: 5 },
+      { label: "קטגוריית ניתוב",  col: 6 }
     ]
   }
 };
@@ -291,11 +242,14 @@ function _s10_fetchTxtUrl(ss, fileId) {
 function s10_loadRowData() {
   try {
     const payload = _s10_getCurrentPayload();
-    if (!payload) return { success: false, msg: "❌ לא נמצא payload" };
-    return { success: true, payload: payload };
+    // [Task 185] תיקון חוזה — ה-JS (window.onload) מצפה ל-payload ישירות,
+    // לא לעטיפה {success,payload}. זו הייתה תקלה קיימת מקודם, לא קשורה
+    // לשינויי הארכיטקטורה — התגלתה רק כשנבדק הדיאלוג קצה-לקצה בפועל.
+    if (!payload) return { error: true, msg: "❌ לא נמצא payload" };
+    return payload;
   } catch (e) {
     Logger.log("[S10] s10_loadRowData שגיאה: " + e.message);
-    return { success: false, msg: "❌ שגיאה: " + e.message };
+    return { error: true, msg: "❌ שגיאה: " + e.message };
   }
 }
 
@@ -306,27 +260,27 @@ function s10_loadRowData() {
 function s10_loadRowByNumber(row) {
   try {
     const payload = _s10_getCurrentPayload();
-    if (!payload) return { success: false, msg: "❌ לא נמצא payload" };
+    if (!payload) return { error: true, msg: "❌ לא נמצא payload" };
 
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(payload.sheetName);
-    if (!sheet) return { success: false, msg: "❌ גליון לא נמצא: " + payload.sheetName };
+    if (!sheet) return { error: true, msg: "❌ גליון לא נמצא: " + payload.sheetName };
 
     const newPayload = _s10_buildPayload(ss, sheet, payload.sheetName, row);
-    if (!newPayload) return { success: false, msg: "❌ לא ניתן לטעון שורה " + row };
+    if (!newPayload) return { error: true, msg: "❌ לא ניתן לטעון שורה " + row };
 
     PropertiesService.getScriptProperties().setProperty(
       "S10_CURRENT_PAYLOAD",
       JSON.stringify(newPayload)
     );
 
-    return { success: true, payload: newPayload };
+    // [Task 185] תיקון חוזה — payload ישירות, ראה הערה למעלה
+    return newPayload;
   } catch (e) {
     Logger.log("[S10] s10_loadRowByNumber שגיאה: " + e.message);
-    return { success: false, msg: "❌ שגיאה: " + e.message };
+    return { error: true, msg: "❌ שגיאה: " + e.message };
   }
 }
-
 // ══════════════════════════════════════════════════════════════════
 // טעינת שורת אח — ניווט בין שורות של אותו File_ID
 // ══════════════════════════════════════════════════════════════════
@@ -386,6 +340,11 @@ function s10_approve(row) {
       };
     }
 
+   // [Task 185] סימון Validation_Status="מאומת" — ברמת השורה הזו בלבד
+    if (config && config.validationStatusCol) {
+      sheet.getRange(row, config.validationStatusCol).setValue("מאומת");
+    }
+
     Logger.log("[S10] אישור שורה " + row + " בגליון " + payload.sheetName);
     return { success: true, msg: "✅ האירוע אושר בהצלחה" };
 
@@ -414,9 +373,15 @@ function s10_updateAndLearn(row, fieldsJson, complexityLevel, correctionNote) {
       sheet.getRange(row, f.col).setValue(f.value || "");
     });
 
-    // שמירה לגליון למידה
+    // [Task 185] סימון Validation_Status="מאומת" — ברמת השורה הזו בלבד
+    const config = S10_SHEET_CONFIG[payload.sheetName];
+    if (config && config.validationStatusCol) {
+      sheet.getRange(row, config.validationStatusCol).setValue("מאומת");
+    }
+
+    // [v2.0.0 — Task 185] שמירה לגליון למידה החדש — לפי fileId + Event_Index
     const learnResult = _s10_saveToLearning(
-      payload.sheetName, payload.fileId, payload.splitLabel,
+      payload.fileId, payload.splitX,
       fieldsJson, complexityLevel, correctionNote
     );
 
@@ -443,11 +408,19 @@ function s10_updateAndLearn(row, fieldsJson, complexityLevel, correctionNote) {
 
 function s10_learnOnly(row, fieldsJson, complexityLevel, correctionNote) {
   try {
+    const ss      = SpreadsheetApp.getActiveSpreadsheet();
     const payload = _s10_getCurrentPayload();
     if (!payload) return { success: false, msg: "❌ לא נמצא payload" };
 
+    // [Task 185] סימון Validation_Status="מאומת" — למידה-יזומה = בדקת
+    // ואישרת את השורה כפי שהיא, גם בלי לתקן שדות
+    const sheet  = ss.getSheetByName(payload.sheetName);
+    const config = S10_SHEET_CONFIG[payload.sheetName];
+    if (sheet && config && config.validationStatusCol) {
+      sheet.getRange(row, config.validationStatusCol).setValue("מאומת");
+    }
     const learnResult = _s10_saveToLearning(
-      payload.sheetName, payload.fileId, payload.splitLabel,
+      payload.fileId, payload.splitX,
       fieldsJson, complexityLevel, correctionNote
     );
 
@@ -493,31 +466,46 @@ function s10_delete(row) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// שמירה לגליון S10_למידה_רפואי — עם בדיקת כפילות
+// [v2.0.0 — Task 185] פונקציית עזר — שליפת ערך שדה לפי label
 // ══════════════════════════════════════════════════════════════════
 
-function _s10_saveToLearning(sheetName, fileId, splitLabel, fieldsJson, complexityLevel, correctionNote) {
+function _s10_fieldValue(fields, label) {
+  const f = fields.find(function(x) { return x.label === label; });
+  return f ? (f.value || "") : "";
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v2.0.0 — Task 185] שמירה לגליון דוגמאות_למידה_S10 — סכימה שטוחה,
+// שורה אחת לכל אירוע — עם בדיקת כפילות לפי Source_File_ID + Event_Index
+// ══════════════════════════════════════════════════════════════════
+
+function _s10_saveToLearning(fileId, eventIndex, fieldsJson, complexityLevel, correctionNote) {
   try {
     const ss          = SpreadsheetApp.getActiveSpreadsheet();
     const learnSheet  = ss.getSheetByName(S10_LEARNING_SHEET);
 
     if (!learnSheet) {
-      return { success: false, msg: "❌ גליון '" + S10_LEARNING_SHEET + "' לא נמצא — הרץ buildS10LearningSheet תחילה" };
+      return { success: false, msg: "❌ גליון '" + S10_LEARNING_SHEET + "' לא נמצא — הרץ task185_createLearningSheetS10NoUI תחילה" };
     }
 
-    // בדיקת כפילות לפי Source_File_ID + Split_Index + Target_Sheet
-    const lastRow = learnSheet.getLastRow();
-    if (lastRow > 1) {
-      const existing = learnSheet.getRange(2, 1, lastRow - 1, 3).getValues();
+    const fields         = JSON.parse(fieldsJson);
+    const eventDate       = _s10_fieldValue(fields, "תאריך אירוע");
+    const eventType        = _s10_fieldValue(fields, "סוג אירוע");
+    const medicalSystem     = _s10_fieldValue(fields, "מערכת רפואית");
+    const issuer              = _s10_fieldValue(fields, "מוסד / רופא");
+    const summary              = _s10_fieldValue(fields, "סיכום ממצא");
+    const routingCategory       = _s10_fieldValue(fields, "קטגוריית ניתוב");
+
+    // בדיקת כפילות לפי Source_File_ID + Event_Index
+    const headerRow = (SHEET_CONFIG[S10_LEARNING_SHEET] && SHEET_CONFIG[S10_LEARNING_SHEET].HEADER_ROW) || 1;
+    const firstData  = (SHEET_CONFIG[S10_LEARNING_SHEET] && SHEET_CONFIG[S10_LEARNING_SHEET].FIRST_DATA_ROW) || (headerRow + 1);
+    const lastRow    = learnSheet.getLastRow();
+    if (lastRow >= firstData) {
+      const existing = learnSheet.getRange(firstData, 1, lastRow - firstData + 1, 2).getValues();
       for (let i = 0; i < existing.length; i++) {
         const existFileId = (existing[i][0] || "").toString().trim();
-        const existSplit  = (existing[i][1] || "").toString().trim();
-        const existSheet  = (existing[i][2] || "").toString().trim();
-        if (
-          existFileId === fileId &&
-          existSplit  === splitLabel &&
-          existSheet  === sheetName
-        ) {
+        const existIndex  = (existing[i][1] || "").toString().trim();
+        if (existFileId === fileId && existIndex === String(eventIndex)) {
           return { success: true, isDuplicate: true };
         }
       }
@@ -525,16 +513,20 @@ function _s10_saveToLearning(sheetName, fileId, splitLabel, fieldsJson, complexi
 
     // כתיבת שורת למידה חדשה
     learnSheet.appendRow([
-      fileId,                                    // 1 Source_File_ID
-      splitLabel,                                // 2 Split_Index
-      sheetName,                                 // 3 Target_Sheet
-      fieldsJson,                                // 4 Extracted_Data_JSON
-      complexityLevel  || "",                    // 5 Complexity_Level
-      correctionNote   || "",                    // 6 User_Correction_Note
-      new Date().toLocaleString("he-IL")         // 7 Timestamp
+      fileId,                             // 1 Source_File_ID
+      eventIndex,                         // 2 Event_Index
+      eventDate,                          // 3 Event_Date
+      eventType,                          // 4 Event_Type
+      medicalSystem,                      // 5 Medical_System
+      issuer,                             // 6 Issuer
+      summary,                            // 7 Summary
+      routingCategory,                    // 8 Routing_Category
+      complexityLevel  || "",             // 9 Complexity_Level
+      correctionNote   || "",             // 10 User_Correction_Note
+      new Date().toLocaleString("he-IL")  // 11 Timestamp
     ]);
 
-    Logger.log("[S10] שורת למידה נשמרה — " + fileId + " | " + splitLabel + " | " + sheetName);
+    Logger.log("[S10] שורת למידה נשמרה — " + fileId + " | אירוע " + eventIndex);
     return { success: true, isDuplicate: false };
 
   } catch (e) {
