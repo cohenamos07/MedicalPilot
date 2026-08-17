@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.8.5 | @updated 05/08/2026 21:37 | @service VIEWENGINE
+ * @version 2.8.6 | @updated 17/08/2026 19:09 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -25,7 +25,7 @@
  *              (יומן_אירועים_רפואי, ארכיטקטורה נפרדת).
  * @impacts     ניהול_מיילים: קורא פילטרים — לא כותב ערכים לתאים.
  *              runStatusCheck כותב צבע רקע לשורות שגויות בלבד.
- *              יומן_אירועים_רפואי: setupMedicalEventsIcons — מכניס 2 איקונים אוטומטית.
+ *              יומן_אירועים_רפואי: setupMedicalEventsIcons — מכניס 3 איקונים אוטומטית.
  *              תלויות: S01 (checkSystemMorning) | S02 (checkUserAccess)
  *                      S03 (runEmailIngestion) | S04 (syncDriveFiles)
  *                      S05 (extractMetaData) | S06 (run_MedicalPilot_V2_6_2, nightlyConvertBatch)
@@ -41,12 +41,8 @@
  *              runS08ViewIcon | runS09ViewIcon | runS10ViewIcon
  *              runQAView | runArchiveView | runStatusCheck
  *              setupIcons | cleanAndResetIcons | debugIcons
- *              runExpandViewEvents | runS10ViewIconEvents | setupMedicalEventsIcons
- * @changes     [v2.8.5] Task 162 — runAccessCheckIcon: הוחלפה קריאה ישירה ל-
- *          checkUserAccess() בפתיחת דיאלוג מודלי S02_AccessDialog.html
- *          (HtmlService.createHtmlOutputFromFile, 480x420). checkUserAccess
- *          עצמה (Auth_Check.gs) שונתה במקביל להחזרת מבנה נתונים במקום alert —
- *          ראה Auth_Check.gs v97.12 לפירוט מלא.
+ *              runExpandViewEvents | runS10ViewIconEvents | runS13ViewIconEvents | setupMedicalEventsIcons
+ * @changes     [v2.8.6] Task #188-הכנה — הוספת אייקון שלישי ("S13 חילוץ", עמודה F) ל-MEDICAL_EVENTS_ICON_MAP + פונקציית עטיפה runS13ViewIconEvents חדשה, בדומה ל-runS10ViewIconEvents. S13 עצמו טרם נכתב (Task #188) — הפונקציה מציגה הודעת "טרם מומש" עד אז. עודכנה גם הודעת setupMedicalEventsIcons ל-3 איקונים. אומת בשטח (QA_Tests.gs, qa_testS13IconPlacement_Task188prep) — האייקון הוצמד בהצלחה לעמודה F.
  */
 const VIEW_SHEET_NAME = "ניהול_מיילים";
 const VIEW_TOTAL_COLS = 27;
@@ -112,6 +108,14 @@ const MEDICAL_EVENTS_ICON_MAP = [
     fileId: "1YZcEifvHAsBtstAFdtVtqNTODpxuXCkM",  // זהה ל-runS10ViewIcon
     label:  "[ S10 אימות ]",
     bg:     "#7E57C2",
+    fg:     "#ffffff"
+  },
+  {
+    col:    6,
+    script: "runS13ViewIconEvents",
+    fileId: "1xu4pi1_ahjbbLxJEmaGvpb-eEf-lBwpH",  // data distrabution.png
+    label:  "[ S13 חילוץ ]",
+    bg:     "#00ACC1",
     fg:     "#ffffff"
   }
 ];
@@ -1006,6 +1010,34 @@ function runS10ViewIconEvents() {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// [v2.8.6] runS13ViewIconEvents — עמודה F ביומן_אירועים_רפואי
+// חילוץ עמוק לגליונות היעד לפי Routing_Category — S13 טרם מומש (Task #188)
+// ══════════════════════════════════════════════════════════════════
+
+function runS13ViewIconEvents() {
+  try {
+    const ui      = SpreadsheetApp.getUi();
+    const sheet   = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    const confirm = ui.alert(
+      "S13 — חילוץ לגליונות יעד",
+      "גליון: " + sheet.getName() + "\n" +
+      "האם להריץ חילוץ שורות מאומתות לגליונות היעד לפי Routing_Category?",
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm === ui.Button.YES) {
+      if (typeof runS13 === "function") {
+        runS13();
+      } else {
+        ui.alert("שירות S13 טרם מומש (Task #188).");
+      }
+    }
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runS13ViewIconEvents: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // [v2.5.0] setupMedicalEventsIcons — הכנסת 2 איקונים אוטומטית
 // לגליון יומן_אירועים_רפואי — שורה 2
 // עמודה A = runExpandViewEvents | עמודה C = runS10ViewIconEvents
@@ -1069,10 +1101,11 @@ function setupMedicalEventsIcons() {
     ui.alert(
       "✅ איקונים הוכנסו בהצלחה לגליון '" + MEDICAL_EVENTS_SHEET_NAME + "'\n\n" +
       "עמודה A — רענון (runExpandViewEvents)\n" +
-      "עמודה C — S10 אימות (runS10ViewIconEvents)"
+      "עמודה C — S10 אימות (runS10ViewIconEvents)\n" +
+      "עמודה F — S13 חילוץ (runS13ViewIconEvents)"
     );
 
-    Logger.log("[ViewEngine] setupMedicalEventsIcons הושלם — 2 איקונים");
+    Logger.log("[ViewEngine] setupMedicalEventsIcons הושלם — 3 איקונים");
 
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-setupMedicalEventsIcons: " + e.toString());
