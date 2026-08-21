@@ -1,7 +1,7 @@
 /**
  * MedicalPilot — S08_Validate.gs
  * @file        S08_Validate.gs
- * @version 1.0.33 | @updated 18/08/2026 19:48 | @service S08
+ * @version 1.0.34 | @updated 21/08/2026 15:08 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
  *              תלויות: S08_Sidebar.html, COLUMN_MAP.gs (SHEET_CONFIG), Drive API.
@@ -19,6 +19,11 @@
  *              s08_previewApprovedForDeletion, s08_cancelLogoEmptyFlag,
  *              s08_cancelCorruptedTextFlag, s08_confirmLogoEmptyFlag,
  *              s08_resetCorruptedTextForReconvert
+ * @changes     [v1.0.34] Task #198 — s08_fixReferencesAfterDelete מורחבת:
+ *              נבנה fileIdRowMap כולל גם קיום בטאב ניהול_מיילים_ארכיון (לא
+ *              רק ניהול_מיילים) — שורה שאורכבה (moveTo, לא נמחקה) לא תסומן
+ *              עוד בטעות כ"יתומה". תלוי ב-SHEET_CONFIG["ניהול_מיילים_ארכיון"]
+ *              (COLUMN_MAP.gs, v2.9.9). אומת מול הקוד החי (diff מלא, node --check). 
  * @changes     [v1.0.33] Task #178 — s08_updateAndLearn שורה 631 (כתיבת
  *              Doc_Date מהסיידבר): הערך נעטף כעת ב-_medDate_normalizeDate
  *              (COLUMN_MAP.gs) לפני setValue, לנעילת פורמט DD/MM/YYYY אחיד
@@ -989,6 +994,24 @@ function s08_fixReferencesAfterDelete() {
       const fid = (r[0] || "").toString().trim();
       if (fid) fileIdRowMap[fid] = firstRow + i;
     });
+
+    // [Task 198] קיום גם בטאב הארכיון נחשב "לא יתום" — שורה שעברה ארכוב
+    // (moveTo, לא מחיקה) עדיין קיימת, רק במקום אחר. בלי זה, שורות ששורת
+    // התאום שלהן אורכבה יסומנו בטעות כ"יתומות" ויאבדו את הרפרנס. הטאב
+    // עצמו עשוי לא להיות קיים עדיין (טרם נוצר בגליון) — התנאי מטפל בכך.
+    const archiveSheet = ss.getSheetByName("ניהול_מיילים_ארכיון");
+    if (archiveSheet) {
+      const archFirstRow = SHEET_CONFIG["ניהול_מיילים_ארכיון"].FIRST_DATA_ROW;
+      const archLastRow  = archiveSheet.getLastRow();
+      if (archLastRow >= archFirstRow) {
+        const archNumRows  = archLastRow - archFirstRow + 1;
+        const archColAVals = archiveSheet.getRange(archFirstRow, 1, archNumRows, 1).getValues();
+        archColAVals.forEach(function(r) {
+          const fid = (r[0] || "").toString().trim();
+          if (fid && !fileIdRowMap[fid]) fileIdRowMap[fid] = "ARCHIVE";
+        });
+      }
+    }
 
     // [Task 165] קיבוץ שורות-יתומות לפי היעד המשותף שנמחק — שורות
     // ששיתפו אותו col27 (שהצביע על עוגן שנמחק פיזית) הן עדיין קבוצת
