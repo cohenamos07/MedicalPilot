@@ -1,17 +1,20 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.42.0 | @updated 13/08/2026 17:18 | @service S11
+ * @version 1.44.0 | @updated 19/08/2026 20:46 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי חוקי QA
- *              (E09-E28 + E30-E33, ללא E23/E24/E29; #149).
+ *              (E09-E28 + E30-E34, ללא E23/E24/E29; #149). E34 נוספה
+ *              ב-v1.43.0 (Task #178, פורמט Doc_Date).
  * @impacts בודק עקביות עמודות L, M, N, Q, R, S, T, U, וכעת גם עמודה 27 (AA)
  *          לפי ציר התקדמות S03→S09.
  *          כותב לעמודות: M, N, Q, R, S+T, U.
  *          S11 אינו מוחק אף שורה בעצמו — רק מסמן בעמודה R (מלבד qa_deleteE17Findings, יוצא דופן).
  *          תלויות: COLUMN_MAP.gs (SHEET_CONFIG), S11_QADialog.html, גליון ניהול_מיילים.
+ *          COLUMN_MAP._medDate_normalizeDate (Task #178, v1.43.0).
  *          שורות 1-4 מוגנות — הלולאה מתחילה תמיד מ-SHEET_CONFIG.FIRST_DATA_ROW (5).
  * @callers ViewEngine.gs (runQAView), Menu_PROD.gs, Menu_LAB.gs
  * @functions runQAViewMain, s11_runSingleCheck, s11_runSingleCheckBatch, s11_storeFindings,
+ *            _qa_check_E34,
  *            qa_getFindings, qa_applySelectedFixes, qa_deleteE17Findings, _qa_scanRow,
  *            _qa_scanAll, _qa_checkRow, _qa_check_E01..._qa_check_E30, _qa_dedupeE11Findings,
  *            _qa_computeDuplicateGroups,
@@ -19,6 +22,22 @@
  *            _qa_fetchTxtHeader_E32, _qa_calculateDuplicates_E32, _qa_parseFileSizeToBytes,
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol, _qa_loadEventsFileIds,
  *            findAnchorRowAndAuditVerified, _qa_clearStaleUFlag_Task163
+ * @changes [v1.44.0] Task #194 — תיקון false-positive ב-E13: הבדיקה השוותה M
+ *          רק מול "מאושר"/"אומת ידנית" ולא הכירה את "חולץ ליומן אירועים" —
+ *          הסטטוס הסופי הנוכחי מאז שכתוב S09 ל-v2.0.0 (Task #185), שהחליף
+ *          את "חולץ לגליונות" הישן. נוסף מערך whitelist חדש
+ *          QA_E13_VALID_M_AFTER_APPROVAL (מאושר|אומת ידנית|חולץ ליומן
+ *          אירועים); _qa_check_E13 עברה מהשוואת !== לבדיקת indexOf מול
+ *          המערך. נבדק ואומת בשטח: הרצת S11 QA על ניהול_מיילים החזירה
+ *          0 ממצאים, כולל שורות 6,7,8,9,11 שהיו מסומנות בטעות קודם.
+ * @changes [v1.43.0] Task #178 — בדיקת QA חדשה E34: פורמט Doc_Date (K)
+ *          לא תקין. נוספו: (1) עמודה 11 ל-QA_ALLOWED_COLS. (2) שדה k
+ *          ל-_qa_extractRowVars. (3) _qa_check_E34(v, row) — משווה K מול
+ *          COLUMN_MAP._medDate_normalizeDate(K); אם שונה, ממצא fix="write"
+ *          שכותב את הערך המנורמל בפועל. (4) חיבור ב-s11_runSingleCheck
+ *          (switch case) וב-_qa_checkRow (concat). (5) רישום ב-
+ *          QA_CHECK_STEPS. נבדק ואומת בגליון החי — תפס ותיקן בהצלחה
+ *          שורות עם פורמט תאריך שגוי (DD.MM.YYYY, שנה דו-ספרתית).
  * @changes [v1.42.0] Task 178 — _qa_check_E32 עברה לקרוא את עמודה V
  *          (QA_Dismiss_Note, rowData[21]) לפני סימון זוג ככפול —
  *          מונע זיהוי חוזר של חשד שבוטל ידנית דרך s08_cancelDuplicateFlag
@@ -77,6 +96,14 @@ const QA_VALID_M = [
   "לא נתמך"
 ];
 
+// ערכי M שנחשבים תקינים מול U="✅ אושר ידנית" — Task #194. [Task #185]
+// שינה את הסטטוס הסופי מ-"חולץ לגליונות" ל-"חולץ ליומן אירועים"; E13 לא עודכן.
+const QA_E13_VALID_M_AFTER_APPROVAL = [
+  "מאושר",
+  "אומת ידנית",
+  "חולץ ליומן אירועים"
+];
+
 // ערכי N חוקיים
 const QA_VALID_N = ["ממתין", "חולץ חלקי", "חולץ מלא"];
 
@@ -94,6 +121,7 @@ const QA_COMPLEXITY_EN_TO_HE = {
 
 // מיפוי עמודות מאושרות לכתיבה — שם + מספר
 const QA_ALLOWED_COLS = {
+  11: "Doc_Date",
   12: "Doc_Category",
   13: "Pipeline_Status",
   14: "Extraction_Status",
@@ -130,7 +158,8 @@ const QA_CHECK_STEPS = [
   { code: "E17-E22", label: "מקור חסר ב-Drive", heavy: true },
   { code: "E27",     label: "M תקוע על 'הומר ל-TXT'" },
   { code: "E28",     label: "מיגרציית ערך M ישן" },
-  { code: "E32-E25-E31-E30", label: "כפילות תוכן + לוגו/ריק + מורכבות — TXT משותף (Drive)", heavy: true }
+  { code: "E32-E25-E31-E30", label: "כפילות תוכן + לוגו/ריק + מורכבות — TXT משותף (Drive)", heavy: true },
+  { code: "E34",     label: "פורמט תאריך Doc_Date (K)" }
 ];
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה ראשית — נקראת מ-ViewEngine.runQAView
@@ -228,6 +257,7 @@ function s11_runSingleCheck(checkCode, isSingleRow, activeRow, lastRow) {
         case "E17-E22":   rowFindings = _qa_check_E17_E22(v, row); break;
         case "E27":       rowFindings = _qa_check_E27(v, row, rowData); break;
         case "E28":       rowFindings = _qa_check_E28(v, row); break;
+        case "E34":       rowFindings = _qa_check_E34(v, row); break;
         case "E32-E25-E31-E30": {
           // [Task 159 — שלב 2] שליפת TXT פעם אחת לשורה, משותפת לשלוש הבדיקות
           const txtContent = v.txtUrl ? _qa_getTxtContent_S11(v.txtUrl) : null;
@@ -612,6 +642,7 @@ function _qa_dedupeE32Findings(findings) {
 function _qa_extractRowVars(rowData) {
   return {
     fileId: (rowData[0]  || "").toString().trim(),  // A=1
+    k:      (rowData[10] || "").toString().trim(),  // K=11
     l:      (rowData[11] || "").toString().trim(),  // L=12
     m:      (rowData[12] || "").toString().trim(),  // M=13
     n:      (rowData[13] || "").toString().trim(),  // N=14
@@ -866,7 +897,7 @@ function _qa_check_E32(v, row, allData, lastRow, txtContent, rowData) {
 
 function _qa_check_E13(v, row) {
   const findings = [];
-  if (v.u === "✅ אושר ידנית" && v.m !== "מאושר" && v.m !== "אומת ידנית") {
+  if (v.u === "✅ אושר ידנית" && QA_E13_VALID_M_AFTER_APPROVAL.indexOf(v.m) === -1) {
     findings.push({ row: row, code: "E13", col: 21, desc: "U=אושר ידנית + M='" + v.m + "' — אי-עקביות", fix: "flag", value: "⚠️ U=אושר אך M≠מאושר" });
   }
   return findings;
@@ -1020,8 +1051,19 @@ function _qa_check_E30(v, row, txtContent) {
     }
   }
   return findings;
+  return findings;
 }
- 
+
+function _qa_check_E34(v, row) {
+  const findings = [];
+  if (v.k) {
+    const normalized = _medDate_normalizeDate(v.k);
+    if (normalized !== v.k) {
+      findings.push({ row: row, code: "E34", col: 11, desc: "K='" + v.k + "' — פורמט תאריך שגוי, יתוקן ל-'" + normalized + "'", fix: "write", value: normalized });
+    }
+  }
+  return findings;
+}
 
 function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds, fileIdRowMap, myNote) {
   const fileId = (rowData[0] || "").toString().trim();
@@ -1058,6 +1100,7 @@ function _qa_checkRow(rowData, row, allData, lastRow, eventsFileIds, fileIdRowMa
   findings = findings.concat(_qa_check_E27(v, row, rowData));
   findings = findings.concat(_qa_check_E28(v, row));
   findings = findings.concat(_qa_check_E30(v, row, txtContent));
+  findings = findings.concat(_qa_check_E34(v, row));
   return findings;
 }
  
