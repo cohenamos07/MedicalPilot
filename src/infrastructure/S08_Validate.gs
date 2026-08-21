@@ -1,10 +1,11 @@
 /**
  * MedicalPilot — S08_Validate.gs
  * @file        S08_Validate.gs
- * @version 1.0.32 | @updated 13/08/2026 16:04 | @service S08
+ * @version 1.0.33 | @updated 18/08/2026 19:48 | @service S08
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S08_Validate.gs
  * @description אימות ידני ולמידה של מסמכים רפואיים — פותח Dialog לעריכה ואישור.
  *              תלויות: S08_Sidebar.html, COLUMN_MAP.gs (SHEET_CONFIG), Drive API.
+ *              COLUMN_MAP._medDate_normalizeDate (Task #178, v1.0.33).
  * @callers     runS08ViewIcon (ViewEngine עמודה N) | Menu_PROD
  * @functions   showMainSidebar, _s08_getRowData, s08_loadRowData,
  *              s08_loadRowByNumber, s08_highlightActiveRow,
@@ -18,6 +19,10 @@
  *              s08_previewApprovedForDeletion, s08_cancelLogoEmptyFlag,
  *              s08_cancelCorruptedTextFlag, s08_confirmLogoEmptyFlag,
  *              s08_resetCorruptedTextForReconvert
+ * @changes     [v1.0.33] Task #178 — s08_updateAndLearn שורה 631 (כתיבת
+ *              Doc_Date מהסיידבר): הערך נעטף כעת ב-_medDate_normalizeDate
+ *              (COLUMN_MAP.gs) לפני setValue, לנעילת פורמט DD/MM/YYYY אחיד
+ *              בעמודה K גם בתיקון ידני. נבדק ואומת בגליון החי (S11 E34).
  * @changes     [v1.0.32] Task 179 — s08_updateAndLearn: הוסרה בדיקת
  *              כפילות מוקדמת (s08_findLearningDuplicate) שביצעה return
  *              מיידי לפני שמירת נתוני השורה (כותרת/מנפיק/תאריך/קטגוריה),
@@ -628,7 +633,7 @@ function s08_updateAndLearn(row, title, issuer, date, category, note) {
     const sheet = ss.getSheetByName("ניהול_מיילים");
     sheet.getRange(row, 9).setValue(title     || "");
     sheet.getRange(row, 10).setValue(issuer   || "");
-    sheet.getRange(row, 11).setValue(date     || "");
+    sheet.getRange(row, 11).setValue(_medDate_normalizeDate(date) || "");
     sheet.getRange(row, 12).setValue(category || "");
     sheet.getRange(row, 13).setValue("מאושר");
     sheet.getRange(row, 21).setValue("נשלח ללמידה");
