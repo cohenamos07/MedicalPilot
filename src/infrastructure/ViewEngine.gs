@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.8.6 | @updated 17/08/2026 19:09 | @service VIEWENGINE
+ * @version 2.9.0 | @updated 21/08/2026 12:57 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -25,13 +25,15 @@
  *              (יומן_אירועים_רפואי, ארכיטקטורה נפרדת).
  * @impacts     ניהול_מיילים: קורא פילטרים — לא כותב ערכים לתאים.
  *              runStatusCheck כותב צבע רקע לשורות שגויות בלבד.
- *              יומן_אירועים_רפואי: setupMedicalEventsIcons — מכניס 3 איקונים אוטומטית.
+ *              יומן_אירועים_רפואי: setupMedicalEventsIcons — מכניס 4 איקונים אוטומטית.
+ *              [v2.9.0] runS14ViewIconEvents כותב לעמודות J/K (Duplicate_Flag/
+ *              Duplicate_Target_Ref) — בעקיפין, דרך קריאה ל-runS14() (S14_QArun.gs).
  *              תלויות: S01 (checkSystemMorning) | S02 (checkUserAccess)
  *                      S03 (runEmailIngestion) | S04 (syncDriveFiles)
  *                      S05 (extractMetaData) | S06 (run_MedicalPilot_V2_6_2, nightlyConvertBatch)
  *                      S07 (run_S07_ActiveRow, executeS07Classification)
  *                      S08 (showMainSidebar) | S09 (runS09) | S10 (showS10Sidebar)
- *                      S11 (runQAViewMain)
+ *                      S11 (runQAViewMain) | S14 (runS14)
  * @callers     אייקוני גליון ניהול_מיילים בלבד — שורה 2
  *              אייקוני גליון יומן_אירועים_רפואי — שורה 2
  * @functions   switchView | viewEngine_buildCriteria | _doExpand | _removeActiveFilter
@@ -41,7 +43,14 @@
  *              runS08ViewIcon | runS09ViewIcon | runS10ViewIcon
  *              runQAView | runArchiveView | runStatusCheck
  *              setupIcons | cleanAndResetIcons | debugIcons
- *              runExpandViewEvents | runS10ViewIconEvents | runS13ViewIconEvents | setupMedicalEventsIcons
+ *              runExpandViewEvents | runS10ViewIconEvents | runS13ViewIconEvents
+ *              runS14ViewIconEvents | setupMedicalEventsIcons
+ * @changes     [v2.9.0] Task #187 — מימוש runS14ViewIconEvents (היה placeholder ריק):
+ *              דיאלוג אישור YES/NO ואז קריאה ל-runS14() (S14_QArun.gs חדש),
+ *              עם הודעת סיכום תוצאה (נסרקו/קבוצות/סומנו/נוקו). תוקן גם תיעוד
+ *              @impacts שגוי ("3 איקונים" → "4 איקונים" — האייקון הרביעי
+ *              [S14] כבר נוסף בפועל ב-v2.8.6/19-08 אך התיעוד לא עודכן אז).
+ *              אומת בנתונים חיים (QA מלא, ראו S14_QArun.gs @changes).
  * @changes     [v2.8.6] Task #188-הכנה — הוספת אייקון שלישי ("S13 חילוץ", עמודה F) ל-MEDICAL_EVENTS_ICON_MAP + פונקציית עטיפה runS13ViewIconEvents חדשה, בדומה ל-runS10ViewIconEvents. S13 עצמו טרם נכתב (Task #188) — הפונקציה מציגה הודעת "טרם מומש" עד אז. עודכנה גם הודעת setupMedicalEventsIcons ל-3 איקונים. אומת בשטח (QA_Tests.gs, qa_testS13IconPlacement_Task188prep) — האייקון הוצמד בהצלחה לעמודה F.
  */
 const VIEW_SHEET_NAME = "ניהול_מיילים";
@@ -108,6 +117,14 @@ const MEDICAL_EVENTS_ICON_MAP = [
     fileId: "1YZcEifvHAsBtstAFdtVtqNTODpxuXCkM",  // זהה ל-runS10ViewIcon
     label:  "[ S10 אימות ]",
     bg:     "#7E57C2",
+    fg:     "#ffffff"
+  },
+  {
+    col:    4,
+    script: "runS14ViewIconEvents",
+    fileId: "1hw2sA4t4H5-OR0k8crG7wuI5Pkh0-_3G",  // זהה לאייקון S11 QA
+    label:  "[ S14 QA ]",
+    bg:     "#43A047",
     fg:     "#ffffff"
   },
   {
@@ -1037,6 +1054,47 @@ function runS13ViewIconEvents() {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// [v2.8.7] runS14ViewIconEvents — עמודה D ביומן_אירועים_רפואי
+// בדיקת כפילויות (Task #187) — ניקוד + Union-Find, קורא runS14()
+// מ-S14_QArun.gs. לא מוחק שורות, רק מסמן (J/K).
+// ══════════════════════════════════════════════════════════════════
+
+function runS14ViewIconEvents() {
+  try {
+    const ui      = SpreadsheetApp.getUi();
+    const sheet   = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    const confirm = ui.alert(
+      "S14 — בדיקת כפילויות",
+      "גליון: " + sheet.getName() + "\n" +
+      "האם לסרוק את כל השורות ולסמן כפילויות (Event_Date/Medical_System/Issuer/Routing_Category/Summary)?",
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm === ui.Button.YES) {
+      if (typeof runS14 === "function") {
+        const result = runS14();
+        if (result.error) {
+          ui.alert("שגיאה", result.error, ui.ButtonSet.OK);
+        } else {
+          ui.alert(
+            "S14 — הושלם",
+            "נסרקו: " + result.scanned + " שורות\n" +
+            "קבוצות כפילות: " + result.groups + "\n" +
+            "סומנו/עודכנו: " + result.flagged + "\n" +
+            "נוקו (כבר לא כפולות): " + result.cleared,
+            ui.ButtonSet.OK
+          );
+        }
+      } else {
+        ui.alert("שירות S14 טרם מומש.");
+      }
+    }
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runS14ViewIconEvents: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
 // ══════════════════════════════════════════════════════════════════
 // [v2.5.0] setupMedicalEventsIcons — הכנסת 2 איקונים אוטומטית
 // לגליון יומן_אירועים_רפואי — שורה 2
