@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.9.0 | @updated 21/08/2026 12:57 | @service VIEWENGINE
+ * @version 2.9.1 | @updated 21/08/2026 15:08 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -42,9 +42,19 @@
  *              runS05Icon | runS06Icon | runS07Icon
  *              runS08ViewIcon | runS09ViewIcon | runS10ViewIcon
  *              runQAView | runArchiveView | runStatusCheck
+ *              _s12_archiveRow | _s12_moveFileByUrl (helpers, runArchiveView)
  *              setupIcons | cleanAndResetIcons | debugIcons
  *              runExpandViewEvents | runS10ViewIconEvents | runS13ViewIconEvents
  *              runS14ViewIconEvents | setupMedicalEventsIcons
+ * @changes     [v2.9.1] Task #198 — runArchiveView שוכתבה: ארכוב אמיתי במקום
+ *              פילטר תצוגה בלבד. זרימה: ui.alert אישור → _s12_archiveRow
+ *              (הסרת פילטר פעיל, קריאת 27 העמודות, מציאה/יצירת תיקיית Drive
+ *              "ארכיון", moveTo ל-Source_URL+TXT_URL דרך _s12_moveFileByUrl,
+ *              הוספת השורה ל-ניהול_מיילים_ארכיון, flush+ואימות, ורק אז
+ *              deleteRow + קריאה ל-s08_fixReferencesAfterDelete()). תלוי
+ *              ב-SHEET_CONFIG["ניהול_מיילים_ארכיון"] (COLUMN_MAP.gs v2.9.9).
+ *              אומת מול הקוד החי (diff מלא, node --check). בדיקת קצה-לקצה
+ *              בפועל טרם בוצעה — נדחתה ביוזמת עמוס, תועד כמשימה #200.
  * @changes     [v2.9.0] Task #187 — מימוש runS14ViewIconEvents (היה placeholder ריק):
  *              דיאלוג אישור YES/NO ואז קריאה ל-runS14() (S14_QArun.gs חדש),
  *              עם הודעת סיכום תוצאה (נסרקו/קבוצות/סומנו/נוקו). תוקן גם תיעוד
@@ -753,31 +763,141 @@ function runQAView() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// [v2.8.0] Task 128 — runArchiveView — עמודה V — S12 ארכיון
-// switchView("archive") הוסרה — הפעלת פילטר ארכיון עצמו עברה ל"הרחב"
-// (עמודה V + COLUMN_TO_VIEWKEY). האייקון עצמו מבטל פילטר בלבד ומכוון
-// את המשתמש לדרך החדשה. [החלטת עיצוב שלא נדונה במפורש — לסקירתך]
+// [v2.9.1] Task 198 — runArchiveView — עמודה V — S12 ארכיון אמיתי
+// שדרוג מ"מבט מסונן בלבד" (v2.8.0) לארכוב אמיתי: מעביר את השורה הפעילה
+// (אם זכאית — Pipeline_Status="חולץ ליומן אירועים") לטאב
+// ניהול_מיילים_ארכיון, ומעביר (moveTo, לא Copy) את קבצי המקור+TXT
+// לתיקיית Drive "ארכיון". פועל על שורה בודדת (סמן), עם דיאלוג אישור —
+// אותו קונספט כמו שאר האייקונים בפרויקט. אינו נוגע יותר בפילטר תצוגה —
+// זה הוחלף לגמרי בהעברה פיזית לטאב נפרד.
 // ══════════════════════════════════════════════════════════════════
 
 function runArchiveView() {
   try {
-    const ui      = SpreadsheetApp.getUi();
-    const sheet   = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIEW_SHEET_NAME);
-    const confirm = ui.alert(
-      "S12 — ארכיון",
-      "האם לבטל פילטר פעיל ולעבור לעמודת הארכיון?",
-      ui.ButtonSet.YES_NO
-    );
-    if (confirm === ui.Button.YES) {
-      _removeActiveFilter(sheet);
+    const ui    = SpreadsheetApp.getUi();
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(VIEW_SHEET_NAME);
+    const row   = sheet.getActiveCell().getRow();
+
+    if (row < SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW) {
+      ui.alert("יש לבחור שורת נתונים תחילה.");
+      return;
+    }
+
+    const pipelineStatus = (sheet.getRange(row, 13).getValue() || "").toString().trim(); // Pipeline_Status
+    if (pipelineStatus !== "חולץ ליומן אירועים") {
       ui.alert(
-        "S12 — ארכיון",
-        "הפילטר בוטל.\nלצפייה בשורות הארכיון: הצב את הסמן בעמודה V ולחץ על אייקון \"הרחב\".",
+        "S12 — ארכוב",
+        "השורה לא זכאית לארכוב.\nPipeline_Status נוכחי: \"" + (pipelineStatus || "(ריק)") + "\"\nנדרש: \"חולץ ליומן אירועים\".",
         ui.ButtonSet.OK
       );
+      return;
+    }
+
+    const fileId  = (sheet.getRange(row, 1).getValue() || "").toString().trim();
+    const confirm = ui.alert(
+      "S12 — ארכוב",
+      "לארכב את שורה " + row + " (File_ID: " + fileId + ")?\n" +
+      "הקבצים יועברו לתיקיית \"ארכיון\" ב-Drive, השורה תועבר לטאב ניהול_מיילים_ארכיון.",
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm !== ui.Button.YES) return;
+
+    const result = _s12_archiveRow(sheet, row);
+    if (result.success) {
+      ui.alert("S12 — הושלם", result.msg, ui.ButtonSet.OK);
+    } else {
+      ui.alert("שגיאה", result.msg, ui.ButtonSet.OK);
     }
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-runArchiveView: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task 198] _s12_archiveRow — לוגיקת הארכוב עצמה. סדר בטוח: (1) הזזת
+// קבצים ב-Drive (הפיך — הקבצים ממשיכים להתקיים, רק במיקום אחר), (2)
+// כתיבת השורה לטאב הארכיון, (3) אימות קריאה-חוזרת, (4) רק אז מחיקת
+// השורה המקורית. לפי לקח Task 123 — הסרת פילטר פעיל לפני שינוי מבני.
+// ══════════════════════════════════════════════════════════════════
+
+function _s12_archiveRow(sheet, row) {
+  try {
+    const ss = sheet.getParent();
+
+    const existingFilter = sheet.getFilter();
+    if (existingFilter) {
+      existingFilter.remove();
+      SpreadsheetApp.flush();
+    }
+
+    const rowValues = sheet.getRange(row, 1, 1, 27).getValues()[0];
+
+    const folders       = DriveApp.getFoldersByName("ארכיון");
+    const archiveFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder("ארכיון");
+
+    const moveSource = _s12_moveFileByUrl(rowValues[22], archiveFolder); // col 23 — Source_URL
+    if (!moveSource.success) {
+      return { success: false, msg: "❌ ארכוב בוטל: " + moveSource.msg };
+    }
+    const moveTxt = _s12_moveFileByUrl(rowValues[23], archiveFolder); // col 24 — TXT_URL
+    if (!moveTxt.success) {
+      return { success: false, msg: "❌ ארכוב בוטל: " + moveTxt.msg };
+    }
+
+    const archiveSheetName = "ניהול_מיילים_ארכיון";
+    const archiveSheet     = ss.getSheetByName(archiveSheetName);
+    if (!archiveSheet) {
+      return { success: false, msg: "❌ ארכוב בוטל: טאב \"" + archiveSheetName + "\" לא קיים. יש להריץ קודם את task198_createArchiveSheetNoUI (QA_Tests.gs)." };
+    }
+
+    const archiveFirstRow  = SHEET_CONFIG[archiveSheetName].FIRST_DATA_ROW;
+    const archiveLastRow   = archiveSheet.getLastRow();
+    const targetArchiveRow = Math.max(archiveLastRow + 1, archiveFirstRow);
+    archiveSheet.getRange(targetArchiveRow, 1, 1, 27).setValues([rowValues]);
+    SpreadsheetApp.flush();
+
+    const verifyFileId = (archiveSheet.getRange(targetArchiveRow, 1).getValue() || "").toString().trim();
+    if (verifyFileId !== (rowValues[0] || "").toString().trim()) {
+      return { success: false, msg: "❌ ארכוב בוטל: אימות הכתיבה לטאב הארכיון נכשל (File_ID לא תואם)." };
+    }
+
+    sheet.deleteRow(row);
+
+    if (typeof s08_fixReferencesAfterDelete === "function") {
+      s08_fixReferencesAfterDelete();
+    }
+    SpreadsheetApp.flush();
+
+    return {
+      success: true,
+      msg: "✅ שורה אורכבה בהצלחה.\nFile_ID: " + rowValues[0] + "\nיעד: " + archiveSheetName + " (שורה " + targetArchiveRow + ")\nקבצים הועברו לתיקיית \"ארכיון\"."
+    };
+  } catch (e) {
+    Logger.log("[S12] שגיאת _s12_archiveRow: " + e.message);
+    return { success: false, msg: "❌ שגיאה בארכוב: " + e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task 198] _s12_moveFileByUrl — מעביר קובץ בודד לתיקיית יעד לפי
+// כתובת URL (אותו דפוס חילוץ ID כמו _s08_trashDriveFile הקיים).
+// URL ריק = אין קובץ להעביר, לא נחשב כישלון.
+// ══════════════════════════════════════════════════════════════════
+
+function _s12_moveFileByUrl(url, targetFolder) {
+  try {
+    if (!url) return { success: true, msg: "" };
+    let id = null;
+    if (url.includes("/d/")) id = url.split("/d/")[1].split("/")[0];
+    if (url.includes("id=")) id = url.split("id=")[1].split("&")[0];
+    if (!id) return { success: false, msg: "כתובת קובץ לא תקינה: " + url };
+    DriveApp.getFileById(id).moveTo(targetFolder);
+    return { success: true, msg: "" };
+  } catch (e) {
+    Logger.log("[S12] לא ניתן להעביר קובץ: " + e.message);
+    return { success: false, msg: e.message };
   }
 }
 
