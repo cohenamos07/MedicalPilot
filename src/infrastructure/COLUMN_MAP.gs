@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.9.8 | @updated 21/08/2026 13:02 | @service COLUMN_MAP
+ * @version 2.9.9 | @updated 21/08/2026 15:08 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
@@ -31,6 +31,12 @@
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol, _medDate_normalizeDate
+ * @changes [v2.9.9] Task #198 — הוספת SHEET_CONFIG["ניהול_מיילים_ארכיון"] +
+ *          SHEETS_MAP["ניהול_מיילים_ארכיון"] (מיפוי זהה ל-ניהול_מיילים, 27
+ *          עמודות, writers:["S12"]) — יעד לארכוב אמיתי (moveTo) של שורות
+ *          דרך runArchiveView (ViewEngine.gs), במקום פילטר תצוגה בלבד כבעבר.
+ *          אומת מול הגליון החי: מבנה 4 השורות/עיצוב/freeze זהים ל-ניהול_מיילים
+ *          (13.5/45/15/21pt, רקע FF1565C0, freeze B5).
  * @changes [v2.9.8] Task #187 — הוספת 2 עמודות ל-SHEETS_MAP["יומן_אירועים_רפואי"]:
  *          J(10)=Duplicate_Flag, K(11)=Duplicate_Target_Ref — עבור שירות QA/כפילויות
  *          החדש S14_QArun.gs (Union-Find לפי מספר שורה, לא File_ID — מסמך אחד
@@ -173,9 +179,15 @@ const SHEET_CONFIG = {
     FROZEN_ROWS:    4,
     HEADER_ROW:     4,
     FIRST_DATA_ROW: 5
+    },
+  // [Task 198] טאב ארכיון — מבנה זהה ל-ניהול_מיילים (27 עמודות), לתמיכה
+  // בארכוב אמיתי (Move שורות+קבצים, לא רק פילטר תצוגה)
+  "ניהול_מיילים_ארכיון": {
+    FROZEN_ROWS:    4,
+    HEADER_ROW:     4,
+    FIRST_DATA_ROW: 5
   }
 };
-
 const SHEETS_MAP = {
 
   "ניהול_מיילים": [
@@ -208,6 +220,38 @@ const SHEETS_MAP = {
     { col: 27, name: "Duplicate_Target_FileID", zone: "טכני",       writers: ["S07"],                                  readers: ["S07","S08","S11"],         values: "Drive ID",                                                                             notes: "רפרנס פיזי לשורת-התאום בזיהוי כפילות (Task 129/130) — מחליף getNote() על עמודה R. ריק = אין חשד כפילות פעיל." }
   ],
 
+  // [Task 198] טאב ארכיון — מבנה עמודות זהה ל-ניהול_מיילים (27 עמודות),
+  // נכתב ע"י תהליך הארכוב האמיתי (שדרוג runArchiveView, ViewEngine.gs) —
+  // לא ע"י שירותי ה-pipeline המקוריים (S03-S09), ולכן writers כאן הוא S12 בלבד.
+  "ניהול_מיילים_ארכיון": [
+    { col: 1,  name: "File_ID",           zone: "Source Metadata",  writers: ["S12"], readers: [], values: "מזהה Drive",                                                                           notes: "זהה ל-ניהול_מיילים — מזהה ייחודי של הקובץ ב-Drive (נשמר, moveTo לא משנה ID)" },
+    { col: 2,  name: "Capture_Date",      zone: "Source Metadata",  writers: ["S12"], readers: [], values: "תאריך",                                                                                notes: "זהה ל-ניהול_מיילים — תאריך כניסה מקורי למערכת" },
+    { col: 3,  name: "Source",            zone: "Source Metadata",  writers: ["S12"], readers: [], values: "Gmail|Drive_Manual",                                                                   notes: "זהה ל-ניהול_מיילים — מקור הרשומה המקורי" },
+    { col: 4,  name: "Source_Reference",  zone: "Source Metadata",  writers: ["S12"], readers: [], values: "מזהה חופשי",                                                                           notes: "זהה ל-ניהול_מיילים" },
+    { col: 5,  name: "Source_Title",      zone: "Source Metadata",  writers: ["S12"], readers: [], values: "טקסט חופשי",                                                                           notes: "זהה ל-ניהול_מיילים" },
+    { col: 6,  name: "Source_Author",     zone: "Source Metadata",  writers: ["S12"], readers: [], values: "טקסט חופשי",                                                                           notes: "זהה ל-ניהול_מיילים" },
+    { col: 7,  name: "Source_Date",       zone: "Source Metadata",  writers: ["S12"], readers: [], values: "תאריך",                                                                                notes: "זהה ל-ניהול_מיילים" },
+    { col: 8,  name: "Attachment_Name",   zone: "Source Metadata",  writers: ["S12"], readers: [], values: "שם קובץ",                                                                              notes: "זהה ל-ניהול_מיילים" },
+    { col: 9,  name: "Doc_Title",         zone: "Content Metadata", writers: ["S12"], readers: [], values: "טקסט חופשי",                                                                           notes: "זהה ל-ניהול_מיילים" },
+    { col: 10, name: "Doc_Issuer",        zone: "Content Metadata", writers: ["S12"], readers: [], values: "טקסט חופשי",                                                                           notes: "זהה ל-ניהול_מיילים" },
+    { col: 11, name: "Doc_Date",          zone: "Content Metadata", writers: ["S12"], readers: [], values: "תאריך",                                                                                notes: "זהה ל-ניהול_מיילים" },
+    { col: 12, name: "Doc_Category",      zone: "Content Metadata", writers: ["S12"], readers: [], values: "רפואי|חשבונאי|משפטי|ביטוחי|אחר",                                                       notes: "זהה ל-ניהול_מיילים" },
+    { col: 13, name: "Pipeline_Status",   zone: "סטטוסים",          writers: ["S12"], readers: [], values: "חולץ ליומן אירועים",                                                                    notes: "בפועל תמיד ערך זה בעת הארכוב — זה תנאי הזכאות לארכוב (Task #198)" },
+    { col: 14, name: "Extraction_Status", zone: "סטטוסים",          writers: ["S12"], readers: [], values: "ממתין|חולץ חלקי|חולץ מלא",                                                             notes: "זהה ל-ניהול_מיילים" },
+    { col: 15, name: "File_Type",         zone: "טכני",             writers: ["S12"], readers: [], values: "SYSTEM_PDF|SYSTEM_IMG|SYSTEM_GDOC|SYSTEM_DOCX|SYSTEM_TXT|SYSTEM_SHEET",          notes: "זהה ל-ניהול_מיילים" },
+    { col: 16, name: "File_Size",         zone: "טכני",             writers: ["S12"], readers: [], values: "XX KB|XX MB",                                                                          notes: "זהה ל-ניהול_מיילים" },
+    { col: 17, name: "Complexity",        zone: "טכני",             writers: ["S12"], readers: [], values: "פשוט|בינוני|מורכב",                                                                    notes: "זהה ל-ניהול_מיילים" },
+    { col: 18, name: "Duplicate_Flag",    zone: "טכני",             writers: ["S12"], readers: [], values: "חשוד ככפול — שורה X|כפול מאושר — שורה X|חשוד כלוגו|לוגו מאושר",              notes: "זהה ל-ניהול_מיילים — ערך היסטורי בעת הארכוב, לא מתעדכן יותר" },
+    { col: 19, name: "Error_Code",        zone: "שגיאות",           writers: ["S12"], readers: [], values: "429|503|NO_ID|ACCESS|EMPTY|UNSUPPORTED|PARSE|UNKNOWN|SKIP",                       notes: "זהה ל-ניהול_מיילים" },
+    { col: 20, name: "Error_Detail",      zone: "שגיאות",           writers: ["S12"], readers: [], values: "טקסט חופשי",                                                                           notes: "זהה ל-ניהול_מיילים" },
+    { col: 21, name: "QA_Status",         zone: "בדיקות",           writers: ["S12"], readers: [], values: "✅ תקין|⚠️ + פירוט|✅ אושר ידנית|נשלח ללמידה",                                   notes: "זהה ל-ניהול_מיילים" },
+    { col: 22, name: "QA_Dismiss_Note",   zone: "בדיקות",           writers: ["S12"], readers: [], values: "נבדק ידנית — לא רלוונטי (כפול)|(לוגו/ריק)|(טקסט פגום)",                              notes: "זהה ל-ניהול_מיילים" },
+    { col: 23, name: "Source_URL",        zone: "לינקים",           writers: ["S12"], readers: [], values: "https://drive.google.com/...",                                                          notes: "מתעדכן ע\"י הארכוב אם הקובץ עבר moveTo — ה-ID זהה, ה-URL עצמו לא משתנה" },
+    { col: 24, name: "TXT_URL",           zone: "לינקים",           writers: ["S12"], readers: [], values: "https://drive.google.com/...",                                                          notes: "מתעדכן ע\"י הארכוב אם הקובץ עבר moveTo — ה-ID זהה, ה-URL עצמו לא משתנה" },
+    { col: 25, name: "Temp_URL",          zone: "לינקים",           writers: ["S12"], readers: [], values: "https://drive.google.com/...",                                                          notes: "זהה ל-ניהול_מיילים" },
+    { col: 26, name: "Raw_Text",          zone: "טקסט גולמי",       writers: ["S12"], readers: [], values: "טקסט מלא",                                                                             notes: "זהה ל-ניהול_מיילים — עמודה אחרונה, רחבה מאוד" },
+    { col: 27, name: "Duplicate_Target_FileID", zone: "טכני",       writers: ["S12"], readers: [], values: "Drive ID",                                                                             notes: "[Task #198] רפרנס לשורת-תאום — עלול להצביע על שורה ב-ניהול_מיילים (חיה) או כאן (ארכיון); s08_fixReferencesAfterDelete מורחב סורק את שני הטאבים" }
+  ],
   // [v2.9.0] גליון יעד של S09 — אירועים רפואיים מחולצים
   "יומן_אירועים_רפואי": [
     { col: 1, name: "Event_Date",        zone: "אירוע",  writers: ["S09"], readers: ["S10"], values: "תאריך DD/MM/YYYY",    notes: "תאריך האירוע הרפואי — מהמסמך או תאריך המסמך כברירת מחדל" },
