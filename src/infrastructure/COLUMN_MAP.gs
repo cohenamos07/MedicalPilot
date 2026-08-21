@@ -1,10 +1,10 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.9.7 | @updated 19/08/2026 20:46 | @service COLUMN_MAP
+ * @version 2.9.8 | @updated 21/08/2026 13:02 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
- *          יומן_אירועים_רפואי (7 עמודות).
+ *          יומן_אירועים_רפואי (11 עמודות — [v2.9.8] עודכן מ-7, כולל H/I מ-Task #185 שלא תועדו אז).
  *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (11), בדיקות_דם (10),
  *          בדיקות_גנטיות (8), הנחיות_רפואיות_ומשימות (8) — 5 גליונות יעד של S09,
  *          נוספו ל-SHEET_CONFIG/SHEETS_MAP עם כותרות באנגלית, יושרו בפועל
@@ -31,6 +31,16 @@
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol, _medDate_normalizeDate
+ * @changes [v2.9.8] Task #187 — הוספת 2 עמודות ל-SHEETS_MAP["יומן_אירועים_רפואי"]:
+ *          J(10)=Duplicate_Flag, K(11)=Duplicate_Target_Ref — עבור שירות QA/כפילויות
+ *          החדש S14_QArun.gs (Union-Find לפי מספר שורה, לא File_ID — מסמך אחד
+ *          יכול לייצר כמה שורות-אירוע, ראה @changes ב-S14_QArun.gs לפירוט מלא
+ *          כולל תיקון אחרי בדיקה חיה). כותרות J4/K4 בגליון החי נוספו ידנית
+ *          ע"י עמוס (עיצוב תואם לשאר הכותרות — רקע כחול, פונט תכלת/לבן) —
+ *          כמו התקדים הקיים בשאר הגליונות המעודכנים ידנית (ראה @impacts).
+ *          תוקן גם פער תיעוד קיים: @impacts מעלה תיעד "יומן_אירועים_רפואי
+ *          (7 עמודות)" — לא עודכן כשעמודות H/I (Validation_Status/
+ *          Extraction_Status) נוספו בפועל ב-Task #185. כעת מתועד נכון: 11.
  * @changes [v2.9.7] Task #194 — עדכון תיעוד: ערכי Pipeline_Status (עמודה 13)
  *          כללו את הערך הישן "חולץ לגליונות" (הוסר מקוד S09 ב-Task #185,
  *          שם עבר ל-"חולץ ליומן אירועים"). התיעוד לא עודכן בזמנו וגרם
@@ -206,15 +216,20 @@ const SHEETS_MAP = {
     { col: 4, name: "Issuer",            zone: "אירוע",  writers: ["S09"], readers: ["S10"], values: "טקסט חופשי",          notes: "מוסד / רופא מנפיק — זהה ל-Doc_Issuer בניהול_מיילים" },
     { col: 5, name: "Summary",           zone: "תוכן",   writers: ["S09"], readers: ["S10"], values: "טקסט חופשי — ארוך",  notes: "סיכום ממצא — טקסט דינמי וארוך — עמודה E במכוון בסוף הגלויות" },
     { col: 6, name: "Routing_Category",  zone: "טכני",   writers: ["S09"], readers: ["S10"], values: "טקסט חופשי",          notes: "קטגוריית ניתוב — לאיזה גליון יעד נוסף המידע" },
-   { col: 7, name: "File_ID",           zone: "טכני",   writers: ["S09"], readers: ["S10"], values: "Drive ID",             notes: "מזהה קובץ מקורי — מפתח מקשר חזרה לניהול_מיילים — זהה לעמודה A שם" },
+    { col: 7, name: "File_ID",           zone: "טכני",   writers: ["S09"], readers: ["S10"], values: "Drive ID",             notes: "מזהה קובץ מקורי — מפתח מקשר חזרה לניהול_מיילים — זהה לעמודה A שם" },
     // [Task 185] 2 עמודות סטטוס חדשות — ברמת תת-האירוע (שורה בודדת), לא
     // ברמת המסמך כולו. Validation_Status נכתב ע"י S10 (אישור/עדכון/למידה
     // יזומה — שלושתם). Extraction_Status ייכתב ע"י S13 (עתידי) אחרי כתיבה
     // מוצלחת של השורה הזו לגליון היעד שלה.
     { col: 8, name: "Validation_Status",  zone: "טכני",   writers: ["S10"], readers: ["S12","S13"], values: "מאומת",           notes: "ריק=ממתין לאימות S10 | \"מאומת\"=עבר אישור/עדכון/למידה" },
-    { col: 9, name: "Extraction_Status",  zone: "טכני",   writers: ["S13"], readers: [],            values: "חולץ",             notes: "ריק=ממתין לחילוץ S13 | \"חולץ\"=נכתב בהצלחה לגליון היעד שלו" }
+     { col: 9, name: "Extraction_Status",  zone: "טכני",   writers: ["S13"], readers: [],            values: "חולץ",             notes: "ריק=ממתין לחילוץ S13 | \"חולץ\"=נכתב בהצלחה לגליון היעד שלו" },
+    // [Task 187] 2 עמודות כפילות חדשות — מבוססות ניקוד השוואת שדות (Event_Date/
+    // Medical_System/Issuer/Routing_Category/Summary) + Union-Find מותאם (מפתח:
+    // מספר שורה, לא File_ID — כי מסמך אחד יכול לייצר כמה שורות-אירוע). S14 לא
+    // מוחק שורות, רק מסמן — עקרון זהה ל-S11 (ניהול_מיילים).
+    { col: 10, name: "Duplicate_Flag",       zone: "טכני",   writers: ["S14"], readers: ["S14"], values: "כפול מאושר — שורה X",  notes: "[Task #187] סימון כפילות שזוהתה ע\"י S14 — נגזר מחדש בכל סריקה, לא נמחקת שורה" },
+    { col: 11, name: "Duplicate_Target_Ref", zone: "טכני",   writers: ["S14"], readers: ["S14"], values: "מספר שורה",            notes: "[Task #187] שורת העוגן בקבוצת הכפילות — Union-Find לפי מספר שורה, נגזר מחדש בכל סריקת S14" }
   ],
-
   // [Task 184] גליון יעד — תרופות קבועות שחולצו ע"י S09 (כותרות אנגלית)
 
   // [Task 184] גליון יעד — תרופות קבועות שחולצו ע"י S09 (כותרות אנגלית)
