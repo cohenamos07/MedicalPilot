@@ -1,6 +1,6 @@
 /**
  * @file        S13_ExtractMedical.gs
- * @version     1.1.0 | @updated 17/08/2026 21:18 | @service S13
+ * @version     1.3.0 | @updated 19/08/2026 19:36 | @service S13
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S13_ExtractMedical.gs
  * @description שירות חילוץ עמוק — קורא שורות מאומתות (Validation_Status="מאומת",
  *              Extraction_Status ריק) מיומן_אירועים_רפואי, מקבץ לפי File_ID
@@ -22,7 +22,23 @@
  *              _s13_fetchTxtContent | _s13_buildPrompt | _s13_normalizeDate |
  *              _s13_callGemini | _s13_buildRowValues | _s13_writeExtractedRow |
  *              _s13_processGroup
- * @changes     [v1.1.0] Task #188 הושלם במלואו — חיבור נקודת הכניסה בפועל
+ * @changes     [v1.3.0] המשך #189 — שיפור בהירות הודעות חסימה ב-_s13_checkRow:
+ *          הפרדה מלאה בין שני מצבי חסימה שהיו משותפים לעטיפת הודעה גנרית אחת.
+ *          🟡 "עדיין לא אומתה" (Validation_Status ריק) — מנוסח כמגבלת מדיניות
+ *          נוכחית, לא איסור מהותי. 🔴 "חסומה — כבר חולצה" (Extraction_Status=
+ *          "חולץ") — מנוסח כחסימה מלאה, כדי למנוע כפילות נתונים בגליונות
+ *          המשניים. _s13_processSingleRow עודכנה להציג את check.reason ישירות
+ *          במקום לעטוף אותו בהודעה גנרית. נבדק ואומת בשטח: שני התרחישים
+ *          מציגים הודעה נכונה, ואין כתיבה לגליון בשני המקרים (הקוד חוזר לפני
+ *          שלב הכתיבה).
+ *          [v1.2.0] Task #189 — הוספת הגנה מפני הרצה כפולה: LockService.getScriptLock()
+ *          עם tryLock(3000ms) בתחילת runS13() (עוטף את כל גוף הפונקציה בבלוק
+ *          try/finally). אם הנעילה לא מתקבלת תוך 3 שניות — הרצה מקבילה כבר
+ *          פעילה — מוצגת התראה והפונקציה יוצאת מיידית בלי לגעת בנתונים.
+ *          סוגר את פער המרוץ: Extraction_Status="חולץ" נכתב רק בסוף
+ *          _s13_processGroup (אחרי קריאת Gemini), כך שהרצה שנייה שמתחילה
+ *          תוך כדי עיבוד לא הספיקה לתפוס את אותה קבוצה כ"זכאית" שוב.
+ *          [v1.1.0] Task #188 הושלם במלואו — חיבור נקודת הכניסה בפועל
  *          (runS13 קורא ל-_s13_processGroup), הוספת מיפוי מערכות גוף
  *          (S13_BODY_SYSTEMS, SYS00-SYS14) עם קוד קבוע לבדיקת דם/גנטית/תרופה
  *          וקוד דינמי (Gemini) למצב רפואי/הנחיה. עמודת Medical_System נוספה
@@ -69,21 +85,33 @@ const S13_BODY_SYSTEMS = {
 // ══════════════════════════════════════════════════════════════════
 
 function runS13() {
-  const ss    = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(S13_SOURCE_SHEET);
+  const lock = LockService.getScriptLock();
+  const hasLock = lock.tryLock(3000);
 
-  if (!sheet) {
-    SpreadsheetApp.getUi().alert("❌ גליון '" + S13_SOURCE_SHEET + "' לא נמצא.");
+  if (!hasLock) {
+    SpreadsheetApp.getUi().alert("⏳ S13 כבר רץ כרגע (הרצה מקבילה). נסה שוב בעוד רגע.");
     return;
   }
 
-  const activeRow = sheet.getActiveCell().getRow();
-  const firstDataRow = (SHEET_CONFIG[S13_SOURCE_SHEET] && SHEET_CONFIG[S13_SOURCE_SHEET].FIRST_DATA_ROW) || 5;
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(S13_SOURCE_SHEET);
 
-  if (activeRow >= firstDataRow) {
-    _s13_processSingleRow(ss, sheet, activeRow);
-  } else {
-    _s13_processBatch(ss, sheet);
+    if (!sheet) {
+      SpreadsheetApp.getUi().alert("❌ גליון '" + S13_SOURCE_SHEET + "' לא נמצא.");
+      return;
+    }
+
+    const activeRow = sheet.getActiveCell().getRow();
+    const firstDataRow = (SHEET_CONFIG[S13_SOURCE_SHEET] && SHEET_CONFIG[S13_SOURCE_SHEET].FIRST_DATA_ROW) || 5;
+
+    if (activeRow >= firstDataRow) {
+      _s13_processSingleRow(ss, sheet, activeRow);
+    } else {
+      _s13_processBatch(ss, sheet);
+    }
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -96,10 +124,20 @@ function _s13_checkRow(sheet, row) {
   const extractionStatus  = sheet.getRange(row, 9).getValue(); // I = Extraction_Status
 
   if (validationStatus !== "מאומת") {
-    return { valid: false, reason: "עמודה H (Validation_Status) אינה 'מאומת'" };
+    return {
+      valid: false,
+      reason: "🟡 שורה " + row + " עדיין לא אומתה\n\n" +
+        "עמודה H (Validation_Status) ריקה. כרגע לא ניתן לחלץ שורה שלא אומתה — " +
+        "יש לאשר קודם (כפתור [S10 אימות])."
+    };
   }
   if (extractionStatus) {
-    return { valid: false, reason: "עמודה I (Extraction_Status) כבר מכילה '" + extractionStatus + "'" };
+    return {
+      valid: false,
+      reason: "🔴 שורה " + row + " חסומה — כבר חולצה!\n\n" +
+        "עמודה I (Extraction_Status) = '" + extractionStatus + "'. לא ניתן לחלץ שורה שכבר חולצה — " +
+        "פעולה כזו הייתה יוצרת כפילות נתונים בגליונות המשניים. לחילוץ מחדש יש לאפס ידנית את התא בעמודה I."
+    };
   }
   return { valid: true };
 }
@@ -159,7 +197,7 @@ function _s13_getEligibleGroups(sheet) {
 function _s13_processSingleRow(ss, sheet, row) {
   const check = _s13_checkRow(sheet, row);
   if (!check.valid) {
-    SpreadsheetApp.getUi().alert("⚠️ שורה " + row + " לא עומדת בתנאים:\n" + check.reason);
+    SpreadsheetApp.getUi().alert(check.reason);
     return;
   }
 
