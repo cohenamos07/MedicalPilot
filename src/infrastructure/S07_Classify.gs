@@ -1,6 +1,6 @@
 /**
  * @file        S07_Classify.gs
- * @version     2.14.0 | @updated 10/08/2026 19:30 | @service S07
+ * @version     2.15.0 | @updated 18/08/2026 19:39 | @service S07
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S07_Classify.gs
  * @description סיווג מסמכים רפואיים בעזרת Gemini API.
  *              קורא טקסט מ-TXT_URL (X) או Raw_Text (Z).
@@ -16,8 +16,9 @@
  *              קורא: X(24)=TXT_URL | Z(26)=Raw_Text
  *              [v2.10.0] כותב גם לתוך תוכן קובץ ה-TXT עצמו (Drive) — ראה @changes.
  *              תלויות: GEMINI_API_KEY, COLUMN_MAP.SHEETS_MAP,
- *                      מנהל_משאבים (getAvailableExtractor),
- *                      דוגמאות_למידה (גליון)
+ *              COLUMN_MAP._medDate_normalizeDate (Task #178, v2.15.0),
+ *              מנהל_משאבים (getAvailableExtractor),
+ *              דוגמאות_למידה (גליון)
  * @callers     runS07Icon (ViewEngine) | classifyDocument (תפריט, ידני בלבד)
  *              run_S07_ActiveRow (תפריט, ידני בלבד)
  * @functions   classifyDocument | run_S07_ActiveRow | executeS07Classification
@@ -38,6 +39,11 @@
  *              להמשיך בשקט. אומת בשטח על שורות 19+25 (שני מסמכים עם
  *              0 מילים אמיתי) — Error_Code/Detail נכתבים נכון, M/N לא
  *              מתקדמים יותר בטעות.
+ * @changes     [v2.15.0] Task #178 — שורה 433 (כתיבת Doc_Date): הערך נעטף
+ *              כעת ב-_medDate_normalizeDate (COLUMN_MAP.gs) לפני הכתיבה,
+ *              כדי לנעול פורמט DD/MM/YYYY אחיד בעמודה K. נבדק ואומת בגליון
+ *              החי — S11 (בדיקת E34 החדשה) תפס ותיקן בהצלחה שורות עם
+ *              פורמט שגוי שכבר נכתבו בעבר. ראה גם S08_Validate.gs ו-S11_QArun.gs.
  * @changes     [v2.12.1] Task 146 — תיקון קוסמטי בלבד: טקסט דיאלוג האישור
  *              ב-_guardAlreadyClassified_S07 הזכיר "R+Note" — מנגנון ה-Note
  *              הוסר לגמרי מהארכיטקטורה ב-Task 131 (הוחלף בעמודה 27,
@@ -430,7 +436,7 @@ function executeS07Classification(row) {
 
     _safeWrite(sheet, row, "Doc_Title",         aiResult.title      || "");
     _safeWrite(sheet, row, "Doc_Issuer",         aiResult.issuer     || "");
-    _safeWrite(sheet, row, "Doc_Date",           aiResult.date       || "");
+    _safeWrite(sheet, row, "Doc_Date",           _medDate_normalizeDate(aiResult.date) || "");
     _safeWrite(sheet, row, "Doc_Category",       aiResult.category   || "");
     _safeWrite(sheet, row, "Complexity",         finalComplexity);
 
