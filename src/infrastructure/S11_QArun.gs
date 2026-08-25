@@ -1,20 +1,24 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.44.0 | @updated 19/08/2026 20:46 | @service S11
+ * @version 1.46.0 | @updated 25/08/2026 21:23 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי חוקי QA
- *              (E09-E28 + E30-E34, ללא E23/E24/E29; #149). E34 נוספה
- *              ב-v1.43.0 (Task #178, פורמט Doc_Date).
- * @impacts בודק עקביות עמודות L, M, N, Q, R, S, T, U, וכעת גם עמודה 27 (AA)
- *          לפי ציר התקדמות S03→S09.
- *          כותב לעמודות: M, N, Q, R, S+T, U.
+ *              (E0A-E28 + E30-E34, ללא E23/E24/E29; #149). E0A (שינוי שם
+ *              מ-E00 ב-v1.46.0) נוספה ב-v1.45.0 — נעילה מלאה מול
+ *              יומן_אירועים_רפואי. E0B נוספה ב-v1.46.0 — נעילה חלקית
+ *              לשורות מאושרות עם TXT ונתונים מלאים (Task #203).
+ * @impacts בודק עקביות עמודות L, M, N, Q, R, S, T, U, V, וכעת גם עמודה 27 (AA)
+ *          לפי ציר התקדמות S03→S09, וכעת גם קורא (לא כותב) מיומן_אירועים_רפואי
+ *          לצורך E0A/E15.
+ *          כותב לעמודות: M, N, Q, R, S+T, U, V (V — סמן נעילת E0A/E0B).
  *          S11 אינו מוחק אף שורה בעצמו — רק מסמן בעמודה R (מלבד qa_deleteE17Findings, יוצא דופן).
- *          תלויות: COLUMN_MAP.gs (SHEET_CONFIG), S11_QADialog.html, גליון ניהול_מיילים.
+ *          תלויות: COLUMN_MAP.gs (SHEET_CONFIG), S11_QADialog.html, גליון ניהול_מיילים,
+ *          גליון יומן_אירועים_רפואי (קריאה בלבד).
  *          COLUMN_MAP._medDate_normalizeDate (Task #178, v1.43.0).
  *          שורות 1-4 מוגנות — הלולאה מתחילה תמיד מ-SHEET_CONFIG.FIRST_DATA_ROW (5).
  * @callers ViewEngine.gs (runQAView), Menu_PROD.gs, Menu_LAB.gs
  * @functions runQAViewMain, s11_runSingleCheck, s11_runSingleCheckBatch, s11_storeFindings,
- *            _qa_check_E34,
+ *            _qa_check_E0A, _qa_check_E0B, _qa_check_E34,
  *            qa_getFindings, qa_applySelectedFixes, qa_deleteE17Findings, _qa_scanRow,
  *            _qa_scanAll, _qa_checkRow, _qa_check_E01..._qa_check_E30, _qa_dedupeE11Findings,
  *            _qa_computeDuplicateGroups,
@@ -22,6 +26,58 @@
  *            _qa_fetchTxtHeader_E32, _qa_calculateDuplicates_E32, _qa_parseFileSizeToBytes,
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol, _qa_loadEventsFileIds,
  *            findAnchorRowAndAuditVerified, _qa_clearStaleUFlag_Task163
+ * @changes [v1.46.0] Task #203 — שלוש עבודות משולבות, כותרת אחת:
+ *          (1) שינוי שם E00→E0A בכל הקוד (קבוע, QA_CHECK_STEPS,
+ *          s11_runSingleCheck, _qa_applyFixes, _qa_check_E0A) — מניעת בלבול
+ *          מול E01. (2) E13 שודרגה מ"דגל בלבד" לתיקון פעיל: אותר באג בקוד
+ *          S07 (executeS07Classification — לא נערך בסשן זה) שכותב
+ *          M="עבר סיווג" ללא תנאי בכל הרצה, כולל על שורות מאושרות — גרם
+ *          לרגרסיה על 47 שורות. E13 כעת מזהה שלושה סמני U ("✅ אושר ידנית"
+ *          | "נשלח ללמידה" | "⚠️ U=אושר אך M≠מאושר") ומתקנת M ל-"מאושר"
+ *          בפועל. אומת: 47/47 שורות תוקנו, ריצה חוזרת = 0 ממצאים. תיקון
+ *          שורש מקביל ב-S07 לא בוצע בסשן זה — יטופל בנפרד. (3) נוספה
+ *          בדיקה חדשה E0B — נעילה חלקית: לכל שורה עם M∈{מאושר,אומת ידנית}
+ *          + TXT_URL קיים + עמודות E,F,G,H,I,J,K,L,M מלאות — הרחבת
+ *          _qa_extractRowVars (שדות e,f,g,h,i,j), קבועים
+ *          QA_E0B_VALID_M/QA_E0B_LOCK_MARKER, ערך QA_CHECK_STEPS, guard
+ *          דו-שכבתי ב-s11_runSingleCheck (E0A נועל הכל כולל את עצמו; E0B
+ *          נועל הכל חוץ מ-E0A — כדי ש-E0A ימשיך לתפוס שדרוג עתידי לנעילה
+ *          מלאה), פונקציה _qa_check_E0B, case חדש "e0b_lock" ב-
+ *          _qa_applyFixes (כותב רק ל-V, col22). שני באגים נתפסו ותוקנו
+ *          במהלך בדיקת שטח לפני מסירה: (א) הממצא כלל בטעות col:22 — הפעיל
+ *          את _qa_validateCol מול כותרת שורה 4 שהיא בפועל ריקה (לא
+ *          "QA_Dismiss_Note" כפי שרשום ב-QA_ALLOWED_COLS) — 61/61 תיקונים
+ *          נכשלו בשקט; תוקן בהסרת col מהממצא (כמו e0a_lock, שלא מסתמך על
+ *          col=22 לכתיבתו). (ב) _qa_check_E0B לא בדקה תוכן קיים בעמודה V
+ *          לפני יצירת ממצא — דרסה 24 הערות QA ידניות קיימות ("נבדק ידנית —
+ *          לא רלוונטי (כפול/לוגו-ריק)", הנקראות ע"י E32/E25/E31 למניעת
+ *          זיהוי כפילות חוזר); תוקן בהוספת פרמטר qaDismissNote ו-guard
+ *          `if (qaDismissNote) return findings;`. 24 הערכים שוחזרו ידנית
+ *          בגליון (טקסט מקורי, לפי גיבוי) בעזרת פונקציה חד-פעמית
+ *          QA_ONETIME_restoreOverwrittenDismissNotes_Task203 שנוספה ל-
+ *          QA_Tests.gs (אימות File_ID+ערך V לפני כתיבה). אומת מלא בגליון
+ *          החי: 61 שורות ננעלו-E0B, שחזור 24/24 מדויק, ריצה חוזרת = 0
+ *          ממצאים חדשים (גם על נעולות וגם אחרי שחזור). תועלת ביצועים
+ *          נלווית: שורה נעולה (E0A/E0B) מדלגת לפני שליפת TXT מ-Drive
+ *          בבדיקה הממוזגת E32-E25-E31-E30 — קריאת Drive אחת פחות לכל
+ *          שורה נעולה, בכל ריצה עתידית.
+ * @changes [v1.45.0] Task #203 — תיקון שורש למניעת כפילות חילוץ (S09) אחרי
+ *          אישור חוזר של שורה: (1) בדיקה חדשה E00, ראשונה וחוסמת — לכל
+ *          שורה עם ≥1 אירוע ביומן_אירועים_רפואי, מוודאת M="חולץ ליומן
+ *          אירועים" + S/T ריקים + N∈{חולץ מלא,חולץ חלקי} (N לא תקין → flag
+ *          בלבד, אין נעילה). (2) סמן נעילה חדש נכתב ל-V (QA_Dismiss_Note,
+ *          קבוע QA_E00_LOCK_MARKER) — guard חדש בתחילת לולאת השורות
+ *          ב-s11_runSingleCheck מדלג על שורה נעולה בכל קוד עתידי (E00
+ *          ואילך) עד ביטול ידני (מחיקת האירועים מהיומן). (3) fix type חדש
+ *          "e00_lock" ב-_qa_applyFixes. (4) עמודה 22 (QA_Dismiss_Note)
+ *          נוספה ל-QA_ALLOWED_COLS. (5) תיקון שורש ל-E14: הוסרו 4 ערכי
+ *          "מסמך X" כפולים מ-QA_VALID_L שיצרו סתירה (E14 מעולם לא תפס
+ *          אותם, למרות שהתיקון עצמו קיים בקוד). (6) ניקוי QA_VALID_M/
+ *          QA_E13_VALID_M_AFTER_APPROVAL: הוסרו 9 ערכים מתים שלא נכתבים
+ *          ע"י אף שירות חי ("מחולץ"/"ממתין לאימות"/"אומת ידנית"/"חולץ
+ *          לגליונות" + 5 ערכי דור-1). אומת בגליון החי: E00 תפס בדיוק
+ *          שורות 6,7,8,9,11 (M שגוי) + 68 (כבר תקין) — 6/6 תואם צפי,
+ *          תוקן ונעל בהצלחה, ריצה חוזרת דילגה על השורות הנעולות כמצופה.
  * @changes [v1.44.0] Task #194 — תיקון false-positive ב-E13: הבדיקה השוותה M
  *          רק מול "מאושר"/"אומת ידנית" ולא הכירה את "חולץ ליומן אירועים" —
  *          הסטטוס הסופי הנוכחי מאז שכתוב S09 ל-v2.0.0 (Task #185), שהחליף
@@ -64,45 +120,46 @@ const QA_SHEET_NAME   = "ניהול_מיילים";
 const QA_EVENTS_SHEET = "יומן_אירועים_רפואי";
 const QA_DATA_START   = SHEET_CONFIG["ניהול_מיילים"].FIRST_DATA_ROW; // 5 — שורות 1-4 מוגנות
 
-// ערכי L חוקיים — [v1.3.0] E14
+// ערכי L חוקיים — [v1.3.0] E14 — [Task #203] הוסרו כפילויות "מסמך X"
+// שיצרו סתירה: E14 מעולם לא תפס אותן כלא-תקינות למרות שהתיקון קיים.
 const QA_VALID_L = [
   "רפואי",
   "חשבונאי",
   "משפטי",
   "ביטוחי",
-  "אחר",
-  "מסמך רפואי",
-  "מסמך חשבונאי",
-  "מסמך משפטי",
-  "מסמך ביטוחי"
+  "אחר"
 ];
 
-// ערכי M חוקיים
+// ערכי M חוקיים — [Task #203] הוסרו 9 ערכים מתים (לא נכתבים ע"י אף
+// שירות חי: "מחולץ"/"ממתין לאימות"/"אומת ידנית"/"חולץ לגליונות" + 5
+// ערכי דור-1 "חולץ ל...")
 const QA_VALID_M = [
   "ממתין להמרה ל-TXT",
   "הומר ל-TXT",
   "עבר סיווג",
-  "מחולץ", // [v1.14.0] E28 — ערך legacy זמני; E03 לא דורש דיווח כפול, E28 לבדו אחראי על ההמרה בפועל. להסיר מהרשימה בעתיד אחרי שכל השורות ההיסטוריות יתוקנו.
-  "ממתין לאימות",
   "מאושר",
-  "אומת ידנית",
-  "חולץ לגליונות",
   "חולץ ליומן אירועים",
-  "חולץ לתרופות",
-  "חולץ למצב רפואי",
-  "חולץ לבדיקות דם",
-  "חולץ לבדיקות גנטיות",
-  "חולץ להנחיות",
   "לא נתמך"
 ];
 
-// ערכי M שנחשבים תקינים מול U="✅ אושר ידנית" — Task #194. [Task #185]
-// שינה את הסטטוס הסופי מ-"חולץ לגליונות" ל-"חולץ ליומן אירועים"; E13 לא עודכן.
+// ערכי M שנחשבים תקינים מול U="✅ אושר ידנית" — Task #194. [Task #203]
+// הוסר "אומת ידנית" (מעולם לא נכתב בפועל).
 const QA_E13_VALID_M_AFTER_APPROVAL = [
   "מאושר",
-  "אומת ידנית",
   "חולץ ליומן אירועים"
 ];
+
+// [E0A — Task #203] סמן נעילה — נכתב לעמודה V (QA_Dismiss_Note) אחרי
+// אימות מול יומן_אירועים_רפואי. שורה עם הסמן הזה מדולגת ע"י כל שאר
+// קודי E01-E34 (ובעצמה) עד ביטול ידני (מחיקת האירועים מהיומן).
+const QA_E0A_LOCK_MARKER = "✅ אומת E0A — חולץ ליומן אירועים";
+
+// [E0B — Task #203] סמן נעילה חלקית — נכתב לעמודה V (QA_Dismiss_Note) לשורה
+// מאושרת (M) עם קובץ TXT וכל עמודות הנתונים E-M מלאות. בשונה מ-E0A: שורה
+// נעולה-E0B עדיין עוברת בדיקת E0A בכל ריצה (כדי לתפוס שדרוג עתידי לנעילה
+// מלאה עם חילוץ ליומן) — רק שאר הקודים E01-E34 מדולגים עליה.
+const QA_E0B_VALID_M = ["מאושר", "אומת ידנית"];
+const QA_E0B_LOCK_MARKER = "🔒 אומת E0B — מאושר + TXT + נתונים מלאים";
 
 // ערכי N חוקיים
 const QA_VALID_N = ["ממתין", "חולץ חלקי", "חולץ מלא"];
@@ -130,6 +187,7 @@ const QA_ALLOWED_COLS = {
   19: "Error_Code",
   20: "Error_Detail",
   21: "QA_Status",
+  22: "QA_Dismiss_Note",
   27: "Duplicate_Target_FileID"
 };
 
@@ -138,7 +196,11 @@ var QA_STORED_FINDINGS = [];
 // [v1.29.0] בקשת עמוס — רשימת שלבי הבדיקה להצגה בדיאלוג ההתקדמות בלבד.
 // הסדר תואם את סדר ההרצה בפועל ב-_qa_checkRow. heavy:true = קוד שניגש
 // ל-Drive (E25/E30/E31/E32) — איטי משמעותית משאר הקודים.
+// [Task #203] E0A נוספה ראשונה — בודקת/נועלת מול יומן_אירועים_רפואי
+// לפני כל שאר הקודים.
 const QA_CHECK_STEPS = [
+  { code: "E0A",     label: "התאמה ליומן_אירועים_רפואי (נעילה)" },
+  { code: "E0B",     label: "נעילה חלקית — מאושר + TXT + נתונים מלאים" },
   { code: "E01",     label: "M ריק מול O" },
   { code: "E02",     label: "M מול TXT_URL" },
   { code: "E03",     label: "תקינות ערך M" },
@@ -222,8 +284,8 @@ function s11_runSingleCheck(checkCode, isSingleRow, activeRow, lastRow) {
       if (fid) fileIdRowMap[fid] = idx + QA_DATA_START;
     });
 
-    // eventsFileIds נדרש רק ל-E15 — לא נטען שלא לצורך בשלבים אחרים
-    const eventsFileIds = (checkCode === "E15") ? _qa_loadEventsFileIds(ss) : {};
+    // eventsFileIds נדרש ל-E15 וגם ל-E0A [Task #203] — לא נטען שלא לצורך בשלבים אחרים
+    const eventsFileIds = (checkCode === "E15" || checkCode === "E0A") ? _qa_loadEventsFileIds(ss) : {};
 
     const findings = [];
 
@@ -234,10 +296,22 @@ function s11_runSingleCheck(checkCode, isSingleRow, activeRow, lastRow) {
       const fileId  = (rowData[0] || "").toString().trim();
       if (!fileId) continue;
 
+      // [E0A/E0B — Task #203] דילוג דו-שכבתי לפי סמן הנעילה בעמודה V:
+      // E0A (נעילה מלאה, אומתה מול יומן_אירועים_רפואי) — מדלגים על כל
+      // הבדיקות כולל E0A עצמו, עד ביטול ידני (מחיקת האירועים מהיומן).
+      // E0B (נעילה חלקית, מאושר+TXT+נתונים מלאים) — מדלגים על כל הבדיקות
+      // חוץ מ-E0A עצמו, כדי ש-E0A ימשיך לבדוק ולתפוס שדרוג עתידי לנעילה
+      // מלאה (חילוץ ליומן אירועים).
+      const qaDismissNote = (rowData[21] || "").toString().trim();
+      if (qaDismissNote === QA_E0A_LOCK_MARKER) continue;
+      if (qaDismissNote === QA_E0B_LOCK_MARKER && checkCode !== "E0A") continue;
+
       const v = _qa_extractRowVars(rowData);
       let rowFindings = [];
 
       switch (checkCode) {
+        case "E0A":       rowFindings = _qa_check_E0A(v, row, eventsFileIds); break;
+        case "E0B":       rowFindings = _qa_check_E0B(v, row, qaDismissNote); break;
         case "E01":       rowFindings = _qa_check_E01(v, row); break;
         case "E02":       rowFindings = _qa_check_E02(v, row); break;
         case "E03":       rowFindings = _qa_check_E03(v, row); break;
@@ -642,6 +716,12 @@ function _qa_dedupeE32Findings(findings) {
 function _qa_extractRowVars(rowData) {
   return {
     fileId: (rowData[0]  || "").toString().trim(),  // A=1
+    e:      (rowData[4]  || "").toString().trim(),  // E=5  Source_Title  [E0B]
+    f:      (rowData[5]  || "").toString().trim(),  // F=6  Source_Author [E0B]
+    g:      (rowData[6]  || "").toString().trim(),  // G=7  Source_Date   [E0B]
+    h:      (rowData[7]  || "").toString().trim(),  // H=8  Attachment_Name [E0B]
+    i:      (rowData[8]  || "").toString().trim(),  // I=9  Doc_Title    [E0B]
+    j:      (rowData[9]  || "").toString().trim(),  // J=10 Doc_Issuer   [E0B]
     k:      (rowData[10] || "").toString().trim(),  // K=11
     l:      (rowData[11] || "").toString().trim(),  // L=12
     m:      (rowData[12] || "").toString().trim(),  // M=13
@@ -657,6 +737,77 @@ function _qa_extractRowVars(rowData) {
   };
 }
 
+// ══════════════════════════════════════════════════════════════════
+// [E0A — Task #203] בדיקה ראשונה וחוסמת — רצה לפני E01. לכל שורה שיש
+// לה לפחות אירוע אחד ביומן_אירועים_רפואי (לפי File_ID, עמודה G): מוודאת
+// M/S/T/N ונועלת (V) כדי ששאר הקודים (E01-E34) לא ייגעו בה שוב.
+// N לא תקין → flag בלבד (אין ערך תיקון ידוע) — השורה לא ננעלת עד לתיקון
+// ידני. M/S/T מתוקנים תמיד כשאפשר, גם אם N דורש בדיקה ידנית.
+// ══════════════════════════════════════════════════════════════════
+function _qa_check_E0A(v, row, eventsFileIds) {
+  const findings = [];
+  if (!v.fileId || !eventsFileIds || !eventsFileIds[v.fileId]) return findings;
+
+  const nValid  = (v.n === "חולץ מלא" || v.n === "חולץ חלקי");
+  const needsM  = v.m !== "חולץ ליומן אירועים";
+  const needsST = !!(v.s || v.t);
+
+  if (nValid) {
+    findings.push({
+      row: row, code: "E0A", col: 13,
+      desc: (needsM || needsST)
+        ? "קיים חילוץ ביומן_אירועים_רפואי — מתקן ונועל" +
+          (needsM ? " (M שגוי: '" + v.m + "')" : "") +
+          (needsST ? " (S/T לא ריקים)" : "")
+        : "קיים חילוץ ביומן_אירועים_רפואי — כבר תקין, נועל",
+      fix: "e0a_lock",
+      value: needsM ? "חולץ ליומן אירועים" : v.m,
+      needsST: needsST
+    });
+  } else {
+    findings.push({
+      row: row, code: "E0A", col: 21,
+      desc: "קיים חילוץ ביומן_אירועים_רפואי אך N='" + v.n + "' — לא 'חולץ מלא'/'חולץ חלקי'. לא ננעלת עד לתיקון ידני.",
+      fix: "flag",
+      value: "⚠️ E0A — N לא תקין מול יומן אירועים: " + v.n
+    });
+  }
+
+  return findings;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [E0B — Task #203] נעילה חלקית — שורה מאושרת/אומתה ידנית (M) עם קובץ
+// TXT (X) וכל עמודות הנתונים E-M מלאות: מסמנת נעילה חלקית (V) כדי ששאר
+// הקודים (E01-E34) לא ייגעו בה שוב, אך E0A ימשיך לבדוק אותה בכל ריצה
+// (כדי לתפוס שדרוג עתידי לנעילה מלאה עם חילוץ ליומן אירועים).
+// [תיקון — נמצא בבדיקת שטח] לא נועלת שורה שכבר יש לה הערה כלשהי בעמודה V
+// (QA_Dismiss_Note) — מונע דריסת הערות QA ידניות קיימות (למשל "נבדק ידנית
+// — לא רלוונטי (כפול)" שנכתבות ע"י s08_cancelDuplicateFlag ונקראות ע"י
+// E32/E25/E31 כדי למנוע זיהוי כפילות חוזר). 24 שורות נפגעו בבדיקה הראשונה
+// לפני שהתיקון הזה נוסף — טופל בנפרד, לא בקוד.
+// ══════════════════════════════════════════════════════════════════
+function _qa_check_E0B(v, row, qaDismissNote) {
+  const findings = [];
+
+  if (qaDismissNote) return findings;
+
+  const mValid = QA_E0B_VALID_M.indexOf(v.m) !== -1;
+  if (!mValid) return findings;
+  if (!v.txtUrl) return findings;
+
+  const dataColsFilled = !!(v.e && v.f && v.g && v.h && v.i && v.j && v.k && v.l && v.m);
+  if (!dataColsFilled) return findings;
+
+  findings.push({
+    row: row, code: "E0B",
+    desc: "M='" + v.m + "' + TXT קיים + כל עמודות הנתונים E-M מלאות — נועלת נעילה חלקית",
+    fix: "e0b_lock",
+    value: QA_E0B_LOCK_MARKER
+  });
+
+  return findings;
+}
 function _qa_check_E01(v, row) {
   const findings = [];
   if (!v.m && v.o) {
@@ -897,8 +1048,22 @@ function _qa_check_E32(v, row, allData, lastRow, txtContent, rowData) {
 
 function _qa_check_E13(v, row) {
   const findings = [];
-  if (v.u === "✅ אושר ידנית" && QA_E13_VALID_M_AFTER_APPROVAL.indexOf(v.m) === -1) {
-    findings.push({ row: row, code: "E13", col: 21, desc: "U=אושר ידנית + M='" + v.m + "' — אי-עקביות", fix: "flag", value: "⚠️ U=אושר אך M≠מאושר" });
+  // [Task #203] תיקון שורש — E13 עברה מ"דגל בלבד" ל"תיקון פעיל". התנאי
+  // המקורי (v.u === "✅ אושר ידנית") הפסיק לתפוס שורות שכבר סומנו בעבר —
+  // הריצה הישנה כתבה את אזהרתה לתוך עמודה U עצמה (col 21), ודרסה את
+  // הסמן המקורי, כך שריצה חוזרת כבר לא זיהתה את השורה (0 ממצאים גם
+  // כשהאי-עקביות עדיין קיימת בפועל). כעת מזהה את כל סמני ה-U שמעידים על
+  // אישור בפועל (כולל הסמן העצמי-שנוצר מהבאג): "✅ אושר ידנית" (s08_approve),
+  // "נשלח ללמידה" (s08_updateAndLearn — כותב M="מאושר" ללא תנאי, בשונה
+  // מ-s08_learnOnly שבודק כפילות *לפני* הכתיבה), ואת האזהרה הישנה עצמה.
+  // ובמקום לסמן — מתקנת ישירות את M ל-"מאושר" (הערך היחיד שכל הנתיבים
+  // האלו כותבים בפועל).
+  const isApprovedEvidence =
+    (v.u === "✅ אושר ידנית") ||
+    (v.u === "נשלח ללמידה") ||
+    (v.u === "⚠️ U=אושר אך M≠מאושר");
+  if (isApprovedEvidence && QA_E13_VALID_M_AFTER_APPROVAL.indexOf(v.m) === -1) {
+    findings.push({ row: row, code: "E13", col: 13, desc: "U מעיד על אישור קודם + M='" + v.m + "' — מתקן M ל-'מאושר'", fix: "write", value: "מאושר" });
   }
   return findings;
 }
@@ -909,9 +1074,8 @@ function _qa_check_E14(v, row) {
     findings.push({ row: row, code: "E14", col: 12, desc: "L='" + v.l + "' — ערך לא חוקי (צפוי: רפואי/חשבונאי/משפטי/ביטוחי/אחר)", fix: "write", value: v.l.replace("מסמך ", "") });
   }
   return findings;
-}
 
-function _qa_check_E15(v, row, eventsFileIds) {
+}function _qa_check_E15(v, row, eventsFileIds) {
   const findings = [];
   if ((v.m === "חולץ לגליונות" || v.m === "חולץ ליומן אירועים") && v.fileId && eventsFileIds && !eventsFileIds[v.fileId]) {
     findings.push({ row: row, code: "E15", col: 21, desc: "M=חולץ לגליונות אך File_ID לא נמצא ב-" + QA_EVENTS_SHEET, fix: "clear_u", value: "" });
@@ -1468,8 +1632,8 @@ function _qa_clearStaleUFlag_Task163(sheet, row) {
 function _qa_applyFixes(sheet, findings) {
   // [v1.9.0] Task 112 — הוסר מנגנון האיסוף-והמחיקה-בסוף (deleteRows): S11
   // אינו מבצע sheet.deleteRow יותר בשום מקרה. כל fix הוא כעת אחד מתוך
-  // write/write_symmetry/clear/clear_st/flag/clear_u. המחיקה בפועל (שורה +
-  // קבצי Drive) מבוצעת ע"י S08 (s08_deleteApproved, Task 114).
+  // write/write_symmetry/clear/clear_st/flag/clear_u/e0a_lock/e0b_lock. המחיקה בפועל
+  // (שורה + קבצי Drive) מבוצעת ע"י S08 (s08_deleteApproved, Task 114).
   // [v1.16.0] Task (עמוס, "תקן נבחרים" לא כתב בפועל) — הפונקציה לא החזירה
   // דיווח אמיתי על מה שבאמת נכתב; ה-UI הציג "הצלחה" תמיד. כעת סופרת
   // ומחזירה כמה תיקונים באמת עברו (לא נבלעו ב-catch/עמודה לא תואמת).
@@ -1493,6 +1657,14 @@ function _qa_applyFixes(sheet, findings) {
   // לגמרי (לא מבוצעת), הממצא נספר כ"לא הוחל", ולוג ברור מוצג. אם f.fileId
   // חסר (ממצא ישן, לפני v1.22.0) — רק אזהרה בלוג, הכתיבה ממשיכה כרגיל
   // (fail-open לנתונים חסרים, fail-closed רק לאי-התאמה בפועל).
+  // [Task #203] case חדש "e0a_lock" — E0A בלבד: מתקן M (אם צריך), מנקה S/T
+  // (אם צריך), ותמיד כותב את סמן הנעילה ל-V (QA_Dismiss_Note). הסמן נבדק
+  // ב-s11_runSingleCheck כדי לדלג על השורה בכל ריצה עתידית של כל קוד.
+  // [Task #203] case חדש "e0b_lock" — E0B בלבד: כותב רק את סמן הנעילה
+  // החלקית ל-V (QA_Dismiss_Note), ללא שינוי בעמודות אחרות (M/TXT/נתונים
+  // כבר תקינים מלכתחילה, אחרת הממצא לא היה נוצר). הסמן נבדק
+  // ב-s11_runSingleCheck כדי לדלג על שאר הקודים (E01-E34) בלבד — E0A
+  // ממשיך לרוץ על שורה נעולה-E0B בכל ריצה עתידית.
 
   let appliedCount = 0;
   const e17DeletionCandidates = [];
@@ -1525,6 +1697,19 @@ function _qa_applyFixes(sheet, findings) {
       }
 
       switch (f.fix) {
+      case "e0a_lock":
+        sheet.getRange(f.row, 13).setValue(f.value);
+        if (f.needsST) {
+          sheet.getRange(f.row, 19).clearContent();
+          sheet.getRange(f.row, 20).clearContent();
+        }
+        sheet.getRange(f.row, 22).setValue(QA_E0A_LOCK_MARKER);
+        break;
+
+      case "e0b_lock":
+        sheet.getRange(f.row, 22).setValue(QA_E0B_LOCK_MARKER);
+        break;
+
      case "write":
    sheet.getRange(f.row, f.col).setValue(f.value);
         // [Task 163] R (col 18) מקבל ערך → מנקה דגל U ישן (E25/E31)
@@ -1592,6 +1777,7 @@ function _qa_applyFixes(sheet, findings) {
   SpreadsheetApp.flush();
   return { appliedCount: appliedCount, e17Rows: e17DeletionCandidates };
 }
+
 // ══════════════════════════════════════════════════════════════════
 // findAnchorRowAndAuditVerified — Task 77 + Task 82
 // סריקה אחת לשתי הבדיקות: איתור שורת-עוגן (L=רפואי, M=עבר סיווג)
