@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S06_ConvertTXT.gs
- * @version 1.7.0 | @updated 11/08/2026 17:38 | @service S06
+ * @version 1.7.1 | @updated 23/08/2026 22:00 | @service S06
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S06_ConvertTXT.gs
  * @description המרת קבצים לפורמט TXT מובנה — 6 מסלולים לפי סוג קובץ.
  *              PDF→Visual, DOCX→Direct, GDoc→Doc, IMG→Image, TXT→Text, Sheet→Sheet.
@@ -18,7 +18,13 @@
  *              _extractDriveId_TxtCheck, _writeTxtCheckResults
  *              _callGemini, _safeParseJson, _writeError, _clearErrors
  *              _visualPathFallbackFreeText_S06
- * @changes     [v1.7.0] Task #175/#176 — execute_Visual_Path: JSON_PARSE_FAIL נבדל מכשל AI אמיתי
+ * @changes     [v1.7.1] Task #202 — תוקנו 2 באגים: (1) execute_Visual_Path +
+ *              _visualPathFallbackFreeText_S06: הוסרו frequencyPenalty/presencePenalty מ-generationConfig —
+ *              גרמו לשגיאת 400 "Penalty is not enabled" מ-Gemini (נוספו ב-v1.7.0), חוסמים את כל מסלול ה-PDF.
+ *              (2) finalize_And_Save_To_Drive: לפני כתיבת M="הומר ל-TXT" — נבדק שהסטטוס הנוכחי אינו כבר
+ *              "עבר סיווג"/"מאושר"/"חולץ ליומן אירועים" (S07-S09), כדי שהרצה חוזרת של S06 על שורה שכבר
+ *              התקדמה לא תדרוס בטעות התקדמות קיימת.
+ *              [v1.7.0] Task #175/#176 — execute_Visual_Path: JSON_PARSE_FAIL נבדל מכשל AI אמיתי
  *              (_safeParseJson זורקת שגיאה, לא מחזירה {words:"",...} בשקט — משפיע על כל 6 המסלולים);
  *              maxOutputTokens:16384; fallback טקסט-חופשי חדש (_visualPathFallbackFreeText_S06) כשה-JSON
  *              נכשל — פענוח סלחני שלא תלוי ב-===META===/===END=== (שומר תוכן חלקי בתשובה שנחתכה);
@@ -290,7 +296,7 @@ Return ONLY this JSON:
 }`;
   const payload = {
     contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: blob.getContentType(), data: base64Data } }] }],
-   generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 16384, frequencyPenalty: 0.5, presencePenalty: 0.4 }
+    generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 16384 }
   };
   try {
     const response  = _callGemini(apiKey, payload, "מסלול 1 PDF", "MEDIUM");
@@ -322,7 +328,7 @@ DOCDATE: date if visible
 ===END===`;
   const payload = {
     contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: blob.getContentType(), data: base64Data } }] }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 16384, frequencyPenalty: 0.5, presencePenalty: 0.4 }
+    generationConfig: { temperature: 0.1, maxOutputTokens: 16384 }
   };
   const response = _callGemini(apiKey, payload, "מסלול 1 PDF fallback", "MEDIUM");
   const res       = JSON.parse(response.getContentText());
@@ -625,7 +631,11 @@ function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet)
   const fileName  = baseName + "_" + timeStamp + ".txt";
   const newFile   = targetFolder.createFile(fileName, textContent, MimeType.PLAIN_TEXT);
 
-  sheet.getRange(row, 13).setValue("הומר ל-TXT");
+  const PIPELINE_STATUSES_PAST_S06 = ["עבר סיווג", "מאושר", "חולץ ליומן אירועים"];
+  const currentPipelineStatus      = sheet.getRange(row, 13).getValue();
+  if (PIPELINE_STATUSES_PAST_S06.indexOf(currentPipelineStatus) === -1) {
+    sheet.getRange(row, 13).setValue("הומר ל-TXT");
+  }
   sheet.getRange(row, 15).setValue(sysType);
   sheet.getRange(row, 16).setValue(size);
   sheet.getRange(row, 17).setValue(m.complexity || "");
