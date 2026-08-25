@@ -1,17 +1,27 @@
 <!--
   MedicalPilot — S11_QADialog.html
-  @version 1.34.0 | @updated 06/08/2026 21:51 | @service S11
+  @version 1.36.0 | @updated 25/08/2026 21:23 | @service S11
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QADialog.html
   @description ממשק HTML לדוח ממצאי QA — פתיחה מיידית, סריקה הדרגתית קוד-
                אחרי-קוד (ללא באצ'ים), עצירה על ממצא עם אפשרות תיקון-מיידי
-               או דילוג, טבלת סיכום סופית עם צ'קבוקסים, סינון לפי קוד
-               שגיאה, קיבוץ E11 לפי הפניה, כפתור תקן נבחרים.
+               או דילוג (חסום עבור E0A — ראה v1.35.0/v1.36.0), טבלת סיכום
+               סופית עם צ'קבוקסים, סינון לפי קוד שגיאה, קיבוץ E11 לפי
+               הפניה, כפתור תקן נבחרים.
   @callers    S11_QArun.gs (runQAViewMain, template.evaluate)
   @functions  runNextStep, runSingleStep, runBatchesForStep (מושבתת),
               _runNextSubStep, _renderStepReview, _stepResume, _stepSkip,
               _stepApplySelected, finishScan, initFindings, buildFilterButtons,
               filterBy, renderTable, toggleSelectAll, updateSelectedCount,
               applySelected, closeDeleteE17Modal, doDeleteE17Rows
+ @changes [v1.36.0] Task #203 — שינוי שם מכני E00→E0A (תואם S11_QArun.gs
+          v1.46.0): ב-_renderStepReview, תנאי הסתרת btnSkipStep עבר
+          מ-step.code==="E00" ל-step.code==="E0A". תיקון קוסמטי בלבד, אין
+          שינוי לוגיקה — אומת מול הקוד החי (diff נקי, שינוי שורה בודדת).
+          עדכון @description בהתאם (E00→E0A).
+ @changes [v1.35.0] Task #203 — E00 (S11_QArun.gs v1.45.0) חוסמת ולא ניתנת
+          לדילוג: כפתור "דלג לקוד הבא" (id חדש btnSkipStep) מוסתר ב-
+          _renderStepReview כש-step.code==="E00", וגלוי כרגיל בכל שאר
+          הקודים. אומת בשטח: E00 לא ניתנת לדילוג, שאר הקודים כן.
  @changes [v1.34.0] Task 166 — MERGED_STEP_GROUPS["E32-E25-E31-E30"]: נוספה קבוצה חמישית { code: "E33", label: "מטא-דאטה חסרה (Drive)" }, כי S11_QArun.gs v1.39.0 מעלה עכשיו ממצאי E33 מאותה שליפת TXT משותפת — בלי הרשומה החדשה, ממצאי E33 היו נופלים בשקט מ-.filter() ולא מגיעים לדוח כלל. נוסף גם badge-E33 ב-CSS (צהוב-כתום, כמו E26-E28) לתצוגה עקבית.
 -->
 <!DOCTYPE html>
@@ -263,7 +273,7 @@
     </div>
     <div style="padding:10px 16px; border-top:1px solid #dde3ea; display:flex; gap:8px;">
       <button class="btn-fix" onclick="_stepApplySelected()">תקן נבחרים והמשך</button>
-      <button class="btn-cancel" onclick="_stepSkip()">דלג לקוד הבא</button>
+      <button class="btn-cancel" id="btnSkipStep" onclick="_stepSkip()">דלג לקוד הבא</button>
     </div>
   </div>
 </div>
@@ -510,7 +520,7 @@ var accumulated = [];
     }
     var group = _subStepQueue[_subStepIdx];
     _renderStepReview({ code: group.code, label: group.label }, group.findings);
-  }function _renderStepReview(step, findings) 
+    }function _renderStepReview(step, findings) 
   {
 
     _stepPendingFindings = findings.map(function(f, i) { f._stepIdx = i; return f; });
@@ -527,6 +537,10 @@ var accumulated = [];
         '<td style="padding:6px 4px;">' + f.desc + '</td>';
       tbody.appendChild(tr);
     });
+    // [E0A — Task #203] E0A חוסמת — אי אפשר לדלג עליה. הכפתור מוסתר רק
+    // בשלב הזה, וחוזר להיות גלוי בכל שאר הקודים (E01-E34).
+    var skipBtn = document.getElementById('btnSkipStep');
+    if (skipBtn) skipBtn.style.display = (step.code === 'E0A') ? 'none' : '';
     document.getElementById('progressOverlay').classList.add('hidden');
     document.getElementById('stepReviewOverlay').classList.remove('hidden');
   }
