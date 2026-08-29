@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.9.1 | @updated 21/08/2026 15:08 | @service VIEWENGINE
+ * @version 2.10.1 | @updated 28/08/2026 18:12 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -46,6 +46,32 @@
  *              setupIcons | cleanAndResetIcons | debugIcons
  *              runExpandViewEvents | runS10ViewIconEvents | runS13ViewIconEvents
  *              runS14ViewIconEvents | setupMedicalEventsIcons
+ *              refreshMedicalEventsRows | runRefreshRowsIconEvents
+ * @changes     [v2.10.1] Task #207 — runArchiveView: תנאי הזכאות לארכוב (S12)
+ *              מקבל כעת גם את Pipeline_Status הישן ("חולץ ליומן אירועים")
+ *              וגם את החדש ("חולץ ליומן אירועים רפואי") — תאימות-לאחור,
+ *              מונע חסימת ארכוב לשורות היסטוריות. הודעת השגיאה עודכנה
+ *              להציג את הערך החדש כנדרש. אין ביצוע ארכוב אמיתי בפועל
+ *              בבדיקה זו — נדחה, ראה Task #200. אומת מול הקוד החי (diff
+ *              מדויק).
+ * @changes     [v2.10.0] Task #205 — MEDICAL_EVENTS_ICON_MAP עמודה 1 (A): script
+ *              הוחלף מ-runExpandViewEvents ל-runRefreshRowsIconEvents, label
+ *              "[ ↔ הרחב ]"→"[ רענן שורות ]" (אותו fileId — refresh_tasks.png,
+ *              זהה לאייקון "רענן משימות" בניהול_משימות). runExpandViewEvents
+ *              לא נמחקה — נשארה בקובץ, פשוט אינה מקושרת יותר מה-ICON_MAP.
+ *              נוספה refreshMedicalEventsRows(): (1) ממיינת את הגליון —
+ *              Routing_Category(F)→Medical_System(C)→Event_Date(A). (2) בונה
+ *              Map חד-פעמי וטרי של ניהול_מיילים: File_ID(A)→מספר שורה. (3)
+ *              כותבת את מספר השורה ל-S_Row (G, COLUMN_MAP.gs v2.10.0). נוספה
+ *              runRefreshRowsIconEvents(): עטיפת UI (דיאלוג אישור YES/NO) עם
+ *              typeof-guard, קוראת ל-refreshMedicalEventsRows. setupMedical-
+ *              EventsIcons() הורץ מחדש בהצלחה בגליון החי — אייקון עמודה A
+ *              עודכן. ⚠️ לא תוקן במסגרת זו: הודעת הסיום של setupMedicalEvents-
+ *              Icons עדיין מציגה "3 איקונים" ו-"עמודה A — רענון (runExpandView-
+ *              Events)" הישנים, במקום 4 איקונים ו-runRefreshRowsIconEvents —
+ *              באג קיים, מומלץ לתקן במשימה נפרדת. אומת מול הגליון החי: מיון
+ *              55/55 שורות תקין (F→C→A), 0 אי-התאמות S_Row מול מפת
+ *              File_ID→שורה מ-ניהול_מיילים.
  * @changes     [v2.9.1] Task #198 — runArchiveView שוכתבה: ארכוב אמיתי במקום
  *              פילטר תצוגה בלבד. זרימה: ui.alert אישור → _s12_archiveRow
  *              (הסרת פילטר פעיל, קריאת 27 העמודות, מציאה/יצירת תיקיית Drive
@@ -113,11 +139,11 @@ const ICON_MAP = [
 const MEDICAL_EVENTS_SHEET_NAME = "יומן_אירועים_רפואי";
 
 const MEDICAL_EVENTS_ICON_MAP = [
-  {
+   {
     col:    1,
-    script: "runExpandViewEvents",
-    fileId: "1UAfAw8B3zGxTM8YoiSNpMTK8qP9FXHS2",  // זהה ל-runExpandView
-    label:  "[ ↔ הרחב ]",
+    script: "runRefreshRowsIconEvents",
+    fileId: "1tI6mulUbssLeMH06jNv4Xs6hE-g_6kry",  // refresh_tasks.png — זהה לאייקון "רענן משימות" בניהול_משימות
+    label:  "[ רענן שורות ]",
     bg:     "#78909C",
     fg:     "#ffffff"
   },
@@ -142,6 +168,67 @@ const MEDICAL_EVENTS_ICON_MAP = [
     script: "runS13ViewIconEvents",
     fileId: "1xu4pi1_ahjbbLxJEmaGvpb-eEf-lBwpH",  // data distrabution.png
     label:  "[ S13 חילוץ ]",
+    bg:     "#00ACC1",
+    fg:     "#ffffff"
+  }
+];
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #206 — מיפוי איקונים לגליון יומן_מצב_רפואי
+// ══════════════════════════════════════════════════════════════════
+
+const MEDICAL_STATUS_SHEET_NAME = "יומן_מצב_רפואי";
+
+// מיפוי מערכות גוף SYS00-SYS14 → שם קריא (שכפול מקומי של S13_BODY_SYSTEMS,
+// S13_ExtractMedical.gs — ללא תלות חוצה-קבצים חדשה)
+const MEDICAL_STATUS_BODY_SYSTEMS = {
+  "SYS00": { nameHe: "מערכת כללית" },
+  "SYS01": { nameHe: "מערכת השלד" },
+  "SYS02": { nameHe: "מערכת השרירים" },
+  "SYS03": { nameHe: "מערכת הכסות" },
+  "SYS04": { nameHe: "מערכת העצבים" },
+  "SYS05": { nameHe: "המערכת האנדוקרינית" },
+  "SYS06": { nameHe: "מערכת הדם וכלי הדם" },
+  "SYS07": { nameHe: "מערכת הלימפה" },
+  "SYS08": { nameHe: "מערכת החיסון" },
+  "SYS09": { nameHe: "מערכת הנשימה" },
+  "SYS10": { nameHe: "מערכת העיכול" },
+  "SYS11": { nameHe: "מערכת השתן" },
+  "SYS12": { nameHe: "מערכת הרבייה" },
+  "SYS13": { nameHe: "מערכות החישה" },
+  "SYS14": { nameHe: "מערכת הגנים" }
+};
+
+const MEDICAL_STATUS_ICON_MAP = [
+  {
+    col:    1,
+    script: "runRefreshRowsIconMedicalStatus",
+    fileId: "1tI6mulUbssLeMH06jNv4Xs6hE-g_6kry",  // refresh_tasks.png — זהה לרענן שורות ביומן_אירועים_רפואי
+    label:  "[ רענן שורות ]",
+    bg:     "#78909C",
+    fg:     "#ffffff"
+  },
+  {
+    col:    3,
+    script: "runVerifyIconMedicalStatus",
+    fileId: "1YZcEifvHAsBtstAFdtVtqNTODpxuXCkM",  // זהה ל-runS10ViewIconEvents
+    label:  "[ אימות ]",
+    bg:     "#7E57C2",
+    fg:     "#ffffff"
+  },
+  {
+    col:    4,
+    script: "runQAIconMedicalStatus",
+    fileId: "1hw2sA4t4H5-OR0k8crG7wuI5Pkh0-_3G",  // זהה ל-S14 QA
+    label:  "[ QA ]",
+    bg:     "#43A047",
+    fg:     "#ffffff"
+  },
+  {
+    col:    6,
+    script: "runInfographicIconMedicalStatus",
+    fileId: "1xu4pi1_ahjbbLxJEmaGvpb-eEf-lBwpH",  // data distrabution.png
+    label:  "[ אינפוגרפיקה ]",
     bg:     "#00ACC1",
     fg:     "#ffffff"
   }
@@ -785,10 +872,10 @@ function runArchiveView() {
     }
 
     const pipelineStatus = (sheet.getRange(row, 13).getValue() || "").toString().trim(); // Pipeline_Status
-    if (pipelineStatus !== "חולץ ליומן אירועים") {
+    if (pipelineStatus !== "חולץ ליומן אירועים" && pipelineStatus !== "חולץ ליומן אירועים רפואי") {
       ui.alert(
         "S12 — ארכוב",
-        "השורה לא זכאית לארכוב.\nPipeline_Status נוכחי: \"" + (pipelineStatus || "(ריק)") + "\"\nנדרש: \"חולץ ליומן אירועים\".",
+        "השורה לא זכאית לארכוב.\nPipeline_Status נוכחי: \"" + (pipelineStatus || "(ריק)") + "\"\nנדרש: \"חולץ ליומן אירועים רפואי\".",
         ui.ButtonSet.OK
       );
       return;
@@ -1216,6 +1303,120 @@ function runS14ViewIconEvents() {
   }
 }
 // ══════════════════════════════════════════════════════════════════
+// [חדש] refreshMedicalEventsRows — לוגיקת רענון שורות ביומן_אירועים_רפואי
+// (1) מיון הגליון: Routing_Category(F) → Medical_System(C) → Event_Date(A)
+// (2) בניית Map חד-פעמי וטרי של ניהול_מיילים: File_ID(A) → מספר שורה
+// (3) לכל שורה — חיפוש S_Row (עמודה G) לפי File_ID (עמודה L=12) מול ה-Map
+// ללא cache — סריקה מלאה טרייה בכל הרצה, לפי בקשה מפורשת.
+// ══════════════════════════════════════════════════════════════════
+
+function refreshMedicalEventsRows() {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(MEDICAL_EVENTS_SHEET_NAME);
+    if (!sheet) {
+      return { error: "גליון '" + MEDICAL_EVENTS_SHEET_NAME + "' לא נמצא." };
+    }
+
+    const emailSheet = ss.getSheetByName(VIEW_SHEET_NAME);
+    if (!emailSheet) {
+      return { error: "גליון '" + VIEW_SHEET_NAME + "' לא נמצא." };
+    }
+
+    const firstDataRow = SHEET_CONFIG[MEDICAL_EVENTS_SHEET_NAME].FIRST_DATA_ROW;
+    const lastRow       = sheet.getLastRow();
+    if (lastRow < firstDataRow) {
+      return { sorted: 0, updated: 0, notFound: 0 };
+    }
+    const numRows = lastRow - firstDataRow + 1;
+
+    // (1) מיון: F → C → A
+    sheet.getRange(firstDataRow, 1, numRows, 12).sort([
+      { column: 6, ascending: true },
+      { column: 3, ascending: true },
+      { column: 1, ascending: true }
+    ]);
+
+    // (2) Map טרי: File_ID (ניהול_מיילים, עמודה A) → מספר שורה
+    const emailFirstDataRow = SHEET_CONFIG[VIEW_SHEET_NAME].FIRST_DATA_ROW;
+    const emailLastRow      = emailSheet.getLastRow();
+    const fileIdToRow = {};
+    if (emailLastRow >= emailFirstDataRow) {
+      const emailIds = emailSheet.getRange(emailFirstDataRow, 1, emailLastRow - emailFirstDataRow + 1, 1).getValues();
+      emailIds.forEach(function(r, idx) {
+        const id = (r[0] || "").toString().trim();
+        if (id) fileIdToRow[id] = emailFirstDataRow + idx;
+      });
+    }
+
+    // (3) חישוב S_Row (עמודה G) מול File_ID (עמודה L=12) אחרי המיון
+    const data     = sheet.getRange(firstDataRow, 1, numRows, 12).getValues();
+    const newSCol  = [];
+    let updated    = 0;
+    let notFound   = 0;
+
+    data.forEach(function(row) {
+      const fileId    = (row[11] || "").toString().trim(); // L = File_ID
+      const sourceRow = fileIdToRow[fileId];
+      if (sourceRow) {
+        newSCol.push([sourceRow]);
+        updated++;
+      } else {
+        newSCol.push([""]);
+        if (fileId) notFound++;
+      }
+    });
+
+    sheet.getRange(firstDataRow, 7, numRows, 1).setValues(newSCol);
+
+    return { sorted: numRows, updated: updated, notFound: notFound };
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-refreshMedicalEventsRows: " + e.toString());
+    return { error: e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] runRefreshRowsIconEvents — עמודה A ביומן_אירועים_רפואי
+// מחליף את runExpandViewEvents באייקון (הפונקציה הישנה נשארת בקובץ,
+// לא נמחקת, פשוט אינה מקושרת יותר מה-ICON_MAP)
+// ══════════════════════════════════════════════════════════════════
+
+function runRefreshRowsIconEvents() {
+  try {
+    const ui      = SpreadsheetApp.getUi();
+    const sheet   = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    const confirm = ui.alert(
+      "רענון שורות",
+      "גליון: " + sheet.getName() + "\n" +
+      "האם למיין את הגליון (קטגוריית ניתוב → מערכת רפואית → תאריך) ולעדכן שורת מקור (S_Row) מול ניהול_מיילים?",
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm === ui.Button.YES) {
+      if (typeof refreshMedicalEventsRows === "function") {
+        const result = refreshMedicalEventsRows();
+        if (result.error) {
+          ui.alert("שגיאה", result.error, ui.ButtonSet.OK);
+        } else {
+          ui.alert(
+            "רענון שורות — הושלם",
+            "מוין: " + result.sorted + " שורות\n" +
+            "עודכנו (S_Row נמצא): " + result.updated + "\n" +
+            "לא נמצא מקור: " + result.notFound,
+            ui.ButtonSet.OK
+          );
+        }
+      } else {
+        ui.alert("שגיאה", "הפונקציה refreshMedicalEventsRows לא נמצאה.", ui.ButtonSet.OK);
+      }
+    }
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runRefreshRowsIconEvents: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+// ══════════════════════════════════════════════════════════════════
 // [v2.5.0] setupMedicalEventsIcons — הכנסת 2 איקונים אוטומטית
 // לגליון יומן_אירועים_רפואי — שורה 2
 // עמודה A = runExpandViewEvents | עמודה C = runS10ViewIconEvents
@@ -1331,5 +1532,451 @@ function runSortLearningExamplesIcon() {
     } catch (e2) {
       Logger.log("[ViewEngine] גם הצגת שגיאת runSortLearningExamplesIcon נכשלה: " + e2.toString());
     }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #206 — refreshMedicalStatusRows — לוגיקת רענון שורות
+// ביומן_מצב_רפואי, בדומה ל-refreshMedicalEventsRows (Task #205):
+// (1) חישוב Medical_System_Name (עמודה C=3) לפי Medical_System (J=10)
+//     דרך מיפוי MEDICAL_STATUS_BODY_SYSTEMS
+// (2) מיון הגליון: Medical_System_Name(C) → Event_Date(A)
+// (3) בניית Map חד-פעמי וטרי של ניהול_מיילים: File_ID(A) → מספר שורה
+// (4) לכל שורה — חישוב S_Row (עמודה I=9) לפי File_ID (עמודה K=11)
+// ללא cache — סריקה מלאה טרייה בכל הרצה.
+// ══════════════════════════════════════════════════════════════════
+
+function refreshMedicalStatusRows() {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(MEDICAL_STATUS_SHEET_NAME);
+    if (!sheet) {
+      return { error: "גליון '" + MEDICAL_STATUS_SHEET_NAME + "' לא נמצא." };
+    }
+
+    const emailSheet = ss.getSheetByName(VIEW_SHEET_NAME);
+    if (!emailSheet) {
+      return { error: "גליון '" + VIEW_SHEET_NAME + "' לא נמצא." };
+    }
+
+    const firstDataRow = SHEET_CONFIG[MEDICAL_STATUS_SHEET_NAME].FIRST_DATA_ROW;
+    const lastRow       = sheet.getLastRow();
+    if (lastRow < firstDataRow) {
+      return { sorted: 0, updated: 0, notFound: 0, decoded: 0 };
+    }
+    const numRows = lastRow - firstDataRow + 1;
+
+    // (1) חישוב Medical_System_Name (עמודה C=3) לפני המיון, לפי Medical_System (עמודה J=10)
+    const rawData = sheet.getRange(firstDataRow, 1, numRows, 12).getValues();
+    const nameCol  = [];
+    let decoded    = 0;
+    rawData.forEach(function(row) {
+      const sysCode = (row[9] || "").toString().trim(); // J = Medical_System
+      const sysDef  = MEDICAL_STATUS_BODY_SYSTEMS[sysCode];
+      if (sysDef) {
+        nameCol.push([sysDef.nameHe]);
+        decoded++;
+      } else {
+        nameCol.push([""]);
+      }
+    });
+    sheet.getRange(firstDataRow, 3, numRows, 1).setValues(nameCol);
+
+    // (2) מיון: C (Medical_System_Name) → A (Event_Date)
+    sheet.getRange(firstDataRow, 1, numRows, 12).sort([
+      { column: 3, ascending: true },
+      { column: 1, ascending: true }
+    ]);
+
+    // (3) Map טרי: File_ID (ניהול_מיילים, עמודה A) → מספר שורה
+    const emailFirstDataRow = SHEET_CONFIG[VIEW_SHEET_NAME].FIRST_DATA_ROW;
+    const emailLastRow      = emailSheet.getLastRow();
+    const fileIdToRow = {};
+    if (emailLastRow >= emailFirstDataRow) {
+      const emailIds = emailSheet.getRange(emailFirstDataRow, 1, emailLastRow - emailFirstDataRow + 1, 1).getValues();
+      emailIds.forEach(function(r, idx) {
+        const id = (r[0] || "").toString().trim();
+        if (id) fileIdToRow[id] = emailFirstDataRow + idx;
+      });
+    }
+
+    // (4) חישוב S_Row (עמודה I=9) מול File_ID (עמודה K=11) אחרי המיון
+    const data     = sheet.getRange(firstDataRow, 1, numRows, 12).getValues();
+    const newSCol  = [];
+    let updated    = 0;
+    let notFound   = 0;
+
+    data.forEach(function(row) {
+      const fileId    = (row[10] || "").toString().trim(); // K = File_ID
+      const sourceRow = fileIdToRow[fileId];
+      if (sourceRow) {
+        newSCol.push([sourceRow]);
+        updated++;
+      } else {
+        newSCol.push([""]);
+        if (fileId) notFound++;
+      }
+    });
+
+    sheet.getRange(firstDataRow, 9, numRows, 1).setValues(newSCol);
+
+    return { sorted: numRows, updated: updated, notFound: notFound, decoded: decoded };
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-refreshMedicalStatusRows: " + e.toString());
+    return { error: e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #206 — runRefreshRowsIconMedicalStatus — עמודה A ביומן_מצב_רפואי
+// ══════════════════════════════════════════════════════════════════
+
+function runRefreshRowsIconMedicalStatus() {
+  try {
+    const ui      = SpreadsheetApp.getUi();
+    const sheet   = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    const confirm = ui.alert(
+      "רענון שורות",
+      "גליון: " + sheet.getName() + "\n" +
+      "האם למיין את הגליון (מערכת גוף → תאריך), לפענח את שם מערכת הגוף ולעדכן שורת מקור (S_Row) מול ניהול_מיילים?",
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm === ui.Button.YES) {
+      if (typeof refreshMedicalStatusRows === "function") {
+        const result = refreshMedicalStatusRows();
+        if (result.error) {
+          ui.alert("שגיאה", result.error, ui.ButtonSet.OK);
+        } else {
+          ui.alert(
+            "רענון שורות — הושלם",
+            "מוין: " + result.sorted + " שורות\n" +
+            "פוענחו (שם מערכת גוף): " + result.decoded + "\n" +
+            "עודכנו (S_Row נמצא): " + result.updated + "\n" +
+            "לא נמצא מקור: " + result.notFound,
+            ui.ButtonSet.OK
+          );
+        }
+      } else {
+        ui.alert("שגיאה", "הפונקציה refreshMedicalStatusRows לא נמצאה.", ui.ButtonSet.OK);
+      }
+    }
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runRefreshRowsIconMedicalStatus: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #206 — runVerifyIconMedicalStatus — עמודה C ביומן_מצב_רפואי
+// אימות = ספוט-צ'ק בלבד: פתיחת Source_URL של השורה הפעילה בכרטיסייה
+// חדשה. לא שער חסימה כמו S10 (S10_Sidebar.gs) — אין אישור/דחייה כאן.
+// ══════════════════════════════════════════════════════════════════
+
+function runVerifyIconMedicalStatus() {
+  try {
+    const ui    = SpreadsheetApp.getUi();
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getActiveSheet();
+
+    if (sheet.getName() !== MEDICAL_STATUS_SHEET_NAME) {
+      ui.alert("שגיאה", "יש להפעיל את האייקון מתוך גליון '" + MEDICAL_STATUS_SHEET_NAME + "'.", ui.ButtonSet.OK);
+      return;
+    }
+
+    const row = ss.getActiveCell().getRow();
+    const firstDataRow = SHEET_CONFIG[MEDICAL_STATUS_SHEET_NAME].FIRST_DATA_ROW;
+    if (row < firstDataRow) {
+      ui.alert("יש לבחור שורת נתונים (לא שורת כותרת).");
+      return;
+    }
+
+    const sourceUrl = sheet.getRange(row, 12).getValue().toString().trim(); // L = Source_URL
+    if (!sourceUrl) {
+      ui.alert("אין Source_URL בשורה " + row + ".");
+      return;
+    }
+
+    const html = HtmlService.createHtmlOutput(
+      '<div style="font-family:Arial;text-align:center;padding:20px;direction:rtl;">' +
+        '<p>שורה ' + row + ' — ספוט-צ\'ק מסמך מקור</p>' +
+        '<a href="' + sourceUrl + '" target="_blank" ' +
+        'style="display:inline-block;padding:10px 20px;background:#7E57C2;color:#fff;' +
+        'text-decoration:none;border-radius:6px;">פתח בכרטיסייה חדשה ↗</a>' +
+      '</div>'
+    ).setWidth(320).setHeight(140);
+
+    ui.showModalDialog(html, "אימות — ספוט-צ'ק");
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runVerifyIconMedicalStatus: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #206 — QA כפילויות ביומן_מצב_רפואי: מערכת גוף זהה +
+// חפיפת תאריכים + דמיון טקסט (Primary_Diagnosis), בדומה במבנה ל-S14
+// (S14_QArun.gs, Union-Find) — אך קריאה בלבד: הגליון אינו כולל עמודות
+// Duplicate_Flag/Duplicate_Target_Ref, כך שהתוצאה מדווחת בדיאלוג בלבד
+// ואינה נכתבת לגליון.
+// ══════════════════════════════════════════════════════════════════
+const QA_MEDICAL_STATUS_TEXT_RATIO_MIN = 0.5; // יחס אורך מינימלי בין שני Primary_Diagnosis להכלה
+
+function _qaMedicalStatus_isDuplicatePair(rowA, rowB) {
+  // מערכת גוף זהה (חובה) — J=Medical_System (עמודה 10)
+  const sysA = (rowA[9] || "").toString().trim().toLowerCase();
+  const sysB = (rowB[9] || "").toString().trim().toLowerCase();
+  if (!sysA || !sysB || sysA !== sysB) return false;
+
+  // חפיפת תאריכים (חובה) — A=Event_Date (עמודה 1)
+  const dateA = _medDate_normalizeDate((rowA[0] || "").toString().trim());
+  const dateB = _medDate_normalizeDate((rowB[0] || "").toString().trim());
+  if (!dateA || !dateB || dateA !== dateB) return false;
+
+  // דמיון טקסט (חובה) — D=Primary_Diagnosis (עמודה 4)
+  const diagA = (rowA[3] || "").toString().trim().toLowerCase();
+  const diagB = (rowB[3] || "").toString().trim().toLowerCase();
+  if (!diagA || !diagB) return false;
+
+  const shorter = Math.min(diagA.length, diagB.length);
+  const longer  = Math.max(diagA.length, diagB.length);
+  const lengthRatioOk = (shorter / longer) >= QA_MEDICAL_STATUS_TEXT_RATIO_MIN;
+  return lengthRatioOk && (diagA === diagB || diagA.indexOf(diagB) !== -1 || diagB.indexOf(diagA) !== -1);
+}
+
+function _qaMedicalStatus_computeDuplicateGroups(allData, firstRow) {
+  const parent = {};
+
+  function find(x) {
+    if (!(x in parent)) parent[x] = x;
+    while (parent[x] !== x) {
+      parent[x] = parent[parent[x]];
+      x = parent[x];
+    }
+    return x;
+  }
+
+  function union(a, b) {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  }
+
+  const n = allData.length;
+  for (let i = 0; i < n; i++) find(i + firstRow);
+
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (_qaMedicalStatus_isDuplicatePair(allData[i], allData[j])) {
+        union(i + firstRow, j + firstRow);
+      }
+    }
+  }
+
+  const groupsByRoot = {};
+  for (let i = 0; i < n; i++) {
+    const row  = i + firstRow;
+    const root = find(row);
+    if (!groupsByRoot[root]) groupsByRoot[root] = [];
+    groupsByRoot[root].push(row);
+  }
+
+  const groups = [];
+  Object.keys(groupsByRoot).forEach(function(root) {
+    if (groupsByRoot[root].length > 1) groups.push(groupsByRoot[root]);
+  });
+
+  return groups;
+}
+
+function runQAIconMedicalStatus() {
+  try {
+    const ui    = SpreadsheetApp.getUi();
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(MEDICAL_STATUS_SHEET_NAME);
+    if (!sheet) {
+      ui.alert("שגיאה", "גליון '" + MEDICAL_STATUS_SHEET_NAME + "' לא נמצא.", ui.ButtonSet.OK);
+      return;
+    }
+
+    const confirm = ui.alert(
+      "QA — בדיקת כפילויות",
+      "גליון: " + sheet.getName() + "\n" +
+      "האם לסרוק את כל השורות ולאתר כפילויות חשודות (מערכת גוף זהה + תאריך זהה + דמיון אבחנה)?",
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm !== ui.Button.YES) return;
+
+    const firstDataRow = SHEET_CONFIG[MEDICAL_STATUS_SHEET_NAME].FIRST_DATA_ROW;
+    const lastRow       = sheet.getLastRow();
+    if (lastRow < firstDataRow) {
+      ui.alert("אין שורות נתונים לבדיקה.");
+      return;
+    }
+
+    const numRows = lastRow - firstDataRow + 1;
+    const allData = sheet.getRange(firstDataRow, 1, numRows, 12).getValues();
+    const groups  = _qaMedicalStatus_computeDuplicateGroups(allData, firstDataRow);
+
+    if (groups.length === 0) {
+      ui.alert("QA — הושלם", "נסרקו " + allData.length + " שורות. לא נמצאו כפילויות חשודות.", ui.ButtonSet.OK);
+      return;
+    }
+
+    const groupsText = groups.map(function(g) { return "שורות " + g.join(", "); }).join("\n");
+    ui.alert(
+      "QA — נמצאו כפילויות חשודות",
+      "נסרקו " + allData.length + " שורות.\n" +
+      "קבוצות חשודות: " + groups.length + "\n\n" + groupsText + "\n\n" +
+      "לא בוצע שינוי בגליון — לבדיקה ידנית בלבד.",
+      ui.ButtonSet.OK
+    );
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runQAIconMedicalStatus: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #206 — runInfographicIconMedicalStatus — V1 טקסטואלי:
+// קיבוץ שורות יומן_מצב_רפואי לפי מערכת גוף (Medical_System_Name),
+// ממוין לפי Event_Date בתוך כל קבוצה. אינו האווטאר התלת-מימדי מהחזון —
+// טווח נפרד (ראה Task #206, ניהול_משימות).
+// ══════════════════════════════════════════════════════════════════
+
+function runInfographicIconMedicalStatus() {
+  try {
+    const ui    = SpreadsheetApp.getUi();
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(MEDICAL_STATUS_SHEET_NAME);
+    if (!sheet) {
+      ui.alert("שגיאה", "גליון '" + MEDICAL_STATUS_SHEET_NAME + "' לא נמצא.", ui.ButtonSet.OK);
+      return;
+    }
+
+    const firstDataRow = SHEET_CONFIG[MEDICAL_STATUS_SHEET_NAME].FIRST_DATA_ROW;
+    const lastRow       = sheet.getLastRow();
+    if (lastRow < firstDataRow) {
+      ui.alert("אין שורות נתונים להצגה.");
+      return;
+    }
+
+    const numRows = lastRow - firstDataRow + 1;
+    const data    = sheet.getRange(firstDataRow, 1, numRows, 12).getValues();
+
+    const groups = {};
+    data.forEach(function(row) {
+      const sysName = (row[2] || "לא מזוהה").toString().trim() || "לא מזוהה"; // C=Medical_System_Name
+      const date     = (row[0] || "").toString().trim();                      // A=Event_Date
+      const diag     = (row[3] || "").toString().trim();                      // D=Primary_Diagnosis
+      if (!groups[sysName]) groups[sysName] = [];
+      groups[sysName].push({ date: date, diag: diag });
+    });
+
+    Object.keys(groups).forEach(function(sysName) {
+      groups[sysName].sort(function(a, b) {
+        const da = _medDate_normalizeDate(a.date) || "";
+        const db = _medDate_normalizeDate(b.date) || "";
+        return da.localeCompare(db);
+      });
+    });
+
+    let text = "";
+    Object.keys(groups).sort().forEach(function(sysName) {
+      text += "🔹 " + sysName + " (" + groups[sysName].length + ")\n";
+      groups[sysName].forEach(function(item) {
+        text += "   " + (item.date || "—") + " — " + (item.diag || "(ללא אבחנה)") + "\n";
+      });
+      text += "\n";
+    });
+
+    ui.alert("אינפוגרפיקה — V1 (ציר זמן לפי מערכת גוף)", text || "אין נתונים.", ui.ButtonSet.OK);
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runInfographicIconMedicalStatus: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #206 — setupMedicalStatusIcons — הכנסת 4 איקונים אוטומטית
+// לגליון יומן_מצב_רפואי — שורה 2
+// עמודה A = רענן שורות | עמודה C = אימות | עמודה D = QA | עמודה F = אינפוגרפיקה
+// ══════════════════════════════════════════════════════════════════
+
+function setupMedicalStatusIcons() {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(MEDICAL_STATUS_SHEET_NAME);
+    const ui    = SpreadsheetApp.getUi();
+
+    if (!sheet) {
+      ui.alert("❌ גליון '" + MEDICAL_STATUS_SHEET_NAME + "' לא נמצא.");
+      return;
+    }
+
+    // מחק איקונים קיימים
+    const existingImages = sheet.getImages();
+    existingImages.forEach(function(img) { img.remove(); });
+    SpreadsheetApp.flush();
+    Logger.log("[ViewEngine] setupMedicalStatusIcons — נמחקו: " + existingImages.length + " איקונים");
+
+    // שכבת בסיס — כל שורה 3 בתכלת בהיר, זהה ל-buildMedicalEventsSheet
+    // (יומן_אירועים_רפואי, System_Doc_Builder.gs) — עמודות האייקון ידרסו
+    // אותה בהמשך הפונקציה בצבען הספציפי
+    sheet.getRange(3, 1, 1, 12).setBackground("#cfe2f3");
+
+    const rowHeight = sheet.getRowHeight(2);
+    const iconSize  = Math.max(30, rowHeight - 4);
+
+    MEDICAL_STATUS_ICON_MAP.forEach(function(mapping) {
+      try {
+        const file     = DriveApp.getFileById(mapping.fileId);
+        const blob     = file.getBlob();
+        const colWidth = sheet.getColumnWidth(mapping.col);
+        const offsetX  = Math.max(0, Math.floor((colWidth - iconSize) / 2));
+
+        const img = sheet.insertImage(blob, mapping.col, 2);
+        img.setAltTextTitle(mapping.script);
+        img.assignScript(mapping.script);
+        img.setWidth(iconSize);
+        img.setHeight(iconSize);
+        img.setAnchorCell(sheet.getRange(2, mapping.col));
+        img.setAnchorCellXOffset(offsetX);
+        img.setAnchorCellYOffset(2);
+
+        // תווית שורה 3
+        const labelCell = sheet.getRange(3, mapping.col);
+        labelCell.setValue(mapping.label);
+        labelCell.setBackground(mapping.bg);
+        labelCell.setFontColor(mapping.fg);
+        labelCell.setFontWeight("bold");
+        labelCell.setFontSize(9);
+        labelCell.setHorizontalAlignment("center");
+        labelCell.setVerticalAlignment("middle");
+
+        Logger.log("[ViewEngine] setupMedicalStatusIcons — נוסף: " + mapping.script + " עמודה " + mapping.col);
+
+      } catch (imgErr) {
+        Logger.log("[ViewEngine] setupMedicalStatusIcons — שגיאה: " + mapping.script + " | " + imgErr.toString());
+      }
+    });
+
+    SpreadsheetApp.flush();
+
+    ui.alert(
+      "✅ איקונים הוכנסו בהצלחה לגליון '" + MEDICAL_STATUS_SHEET_NAME + "'\n\n" +
+      "עמודה A — רענן שורות (runRefreshRowsIconMedicalStatus)\n" +
+      "עמודה C — אימות (runVerifyIconMedicalStatus)\n" +
+      "עמודה D — QA (runQAIconMedicalStatus)\n" +
+      "עמודה F — אינפוגרפיקה (runInfographicIconMedicalStatus)"
+    );
+
+    Logger.log("[ViewEngine] setupMedicalStatusIcons הושלם — 4 איקונים");
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-setupMedicalStatusIcons: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
   }
 }
