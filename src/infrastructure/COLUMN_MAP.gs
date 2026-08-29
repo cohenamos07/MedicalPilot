@@ -1,10 +1,11 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.9.9 | @updated 21/08/2026 15:08 | @service COLUMN_MAP
+ * @version 2.10.0 | @updated 27/08/2026 15:56 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
- *          יומן_אירועים_רפואי (11 עמודות — [v2.9.8] עודכן מ-7, כולל H/I מ-Task #185 שלא תועדו אז).
+ *          יומן_אירועים_רפואי (12 עמודות — [v2.10.0] עודכן מ-11, Task #205:
+ *          נוספה S_Row בעמודה 7 [writers: VIEWENGINE], File_ID הוזז לעמודה 12).
  *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (11), בדיקות_דם (10),
  *          בדיקות_גנטיות (8), הנחיות_רפואיות_ומשימות (8) — 5 גליונות יעד של S09,
  *          נוספו ל-SHEET_CONFIG/SHEETS_MAP עם כותרות באנגלית, יושרו בפועל
@@ -31,6 +32,15 @@
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol, _medDate_normalizeDate
+ * @changes [v2.10.0] Task #205 — SHEETS_MAP["יומן_אירועים_רפואי"]: נוספה עמודה
+ *          7 = S_Row (zone: טכני, writers:["VIEWENGINE"], readers:[]) — מספר
+ *          שורת המקור בניהול_מיילים, מחושב ומתעדכן ע"י כפתור "רענן שורות"
+ *          (refreshMedicalEventsRows, ViewEngine.gs) בכל הרצה. File_ID הוזז
+ *          מעמודה 7 לעמודה 12, כדי לפנות מקום ל-S_Row (readers: S11, S13 —
+ *          ללא שינוי). 4 העמודות שביניהן (Validation_Status H8/Extraction_
+ *          Status I9/Duplicate_Flag J10/Duplicate_Target_Ref K11) לא הוזזו —
+ *          נשארו באותן עמודות כבעבר. תוקן גם פער תיעוד: @impacts מעלה תיעד
+ *          "11 עמודות" — עודכן ל-12 (ראה שם).
  * @changes [v2.9.9] Task #198 — הוספת SHEET_CONFIG["ניהול_מיילים_ארכיון"] +
  *          SHEETS_MAP["ניהול_מיילים_ארכיון"] (מיפוי זהה ל-ניהול_מיילים, 27
  *          עמודות, writers:["S12"]) — יעד לארכוב אמיתי (moveTo) של שורות
@@ -260,7 +270,7 @@ const SHEETS_MAP = {
     { col: 4, name: "Issuer",            zone: "אירוע",  writers: ["S09"], readers: ["S10"], values: "טקסט חופשי",          notes: "מוסד / רופא מנפיק — זהה ל-Doc_Issuer בניהול_מיילים" },
     { col: 5, name: "Summary",           zone: "תוכן",   writers: ["S09"], readers: ["S10"], values: "טקסט חופשי — ארוך",  notes: "סיכום ממצא — טקסט דינמי וארוך — עמודה E במכוון בסוף הגלויות" },
     { col: 6, name: "Routing_Category",  zone: "טכני",   writers: ["S09"], readers: ["S10"], values: "טקסט חופשי",          notes: "קטגוריית ניתוב — לאיזה גליון יעד נוסף המידע" },
-    { col: 7, name: "File_ID",           zone: "טכני",   writers: ["S09"], readers: ["S10"], values: "Drive ID",             notes: "מזהה קובץ מקורי — מפתח מקשר חזרה לניהול_מיילים — זהה לעמודה A שם" },
+    { col: 7, name: "S_Row",             zone: "טכני",   writers: ["VIEWENGINE"], readers: [], values: "מספר שורה",           notes: "מספר שורת המקור בניהול_מיילים (עמודה A שם) — מחושב ומתעדכן ע\"י כפתור \"רענן שורות\" (refreshMedicalEventsRows, ViewEngine.gs) בכל הרצה. עמודה צרה במכוון — ריבוי מותר (כמה שורות יכולות להצביע לאותה שורת מקור)" },
     // [Task 185] 2 עמודות סטטוס חדשות — ברמת תת-האירוע (שורה בודדת), לא
     // ברמת המסמך כולו. Validation_Status נכתב ע"י S10 (אישור/עדכון/למידה
     // יזומה — שלושתם). Extraction_Status ייכתב ע"י S13 (עתידי) אחרי כתיבה
@@ -272,7 +282,8 @@ const SHEETS_MAP = {
     // מספר שורה, לא File_ID — כי מסמך אחד יכול לייצר כמה שורות-אירוע). S14 לא
     // מוחק שורות, רק מסמן — עקרון זהה ל-S11 (ניהול_מיילים).
     { col: 10, name: "Duplicate_Flag",       zone: "טכני",   writers: ["S14"], readers: ["S14"], values: "כפול מאושר — שורה X",  notes: "[Task #187] סימון כפילות שזוהתה ע\"י S14 — נגזר מחדש בכל סריקה, לא נמחקת שורה" },
-    { col: 11, name: "Duplicate_Target_Ref", zone: "טכני",   writers: ["S14"], readers: ["S14"], values: "מספר שורה",            notes: "[Task #187] שורת העוגן בקבוצת הכפילות — Union-Find לפי מספר שורה, נגזר מחדש בכל סריקת S14" }
+    { col: 11, name: "Duplicate_Target_Ref", zone: "טכני",   writers: ["S14"], readers: ["S14"], values: "מספר שורה",            notes: "[Task #187] שורת העוגן בקבוצת הכפילות — Union-Find לפי מספר שורה, נגזר מחדש בכל סריקת S14" },
+    { col: 12, name: "File_ID",              zone: "טכני",   writers: ["S09"], readers: ["S11","S13"], values: "Drive ID",       notes: "מזהה קובץ מקורי בדרייב — הועבר לכאן מעמודה G כדי לפנות מקום ל-S_Row. נקרא ע\"י S11 (בדיקת כפילות מול ניהול_מיילים) ו-S13 (חילוץ מהמסמך המקורי)" }
   ],
   // [Task 184] גליון יעד — תרופות קבועות שחולצו ע"י S09 (כותרות אנגלית)
 
@@ -293,18 +304,19 @@ const SHEETS_MAP = {
   ],
 
   // [Task 184] גליון יעד — מצב רפואי (medical_status) שחולץ ע"י S09 (כותרות אנגלית)
-  "יומן_מצב_רפואי": [
-    { col: 1,  name: "Event_Date",         zone: "אירוע", writers: ["S13"], readers: [], values: "תאריך DD/MM/YYYY", notes: "מהמסמך או תאריך המסמך כברירת מחדל" },
-    { col: 2,  name: "Event_Type",         zone: "אירוע", writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 3,  name: "Medical_System",     zone: "אירוע", writers: ["S13"], readers: [], values: "SYS00-SYS14",      notes: "[Task #188] דינמי — Gemini קובע לפי תוכן השורה" },
-    { col: 4,  name: "Issuer",             zone: "אירוע", writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 5,  name: "Primary_Diagnosis",  zone: "תוכן",  writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 6,  name: "Severity_Status",    zone: "תוכן",  writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 7,  name: "Recommendations",    zone: "תוכן",  writers: ["S13"], readers: [], values: "טקסט חופשי — ארוך", notes: "מקור MAX_TOKENS ב-Task 180" },
-    { col: 8,  name: "Source_URL",         zone: "טכני",  writers: ["S13"], readers: [], values: "https://drive.google.com/...", notes: "" },
-    { col: 9,  name: "File_ID",            zone: "טכני",  writers: ["S13"], readers: [], values: "Drive ID",          notes: "" },
-    { col: 10, name: "Doc_Issuer",         zone: "טכני",  writers: ["S13"], readers: [], values: "טקסט חופשי",        notes: "docIssuer" },
-    { col: 11, name: "Record_Status",      zone: "טכני",  writers: ["S13"], readers: [], values: "חדש",               notes: "" }
+    "יומן_מצב_רפואי": [
+    { col: 1,  name: "Event_Date",          zone: "אירוע", writers: ["S13"],        readers: [], values: "תאריך DD/MM/YYYY", notes: "מהמסמך או תאריך המסמך כברירת מחדל" },
+    { col: 2,  name: "Event_Type",          zone: "אירוע", writers: ["S13"],        readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 3,  name: "Medical_System_Name", zone: "אירוע", writers: ["VIEWENGINE"], readers: [], values: "טקסט חופשי — פענוח SYS", notes: "[Task #206] מחליף את Issuer שהיה כאן. מחושב בכפתור 'רענן שורות' (refreshMedicalStatusRows, ViewEngine.gs) מתוך Medical_System (עמ' 10) דרך מיפוי SYS00-SYS14→שם" },
+    { col: 4,  name: "Primary_Diagnosis",   zone: "תוכן",  writers: ["S13"],        readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 5,  name: "Severity_Status",     zone: "תוכן",  writers: ["S13"],        readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 6,  name: "Recommendations",     zone: "תוכן",  writers: ["S13"],        readers: [], values: "טקסט חופשי — ארוך", notes: "מקור MAX_TOKENS ב-Task 180" },
+    { col: 7,  name: "Record_Status",       zone: "טכני",  writers: ["S13"],        readers: [], values: "חדש",               notes: "" },
+    { col: 8,  name: "Doc_Issuer",          zone: "טכני",  writers: ["S13"],        readers: [], values: "טקסט חופשי",        notes: "docIssuer" },
+    { col: 9,  name: "S_Row",               zone: "טכני",  writers: ["VIEWENGINE"], readers: [], values: "מספר שורה",        notes: "[Task #206] שורת מקור ב-ניהול_מיילים לפי File_ID (עמ' 11) — אותו מנגנון בדיוק כמו S_Row ביומן_אירועים_רפואי (Task #205)" },
+    { col: 10, name: "Medical_System",      zone: "טכני",  writers: ["S13"],        readers: [], values: "SYS00-SYS14",      notes: "[Task #206] הועבר לכאן מעמודה 3. [Task #188] דינמי — Gemini קובע לפי תוכן השורה" },
+    { col: 11, name: "File_ID",             zone: "טכני",  writers: ["S13"],        readers: [], values: "Drive ID",          notes: "[Task #206] הועבר לכאן מעמודה 9" },
+    { col: 12, name: "Source_URL",          zone: "טכני",  writers: ["S13"],        readers: [], values: "https://drive.google.com/...", notes: "[Task #206] הועבר לכאן מעמודה 8" }
   ],
 
   // [Task 184] גליון יעד — בדיקות דם שחולצו ע"י S09 (כותרות אנגלית)
