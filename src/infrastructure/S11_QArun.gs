@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S11_QArun.gs
- * @version 1.46.0 | @updated 25/08/2026 21:23 | @service S11
+ * @version 1.46.2 | @updated 28/08/2026 18:12 | @service S11
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S11_QArun.gs
  * @description בדיקת תקינות Pipeline — סריקת גליון ניהול_מיילים לפי חוקי QA
  *              (E0A-E28 + E30-E34, ללא E23/E24/E29; #149). E0A (שינוי שם
@@ -26,6 +26,22 @@
  *            _qa_fetchTxtHeader_E32, _qa_calculateDuplicates_E32, _qa_parseFileSizeToBytes,
  *            _qa_buildSummary, _qa_applyFixes, _qa_validateCol, _qa_loadEventsFileIds,
  *            findAnchorRowAndAuditVerified, _qa_clearStaleUFlag_Task163
+ * @changes [v1.46.2] Task #207 — תמיכה בערך Pipeline_Status החדש "חולץ ליומן
+ *          אירועים רפואי" (בנוסף לישן, תאימות-לאחור מלאה, ללא מיגרציה כפויה
+ *          של נתונים קיימים): (1) QA_VALID_M ו-QA_E13_VALID_M_AFTER_APPROVAL —
+ *          נוסף הערך החדש לשני המערכים (מונע false-positive ב-E03/E13).
+ *          (2) _qa_check_E0A — needsM מכירה כעת גם בישן וגם בחדש כתקין (38
+ *          שורות היסטוריות עם הערך הישן אינן מתוקנות בכפייה); כשתיקון M
+ *          באמת נדרש — נכתב הערך החדש. (3) _qa_check_E15 — תנאי ההתאמה מול
+ *          יומן_אירועים_רפואי כולל כעת גם את הערך החדש. אומת מול הקוד החי
+ *          (diff מדויק, 3 בלוקים) וגם בהרצה חיה: E0A על 33 שורות עם הערך
+ *          הישן — כולן זוהו "כבר תקין, נועל" (לא תוקנו בכפייה), כצפוי.
+ * @changes [v1.46.1] Task #205 — _qa_loadEventsFileIds: eventsSheet.getRange
+ *          (5, 12, lastRow - 4, 1) לקריאת File_ID (היה עמודה 7/G) — עודכן
+ *          בעקבות הוספת S_Row (7) ל-COLUMN_MAP.gs (v2.10.0) והזזת File_ID
+ *          לעמודה 12 ביומן_אירועים_רפואי. משמש E0A/E15 (זיהוי שורות שכבר
+ *          חולצו). אומת מול הגליון החי (Step 5 של Task #205): 0 אי-התאמות
+ *          File_ID מול מפת ניהול_מיילים.
  * @changes [v1.46.0] Task #203 — שלוש עבודות משולבות, כותרת אחת:
  *          (1) שינוי שם E00→E0A בכל הקוד (קבוע, QA_CHECK_STEPS,
  *          s11_runSingleCheck, _qa_applyFixes, _qa_check_E0A) — מניעת בלבול
@@ -50,7 +66,7 @@
  *          נכשלו בשקט; תוקן בהסרת col מהממצא (כמו e0a_lock, שלא מסתמך על
  *          col=22 לכתיבתו). (ב) _qa_check_E0B לא בדקה תוכן קיים בעמודה V
  *          לפני יצירת ממצא — דרסה 24 הערות QA ידניות קיימות ("נבדק ידנית —
- *          לא רלוונטי (כפול/לוגו-ריק)", הנקראות ע"י E32/E25/E31 למניעת
+ *          לא רלוונטי (כפול/לוגו-ריק/טקסט-פגום)", הנקראות ע"י E32/E25/E31 למניעת
  *          זיהוי כפילות חוזר); תוקן בהוספת פרמטר qaDismissNote ו-guard
  *          `if (qaDismissNote) return findings;`. 24 הערכים שוחזרו ידנית
  *          בגליון (טקסט מקורי, לפי גיבוי) בעזרת פונקציה חד-פעמית
@@ -139,6 +155,7 @@ const QA_VALID_M = [
   "עבר סיווג",
   "מאושר",
   "חולץ ליומן אירועים",
+  "חולץ ליומן אירועים רפואי",
   "לא נתמך"
 ];
 
@@ -146,7 +163,8 @@ const QA_VALID_M = [
 // הוסר "אומת ידנית" (מעולם לא נכתב בפועל).
 const QA_E13_VALID_M_AFTER_APPROVAL = [
   "מאושר",
-  "חולץ ליומן אירועים"
+  "חולץ ליומן אירועים",
+  "חולץ ליומן אירועים רפואי"
 ];
 
 // [E0A — Task #203] סמן נעילה — נכתב לעמודה V (QA_Dismiss_Note) אחרי
@@ -493,8 +511,8 @@ function _qa_loadEventsFileIds(ss) {
     const lastRow = eventsSheet.getLastRow();
     if (lastRow <= 4) return {}; // שורות 1-4 מוגנות — אין נתונים
 
-    // עמודה G = File_ID בגליון יומן_אירועים_רפואי
-    const data    = eventsSheet.getRange(5, 7, lastRow - 4, 1).getValues();
+    // עמודה L (12) = File_ID בגליון יומן_אירועים_רפואי (הועבר מ-G)
+    const data    = eventsSheet.getRange(5, 12, lastRow - 4, 1).getValues();
     const fileIds = {};
 
     if (!data || !data.length) return fileIds;
@@ -749,7 +767,7 @@ function _qa_check_E0A(v, row, eventsFileIds) {
   if (!v.fileId || !eventsFileIds || !eventsFileIds[v.fileId]) return findings;
 
   const nValid  = (v.n === "חולץ מלא" || v.n === "חולץ חלקי");
-  const needsM  = v.m !== "חולץ ליומן אירועים";
+  const needsM  = (v.m !== "חולץ ליומן אירועים" && v.m !== "חולץ ליומן אירועים רפואי");
   const needsST = !!(v.s || v.t);
 
   if (nValid) {
@@ -761,7 +779,7 @@ function _qa_check_E0A(v, row, eventsFileIds) {
           (needsST ? " (S/T לא ריקים)" : "")
         : "קיים חילוץ ביומן_אירועים_רפואי — כבר תקין, נועל",
       fix: "e0a_lock",
-      value: needsM ? "חולץ ליומן אירועים" : v.m,
+      value: needsM ? "חולץ ליומן אירועים רפואי" : v.m,
       needsST: needsST
     });
   } else {
@@ -1077,7 +1095,7 @@ function _qa_check_E14(v, row) {
 
 }function _qa_check_E15(v, row, eventsFileIds) {
   const findings = [];
-  if ((v.m === "חולץ לגליונות" || v.m === "חולץ ליומן אירועים") && v.fileId && eventsFileIds && !eventsFileIds[v.fileId]) {
+  if ((v.m === "חולץ לגליונות" || v.m === "חולץ ליומן אירועים" || v.m === "חולץ ליומן אירועים רפואי") && v.fileId && eventsFileIds && !eventsFileIds[v.fileId]) {
     findings.push({ row: row, code: "E15", col: 21, desc: "M=חולץ לגליונות אך File_ID לא נמצא ב-" + QA_EVENTS_SHEET, fix: "clear_u", value: "" });
   }
   return findings;
