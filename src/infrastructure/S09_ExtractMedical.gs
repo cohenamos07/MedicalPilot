@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S09_ExtractMedical.gs
- * @version 2.0.0 | @updated 16/08/2026 21:29 | @service S09
+ * @version 2.0.2 | @updated 28/08/2026 18:12 | @service S09
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S09_ExtractMedical.gs
  * @impacts חילוץ אירועים רפואיים ממסמכים מאומתים — קריאה יחידה לכל מסמך,
  *          כותב אך ורק ליומן_אירועים_רפואי (שורת אירוע גנרית לכל נושא/ממצא
@@ -14,6 +14,21 @@
  *          כתיבה: ניהול_מיילים עמודות M,S,T + יומן_אירועים_רפואי בלבד.
  *          תלויות: GEMINI_API_KEY (gemini-2.5-flash), Drive API, COLUMN_MAP.gs.
  *          מופעל מהתפריט ומאייקון עמודה O בגליון ניהול_מיילים.
+ * @changes [v2.0.2] Task #207 — שורה 247 (_s09_processRow): statusText שונה
+ *          מ-"חולץ ליומן אירועים" ל-"חולץ ליומן אירועים רפואי" — הכנה
+ *          לריבוי יומנים עתידי (ביטוחי/חשבונאי וכו', כל אחד יקבל ערך משלו
+ *          כשייבנה שירות מקביל). אין שינוי בלוגיקה מעבר לכך — שינוי מחרוזת
+ *          יחיד. אומת מול הקוד החי (diff מדויק).
+ * @changes [v2.0.1] Task #205 — בלוק כתיבת יומן_אירועים_רפואי (בתוך
+ *                   _s09_writeToSheets): appendRow הורחב מ-7 ל-12 ערכים,
+ *                   בעקבות הוספת עמודת S_Row (7) ל-COLUMN_MAP.gs (v2.10.0)
+ *                   והזזת File_ID לעמודה 12. הוספו 5 ערכים ריקים (""):
+ *                   G=S_Row (מחושב בהמשך ע"י refreshMedicalEventsRows,
+ *                   ViewEngine.gs), H=Validation_Status, I=Extraction_Status,
+ *                   J=Duplicate_Flag, K=Duplicate_Target_Ref (מתמלאות ע"י
+ *                   S10/S13/S14 בהמשך הזרימה). קוד הפענוח עצמו
+ *                   (_s09_processRow/_s09_callGemini) לא השתנה — שינוי
+ *                   נקודתי בבלוק הכתיבה בלבד.
  * @changes [v2.0.0] Task 185 (בקשת עמוס) — שכתוב ארכיטקטוני: S09 כותב כעת
  *                   אך ורק ליומן_אירועים_רפואי (S09_TARGET_SHEETS צומצם
  *                   ליעד יחיד; _s09_writeToSheets — 5 בלוקים הוסרו). קריאת
@@ -234,7 +249,7 @@ function _s09_processRow(ss, sheet, row) {
     // [v2.0.0 — Task 185] כתיבה תמיד ליומן_אירועים_רפואי בלבד — סטטוס קבוע,
     // אין יותר ענף "חולץ לגליונות" (שהיה רלוונטי כשהיו עד 6 יעדים אפשריים)
     _s09_writeToSheets(ss, result, docData);
-    const statusText = "חולץ ליומן אירועים";
+    const statusText = "חולץ ליומן אירועים רפואי";
 
     sheet.getRange(row, 13).setValue(statusText);
     sheet.getRange(row, 19).setValue("");
@@ -552,7 +567,11 @@ function _s09_writeToSheets(ss, extracted, docData) {
   // [v2.0.0 — Task 185] נשאר רק בלוק events — 5 הבלוקים האחרים
   // (medications/medical_status/blood_tests/genetic_tests/instructions)
   // הוסרו לגמרי. חילוץ מפורט עובר ל-S13, אחרי אימות S10/S12.
-  // Event_Date | Event_Type | Medical_System | Issuer | Summary | Routing_Category | File_ID
+  // [חדש] Event_Date | Event_Type | Medical_System | Issuer | Summary | Routing_Category |
+  //        S_Row | Validation_Status | Extraction_Status | Duplicate_Flag | Duplicate_Target_Ref | File_ID
+  // File_ID עבר מעמודה G ל-L (12) — עמודה G משמשת כעת S_Row (מחושב ע"י
+  // refreshMedicalEventsRows, ViewEngine.gs). 4 העמודות שביניהן (H-K)
+  // נכתבות ריקות כאן — מתמלאות ע"י S10/S13/S14 בהמשך הזרימה.
   if (extracted.events && extracted.events.length > 0) {
     const sheet = ss.getSheetByName(S09_TARGET_SHEETS.events);
     extracted.events.forEach(e => {
@@ -563,7 +582,12 @@ function _s09_writeToSheets(ss, extracted, docData) {
         e["מוסד_רופא"]      || docData.docIssuer,
         e["סיכום_ממצא"]     || "",
         e["קטגוריית_ניתוב"] || "",
-        docData.fileId
+        "",  // G = S_Row — מחושב ע"י כפתור "רענן שורות"
+        "",  // H = Validation_Status
+        "",  // I = Extraction_Status
+        "",  // J = Duplicate_Flag
+        "",  // K = Duplicate_Target_Ref
+        docData.fileId  // L = File_ID
       ]);
     });
   }
