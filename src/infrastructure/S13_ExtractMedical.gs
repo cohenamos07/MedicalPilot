@@ -1,6 +1,6 @@
 /**
  * @file        S13_ExtractMedical.gs
- * @version     1.3.0 | @updated 19/08/2026 19:36 | @service S13
+ * @version     1.3.1 | @updated 27/08/2026 15:56 | @service S13
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S13_ExtractMedical.gs
  * @description שירות חילוץ עמוק — קורא שורות מאומתות (Validation_Status="מאומת",
  *              Extraction_Status ריק) מיומן_אירועים_רפואי, מקבץ לפי File_ID
@@ -12,7 +12,8 @@
  *              בדיקת דם/בדיקה גנטית/מרשם תרופה מקבלים קוד מערכת קבוע
  *              (SYS06/SYS14/SYS00 בהתאמה, ללא שאילתת Gemini); מצב רפואי
  *              והנחיה מקבלים קוד דינמי שנקבע ע"י Gemini לכל שורה.
- * @impacts     יומן_אירועים_רפואי: קורא בלבד (A-I), כותב Extraction_Status (I).
+ * @impacts     יומן_אירועים_רפואי: קורא בלבד (A-L, [v1.3.1] עודכן מ-A-I, Task
+ *              #205 — File_ID עבר לעמודה L), כותב Extraction_Status (I).
  *              בדיקות_דם/בדיקות_גנטיות/תרופות_קבועות/הנחיות_רפואיות_ומשימות/
  *              יומן_מצב_רפואי: כותב שורות חדשות (appendRow) בלבד, לא דורס.
  *              ניהול_מיילים: קורא בלבד (TXT_URL, fallback).
@@ -22,6 +23,13 @@
  *              _s13_fetchTxtContent | _s13_buildPrompt | _s13_normalizeDate |
  *              _s13_callGemini | _s13_buildRowValues | _s13_writeExtractedRow |
  *              _s13_processGroup
+ * @changes     [v1.3.1] Task #205 — _s13_getEligibleGroups: sheet.getRange
+ *              (firstDataRow, 1, numRows, 12) — הורחב ל-12 עמודות (A:L, היה
+ *              A:I), בעקבות הוספת S_Row (7) ל-COLUMN_MAP.gs (v2.10.0). fileId
+ *              נקרא כעת מ-rowData[11] (L, הועבר מ-G). _s13_processSingleRow:
+ *              fileId = sheet.getRange(row, 12) (היה עמודה 7/G). Validation_
+ *              Status (H/8) ו-Extraction_Status (I/9) — ללא שינוי, לא הוזזו.
+ *              אומת מול הגליון החי (Step 5 של Task #205): 0 אי-התאמות.
  * @changes     [v1.3.0] המשך #189 — שיפור בהירות הודעות חסימה ב-_s13_checkRow:
  *          הפרדה מלאה בין שני מצבי חסימה שהיו משותפים לעטיפת הודעה גנרית אחת.
  *          🟡 "עדיין לא אומתה" (Validation_Status ריק) — מנוסח כמגבלת מדיניות
@@ -153,7 +161,7 @@ function _s13_getEligibleGroups(sheet) {
   if (lastRow < firstDataRow) return [];
 
   const numRows = lastRow - firstDataRow + 1;
-  const data = sheet.getRange(firstDataRow, 1, numRows, 9).getValues(); // A:I
+  const data = sheet.getRange(firstDataRow, 1, numRows, 12).getValues(); // A:L
 
   const groupsByFileId = {};
 
@@ -165,9 +173,9 @@ function _s13_getEligibleGroups(sheet) {
     const issuer             = rowData[3];
     const summary            = rowData[4];
     const routingCategory    = rowData[5];
-    const fileId              = rowData[6];
     const validationStatus   = rowData[7];
     const extractionStatus   = rowData[8];
+    const fileId              = rowData[11]; // L = File_ID (הועבר מ-G)
 
     if (validationStatus !== "מאומת" || extractionStatus) return;
     if (!fileId) return;
@@ -201,7 +209,7 @@ function _s13_processSingleRow(ss, sheet, row) {
     return;
   }
 
-  const fileId = sheet.getRange(row, 7).getValue(); // G = File_ID
+  const fileId = sheet.getRange(row, 12).getValue(); // L = File_ID (הועבר מ-G)
   const groups = _s13_getEligibleGroups(sheet);
   const group  = groups.filter(function(g) { return g.fileId === fileId; })[0];
 
