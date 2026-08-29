@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S06_ConvertTXT.gs
- * @version 1.7.1 | @updated 23/08/2026 22:00 | @service S06
+ * @version 1.7.2 | @updated 28/08/2026 18:12 | @service S06
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S06_ConvertTXT.gs
  * @description המרת קבצים לפורמט TXT מובנה — 6 מסלולים לפי סוג קובץ.
  *              PDF→Visual, DOCX→Direct, GDoc→Doc, IMG→Image, TXT→Text, Sheet→Sheet.
@@ -18,6 +18,11 @@
  *              _extractDriveId_TxtCheck, _writeTxtCheckResults
  *              _callGemini, _safeParseJson, _writeError, _clearErrors
  *              _visualPathFallbackFreeText_S06
+ * @changes     [v1.7.2] Task #207 — finalize_And_Save_To_Drive: הוסף הערך
+ *              החדש "חולץ ליומן אירועים רפואי" ל-PIPELINE_STATUSES_PAST_S06 —
+ *              מונע מ-S06 לדרוס בטעות ל-"הומר ל-TXT" שורה שכבר התקדמה מעבר
+ *              לשלב זה עם הערך החדש, בהרצה חוזרת. אומת מול הקוד החי (diff
+ *              מדויק).
  * @changes     [v1.7.1] Task #202 — תוקנו 2 באגים: (1) execute_Visual_Path +
  *              _visualPathFallbackFreeText_S06: הוסרו frequencyPenalty/presencePenalty מ-generationConfig —
  *              גרמו לשגיאת 400 "Penalty is not enabled" מ-Gemini (נוספו ב-v1.7.0), חוסמים את כל מסלול ה-PDF.
@@ -631,7 +636,7 @@ function finalize_And_Save_To_Drive(row, sourceFile, data, sysType, size, sheet)
   const fileName  = baseName + "_" + timeStamp + ".txt";
   const newFile   = targetFolder.createFile(fileName, textContent, MimeType.PLAIN_TEXT);
 
-  const PIPELINE_STATUSES_PAST_S06 = ["עבר סיווג", "מאושר", "חולץ ליומן אירועים"];
+  const PIPELINE_STATUSES_PAST_S06 = ["עבר סיווג", "מאושר", "חולץ ליומן אירועים", "חולץ ליומן אירועים רפואי"];
   const currentPipelineStatus      = sheet.getRange(row, 13).getValue();
   if (PIPELINE_STATUSES_PAST_S06.indexOf(currentPipelineStatus) === -1) {
     sheet.getRange(row, 13).setValue("הומר ל-TXT");
