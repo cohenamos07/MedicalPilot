@@ -1,9 +1,12 @@
 /**
  * MedicalPilot — DevSyncInspector.gs
- * @version 3.4 | @updated 09/07/2026 16:29 | @service DEV_SYNC
+ * @version 3.5 | @updated 30/08/2026 21:54 | @service DEV_SYNC
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/DevSyncInspector.gs
  * @description מנוע סנכרון ודיווח בין עורך GAS לגיטהאב — 15 עמודות + אזור מרחבי.
- * @impacts אחריות: נתוני דוח בלבד (שורות 5+) + כותרות N+ בשורה 4 + גיבוי קוד מקור מלא בשורה 70 (במצב CLIP).
+ * @impacts אחריות: נתוני דוח בלבד (שורות 5+) + כותרות N+ בשורה 4 + גיבוי קוד מקור מלא
+ *          החל משורה 70 (במצב CLIP), מפוצל ל-N תאים עוקבים לפי DEV_SYNC_BACKUP_ROW_START/
+ *          DEV_SYNC_BACKUP_CELL_MAX_CHARS ([v3.5], Task #199) — לא מוגבל ל-50,000
+ *          תווים של תא בודד.
  *         ViewEngine אחראי לשורות 1-3, עמודות A-O בשורה 4, רוחב עמודות והקפאות.
  *          תלויות: GITHUB_PAT ב-Script Properties, Apps Script API, GitHub Contents API.
  * @callers Menu_LAB.gs (devSync_RunScanButton), ViewEngine.gs (איקון סנכרון)
@@ -15,6 +18,19 @@
  *            devSync_getGitFilesMap, devSync_fetchGitFileContent, devSync_extractVersionLine,
  *           devSync_extractImpactsText, devSync_parseVersionParts, devSync_extractDate,
  *             devSync_OpenSheet, onSelectionChange, devSync_BackupCodeToRow70Dynamic
+ * @changes [v3.5] Task #199 — גיבוי קוד מקור לשורה 70 (devSync_BackupCodeToRow70Dynamic)
+ *          נכשל בפועל על קבצים מעל ~50,000 תווים (מגבלת תא בודד ב-Google Sheets;
+ *          נמצא בקבצים חיים: COLUMN_MAP.gs ~66,300, S11_QArun.gs ~81,500).
+ *          תוקן: פיצול כללי ל-N תאים עוקבים (לא רק 2 קשיח) — קבועים חדשים
+ *          DEV_SYNC_BACKUP_ROW_START=70, DEV_SYNC_BACKUP_CELL_MAX_CHARS=49000;
+ *          ניקוי שאריות מהרצה קודמת אם הקובץ התכווץ. בבדיקה חיה נמצא גם באג
+ *          נפרד: chunkCell.setTextWrapStrategy(SpreadsheetApp.TextWrapStrategy.CLIP)
+ *          נכשל ("Cannot read properties of undefined (reading 'CLIP')") ועצר
+ *          את הלולאה באמצע — לכן חלקים נוספים לא נכתבו כלל. תוקן ע"י בידוד
+ *          קריאת ה-CLIP ב-try/catch נפרד; כשל בעיצוב כבר לא עוצר את כתיבת
+ *          התוכן. אומת בגליון החי: COLUMN_MAP.gs (66,301 תווים) נכתב נכון
+ *          ב-2 חלקים (49,000 + 17,301, שורות 70-71). שגיאת ה-CLIP עצמה
+ *          (סיבת שורש) נותרה קיימת אך אינה חוסמת עוד — פוטנציאל למשימה נפרדת.
  * @changes [v3.4] Task 95 (תיקון אמיתי) — v3.3 טענה "אינטגרציה מלאה" אך זו
  *          הייתה שגויה בשתי נקודות שאומתו בקריאת קוד חי:
  *          (1) devSync_BackupCodeToRow70Dynamic הוגדרה אך מעולם לא נקראה
@@ -70,6 +86,11 @@ const DEV_SYNC_SPATIAL_COL_WIDTH   = 250;
 const DEV_SYNC_CONTENT_ROW_HEIGHT  = 300;
 const DEV_SYNC_FUNCTIONS_ROW_HEIGHT = 200;
 const DEV_SYNC_PREVIEW_MAX_CHARS   = 80;
+// [הרחבה, Task #199] גיבוי קוד מקור בשורה 70 ואילך — מגבלת תא בודד
+// ב-Google Sheets (~50,000 תווים בפועל); DEV_SYNC_BACKUP_CELL_MAX_CHARS
+// כולל מרווח ביטחון מתחתיה.
+const DEV_SYNC_BACKUP_ROW_START       = 70;
+const DEV_SYNC_BACKUP_CELL_MAX_CHARS  = 49000;
 
 // ════════════════════════════════════════════════════════════════════
 // SCAN — אחראי על שורות 5+ ו-N+ בשורה 4 בלבד
@@ -739,12 +760,12 @@ function devSync_OpenSheet() {
 function devSync_BackupCodeToRow70Dynamic(sheet, fileName) {
   try {
     if (!sheet || !fileName || fileName === "") return;
-    
+
     // 1. איתור דינמי של העמודה המתאימה לפי כותרות שורה 4
     var startColumnIndex = sheet.getRange("P4").getColumnIndex();
     var lastColumn = sheet.getLastColumn();
     var targetColumnIndex = -1;
-    
+
     // סריקת שורה 4 החל מעמודה P לחפש התאמה לשם הקובץ
     for (var col = startColumnIndex; col <= lastColumn; col++) {
       var headerValue = sheet.getRange(4, col).getValue();
@@ -753,7 +774,7 @@ function devSync_BackupCodeToRow70Dynamic(sheet, fileName) {
         break;
       }
     }
-    
+
     // אם לא נמצאה התאמה מדויקת, נחפש בשורה 5 (שם הספרייה הכללי) כגיבוי
     if (targetColumnIndex === -1) {
       for (var col = startColumnIndex; col <= lastColumn; col++) {
@@ -764,8 +785,8 @@ function devSync_BackupCodeToRow70Dynamic(sheet, fileName) {
         }
       }
     }
-    
-    // 2. במידה ונמצאה עמודה מתאימה - שליפת הקוד והזרקתו לשורה 70
+
+    // 2. במידה ונמצאה עמודה מתאימה - שליפת הקוד וכתיבתו לשורה 70 ואילך
     if (targetColumnIndex !== -1) {
       // [v3.4] Task 95 — ScriptApp.getResource אינה קיימת ב-Apps Script API
       // (הייתה נכשלת בשקט תמיד). משתמשים ב-devSync_getEditorFilesMap
@@ -776,20 +797,53 @@ function devSync_BackupCodeToRow70Dynamic(sheet, fileName) {
 
       if (fileEntry && fileEntry.source) {
         var fileContent = fileEntry.source;
-        var targetCell = sheet.getRange(70, targetColumnIndex);
 
-        // כתיבת הקוד והחלת מצב חיתוך (Clip)
-        targetCell.setValue(fileContent);
-        targetCell.setTextWrapStrategy(SpreadsheetApp.TextWrapStrategy.CLIP);
+        // [הרחבה, Task #199] מגבלת תא בודד ב-Google Sheets (~50,000 תווים) —
+        // פיצול כללי ל-N חלקים (לא רק 2 קשיח), נכתבים לשורות עוקבות באותה
+        // עמודה, החל מ-DEV_SYNC_BACKUP_ROW_START. פותר גם קבצים גדולים
+        // עתידיים, לא רק את שני הקבצים הידועים כיום שחורגים (COLUMN_MAP.gs,
+        // S11_QArun.gs).
+        var chunks = [];
+        for (var i = 0; i < fileContent.length; i += DEV_SYNC_BACKUP_CELL_MAX_CHARS) {
+          chunks.push(fileContent.substring(i, i + DEV_SYNC_BACKUP_CELL_MAX_CHARS));
+        }
+        if (chunks.length === 0) chunks.push("");
 
-        Logger.log("משימה 95: קוד מקור מלא עבור " + fileName + " גובה דינמית בעמודה " + targetColumnIndex + " שורה 70.");
+        for (var c = 0; c < chunks.length; c++) {
+          var chunkCell = sheet.getRange(DEV_SYNC_BACKUP_ROW_START + c, targetColumnIndex);
+          chunkCell.setValue(chunks[c]);
+          // [תיקון, Task #199] setTextWrapStrategy מבודד ב-try/catch משלו —
+          // נמצא בבדיקה חיה שיכול להיכשל (Cannot read properties of
+          // undefined (reading 'CLIP')) ולעצור את כל הלולאה באמצע, ולגרום
+          // לחלקים הבאים לא להיכתב כלל. עכשיו כשל בעיצוב לא עוצר את כתיבת
+          // התוכן של שאר החלקים.
+          try {
+            chunkCell.setTextWrapStrategy(SpreadsheetApp.TextWrapStrategy.CLIP);
+          } catch (wrapErr) {
+            Logger.log("משימה 199: setTextWrapStrategy נכשל בחלק " + c + " עבור " + fileName + ": " + wrapErr.message);
+          }
+        }
+
+        // ניקוי שאריות מהרצה קודמת (אם הקובץ התכווץ ופחות חלקים נדרשים כעת) —
+        // עד 10 שורות ביטחון מעבר לחלק האחרון בשימוש בפועל כיום
+        var staleRowsToCheck = 10;
+        for (var s = 0; s < staleRowsToCheck; s++) {
+          var staleRow  = DEV_SYNC_BACKUP_ROW_START + chunks.length + s;
+          var staleCell = sheet.getRange(staleRow, targetColumnIndex);
+          if (staleCell.getValue() === "") break;
+          staleCell.setValue("");
+        }
+
+        Logger.log("משימה 95/199: קוד מקור מלא עבור " + fileName + " נכתב ב-" +
+                    chunks.length + " חלק/ים, עמודה " + targetColumnIndex +
+                    ", החל משורה " + DEV_SYNC_BACKUP_ROW_START + ".");
       } else {
         Logger.log("משימה 95: לא נמצא תוכן קוד עבור " + fileName + " ב-devSync_getEditorFilesMap.");
       }
     } else {
       Logger.log("משימה 95: לא נמצאה עמודה מתאימה בשורה 4 או 5 עבור הקובץ " + fileName);
     }
-    
+
   } catch (err) {
     Logger.log("שגיאה במשימה 95 בגיבוי דינמי עבור " + fileName + ": " + err.message);
   }
