@@ -1,19 +1,27 @@
 <!--
   MedicalPilot — S10_Sidebar.html
-  @version 1.1.0 | @updated 16/08/2026 21:10 | @service S10
+  @version 1.2.0 | @updated 01/09/2026 20:57 | @service S10
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S10_Sidebar.html
   @description ממשק Dialog לאימות ידני של אירועים רפואיים שחולצו על ידי S09.
                מציג אירוע מחולץ (יומן_אירועים_רפואי בלבד, ברמת תת-אירוע)
                לעריכה ואישור לפני שמירה כדוגמת למידה.
-  @impacts כפתורים: אישור, עדכון ולמידה, למידה יזומה, מחיקה.
+  @impacts כפתורים: אישור, עדכון ולמידה, למידה יזומה, מחיקה, עדכון קודי
+           אירוע (כפתור נפרד, כותב למיפוי_קודים בלבד — Task #209).
            תלוי ב: S10_Validate.gs — כל הלוגיקה מתבצעת שם.
   @callers S10_Validate.gs (showS10Sidebar)
   @functions initUI, buildFields, collectFields, switchView,
              showSourceView, showTxtView, prevSibling, goNextSibling,
              navigateToSibling, prevRow, nextRow, jumpToRow,
              navigateTo, closeDialog, doApprove, doUpdate,
-             doLearn, doDelete, handleResult, handleError
-  @changes [v1.1.0] Task 185 (בקשת עמוס) — שינוי שם nextSibling ל-goNextSibling:
+             doLearn, doDelete, doSaveEventCode, handleResult, handleError
+  @changes [v1.2.0] Task #209 (בקשת עמוס) — הפרדה מוחלטת בין קטלוג קודי
+                    אירוע לבין אישור/עדכון-ולמידה/למידה-יזומה: doApprove/
+                    doUpdate/doLearn חזרו לצורתם המקורית (ללא פרמטרי קוד
+                    אירוע). נוספה doSaveEventCode + כפתור ייעודי "עדכון
+                    קודי אירוע". ווידג'ט הקטלוג: יחס רוחב עמודות מותאם
+                    (משפחות/תו-קוד/תיאור) וגבהים מוקטנים כדי שהכפתור
+                    יוצג ללא גלילה.
+           [v1.1.0] Task 185 (בקשת עמוס) — שינוי שם nextSibling ל-goNextSibling:
                     "nextSibling" הוא שם תכונת DOM מובנית (Node.nextSibling),
                     התנגשות שם גרמה ל-TypeError כשנקרא מתוך onclick בתוך תג
                     הכפתור — באג קיים-מקודם, התגלה רק בבדיקה קצה-לקצה בפועל.
@@ -448,9 +456,36 @@
     <!-- שדות דינמיים — נוצרים ב-JS -->
     <div id="fieldsContainer"></div>
 
-    <div class="section-title">הערת למידה</div>
+        <div class="section-title">הערת למידה</div>
     <input class="note-input" id="noteInput" type="text"
       placeholder="מה Gemini טעה ולמה — אופציונלי">
+
+    <div class="section-title">קטלוג קודי אירוע קיימים (מיפוי_קודים)</div>
+           <div style="display:flex; gap:6px;">
+      <div style="flex:0.6; min-width:0;">
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; font-weight:700; color:#555; margin-bottom:2px;">
+          <span>משפחות</span>
+          <button type="button" onclick="addNewFamily()" title="הוסף משפחה חדשה"
+            style="border:none; background:#e3f2fd; border-radius:3px; width:16px; height:16px; cursor:pointer; font-weight:700; line-height:1; padding:0;">+</button>
+        </div>
+        <div id="eventFamilyList" style="max-height:45px; overflow-y:auto; border:1px solid #ddd; border-radius:6px; padding:4px; font-size:11px;"></div>
+      </div>
+      <div style="flex:1.8; min-width:0;">
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; font-weight:700; color:#555; margin-bottom:2px;">
+          <span id="selectedFamilyLabel">תו קוד — בחר משפחה</span>
+          <button type="button" onclick="addNewCodeInFamily()" title="הוסף תו קוד חדש למשפחה הנבחרת"
+            style="border:none; background:#e3f2fd; border-radius:3px; width:16px; height:16px; cursor:pointer; font-weight:700; line-height:1; padding:0;">+</button>
+        </div>
+        <div id="eventCodeCatalog" style="max-height:45px; overflow-y:auto; border:1px solid #ddd; border-radius:6px; padding:4px; font-size:11px;"></div>
+      </div>
+      <div style="flex:1.6; min-width:0;">
+        <div style="font-size:10px; font-weight:700; color:#555; margin-bottom:2px;">תיאור מנורמל</div>
+        <textarea id="newEventNameInput" placeholder="תיאור מנורמל לקוד החדש..."
+          style="width:100%; height:40px; box-sizing:border-box; border:1px solid #ddd; border-radius:6px; padding:4px; font-size:11px; font-family:inherit; resize:none; overflow-y:auto;"></textarea>
+      </div>
+      </div>
+
+    <button type="button" onclick="doSaveEventCode()" style="width:100%; margin-top:6px; padding:6px; background:#1976d2; color:#fff; border:none; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">💾 עדכון קודי אירוע</button>
 
   </div>
 
@@ -510,7 +545,10 @@
   var SIBLING_ROWS = [];
   var SPLIT_X      = 1;
   var FIELDS_DEF   = [];
-
+  var EVENT_TYPE_MAP        = {}; // [Task #209] {rawText:{code,name}} ממיפוי_קודים
+  var MEDICAL_SYSTEM_OPTIONS = []; // [Task #209] רשימה סגורה, להצעה בלבד
+  var SELECTED_FAMILY        = null; // [Task #209] משפחת הקוד הנבחרת כרגע בקטלוג
+  
   // ════ טעינה ראשונית ════
   window.onload = function() {
     initDragDrop();
@@ -534,6 +572,8 @@
     SIBLING_ROWS = payload.siblingRows || [ROW];
     SPLIT_X      = payload.splitX || 1;
     FIELDS_DEF   = payload.fields || [];
+    EVENT_TYPE_MAP        = payload.eventTypeMap || {};
+    MEDICAL_SYSTEM_OPTIONS = payload.medicalSystemOptions || [];
 
     // שורה 1 — כותרת
     document.getElementById('headerTitle').textContent =
@@ -557,8 +597,17 @@
     document.getElementById('fileId').textContent   = payload.fileId   || '—';
     document.getElementById('sheetName').textContent = payload.sheetName || '—';
 
+    // [Task #209] datalists הצעה — לפני buildFields, כדי שה-list יהיה קיים
+    buildCodeDatalists();
+       SELECTED_FAMILY = null;
+    buildEventFamilyList();
+    buildEventCodeCatalog();
+    var nameEl0 = document.getElementById('newEventNameInput');
+    if (nameEl0) nameEl0.value = '';
+
     // שדות דינמיים
     buildFields(FIELDS_DEF);
+    checkEventTypeCode();
 
     // טוגל TXT
     document.getElementById('btnViewTxt').disabled = !TXT_URL;
@@ -570,6 +619,191 @@
     disableBtns(false);
   }
 
+  // ════ [Task #209] datalists הצעה ממיפוי_קודים ════
+  function buildCodeDatalists() {
+    var msList = document.getElementById('medicalSystemList');
+    if (!msList) {
+      msList = document.createElement('datalist');
+      msList.id = 'medicalSystemList';
+      document.body.appendChild(msList);
+    }
+    msList.innerHTML = '';
+    MEDICAL_SYSTEM_OPTIONS.forEach(function(v) {
+      var opt = document.createElement('option');
+      opt.value = v;
+      msList.appendChild(opt);
+    });
+
+    var etList = document.getElementById('eventTypeList');
+    if (!etList) {
+      etList = document.createElement('datalist');
+      etList.id = 'eventTypeList';
+      document.body.appendChild(etList);
+    }
+    etList.innerHTML = '';
+    Object.keys(EVENT_TYPE_MAP).forEach(function(v) {
+      var opt = document.createElement('option');
+      opt.value = v;
+      etList.appendChild(opt);
+    });
+  }
+
+  // ════ [Task #209] קטלוג קודי אירוע — משפחות (2 תווים) + קודים בתוך משפחה ════
+   function buildEventFamilyList() {
+    var box = document.getElementById('eventFamilyList');
+    if (!box) return;
+    box.innerHTML = '';
+
+    var families = {};
+    Object.keys(EVENT_TYPE_MAP).forEach(function(rawText) {
+      var code = EVENT_TYPE_MAP[rawText].code || '';
+      if (code.length >= 2) families[code.substring(0, 2)] = true;
+    });
+    var list = Object.keys(families).sort();
+
+    if (SELECTED_FAMILY && list.indexOf(SELECTED_FAMILY) === -1) {
+      list.push(SELECTED_FAMILY);
+      list.sort();
+    }
+
+    if (!list.length) {
+      box.innerHTML = '<div style="opacity:0.6; padding:2px;">אין עדיין משפחות</div>';
+      return;
+    }
+
+    list.forEach(function(fam) {
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:3px 4px; cursor:pointer; border-bottom:1px solid #f5f5f5;'
+        + (fam === SELECTED_FAMILY ? ' background-color:#e3f2fd; font-weight:700;' : '');
+      row.textContent = fam;
+      row.onmouseover = function() { if (fam !== SELECTED_FAMILY) row.style.backgroundColor = '#f0f0f0'; };
+      row.onmouseout  = function() { if (fam !== SELECTED_FAMILY) row.style.backgroundColor = ''; };
+      row.onclick = function() {
+        SELECTED_FAMILY = fam;
+        buildEventFamilyList();
+        buildEventCodeCatalog();
+      };
+      box.appendChild(row);
+    });
+  }
+
+  function buildEventCodeCatalog() {
+    var box   = document.getElementById('eventCodeCatalog');
+    var label = document.getElementById('selectedFamilyLabel');
+    if (!box) return;
+    box.innerHTML = '';
+    if (label) label.textContent = SELECTED_FAMILY ? ('תו קוד — משפחה ' + SELECTED_FAMILY) : 'תו קוד — בחר משפחה';
+
+    if (!SELECTED_FAMILY) {
+      box.innerHTML = '<div style="opacity:0.6; padding:2px;">בחר משפחה מימין</div>';
+      return;
+    }
+
+    var seen = {};
+    var rows = [];
+    Object.keys(EVENT_TYPE_MAP).forEach(function(rawText) {
+      var m = EVENT_TYPE_MAP[rawText];
+      var code = m.code || '';
+      if (code.substring(0, 2) !== SELECTED_FAMILY) return;
+      var suffix = code.substring(2);
+      if (!suffix || seen[suffix]) return;
+      seen[suffix] = true;
+      rows.push({ suffix: suffix, code: code, name: m.name || '' });
+    });
+    rows.sort(function(a, b) { return a.suffix.localeCompare(b.suffix); });
+
+    if (!rows.length) {
+      box.innerHTML = '<div style="opacity:0.6; padding:2px;">אין עדיין תווים במשפחה זו</div>';
+      return;
+    }
+
+    rows.forEach(function(r) {
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:3px 4px; cursor:pointer; border-bottom:1px solid #f5f5f5;';
+      row.textContent = r.suffix + (r.name ? ' — ' + r.name : '');
+      row.onmouseover = function() { row.style.backgroundColor = '#e3f2fd'; };
+      row.onmouseout  = function() { row.style.backgroundColor = ''; };
+      row.onclick = function() {
+        var codeEl = document.getElementById('newEventCodeInput');
+        var nameEl = document.getElementById('newEventNameInput');
+        if (codeEl) codeEl.value = r.code;
+        if (nameEl) nameEl.value = r.name;
+      };
+      box.appendChild(row);
+    });
+  }
+
+  function addNewFamily() {
+    var val = window.prompt('הקלד קוד משפחה חדש (2 תווים, לדוגמה A2):', '');
+    if (val === null) return;
+    val = val.trim();
+    if (!val) return;
+    SELECTED_FAMILY = val;
+    buildEventFamilyList();
+    buildEventCodeCatalog();
+  }
+
+  function addNewCodeInFamily() {
+    if (!SELECTED_FAMILY) {
+      window.alert('קודם בחר או הוסף משפחה מימין (+)');
+      return;
+    }
+    var val = window.prompt('הקלד את תו הקוד (יתווסף אחרי "' + SELECTED_FAMILY + '"):', '');
+    if (val === null) return;
+    val = val.trim();
+    if (!val) return;
+    var codeEl = document.getElementById('newEventCodeInput');
+    if (codeEl) codeEl.value = SELECTED_FAMILY + val;
+    var nameEl = document.getElementById('newEventNameInput');
+    if (nameEl) nameEl.focus();
+  }
+    // ════ [Task #209] בדיקת התאמת "סוג אירוע" מול מיפוי_קודים ════
+  // live=true  → נקרא בזמן הקלדה (input) — מעדכן רמז בלבד, לא נועל את השדה
+  // live=false/undefined → נקרא ב-blur ובטעינה ראשונית — קובע סופית האם לנעול את השדה באדום
+  function checkEventTypeCode(live) {
+    var input = document.getElementById('field_2');
+    var hint  = document.getElementById('eventCodeHint');
+    var group = document.getElementById('newEventCodeGroup');
+    if (!input || !hint || !group) return;
+
+    var val = input.value.trim();
+
+    function unlockField() {
+      input.readOnly         = false;
+      input.style.color      = '';
+      input.style.fontWeight = '';
+      input.style.backgroundColor = '';
+      input.style.cursor     = '';
+    }
+
+    if (!val) {
+      hint.textContent = '';
+      group.style.display = 'none';
+      if (!live) unlockField();
+      return;
+    }
+
+    var match = EVENT_TYPE_MAP[val];
+    if (match) {
+      hint.textContent = '✓ קוד קיים: ' + match.code + (match.name ? ' — ' + match.name : '');
+      hint.style.color = '#2e7d32';
+      group.style.display = 'none';
+      document.getElementById('newEventCodeInput').value = '';
+      document.getElementById('newEventNameInput').value = '';
+      if (!live) unlockField();
+    } else {
+      hint.textContent = '⚠️ קוד חדש — נא למלא קוד ותיאור מנורמל למיפוי_קודים';
+      hint.style.color = '#e65100';
+      group.style.display = 'flex';
+      if (!live) {
+        input.readOnly              = true;
+        input.style.color           = '#c62828';
+        input.style.fontWeight      = '700';
+        input.style.backgroundColor = '#ffebee';
+        input.style.cursor          = 'not-allowed';
+      }
+    }
+  }
   // ════ בניית שדות דינמיים ════
   function buildFields(fields) {
     var container = document.getElementById('fieldsContainer');
@@ -603,6 +837,10 @@
       input.setAttribute('data-col', f.col);
       input.setAttribute('placeholder', f.label + '...');
 
+      // [Task #209] datalist הצעה — מערכת רפואית (סגור) / סוג אירוע (פתוח+למידה)
+      if (f.col === 3) { input.setAttribute('list', 'medicalSystemList'); }
+      if (f.col === 2) { input.setAttribute('list', 'eventTypeList'); }
+
       // Drag & Drop
       input.addEventListener('dragover', function(e) {
         e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
@@ -617,6 +855,31 @@
 
       group.appendChild(labelRow);
       group.appendChild(input);
+
+      // [Task #209] "סוג אירוע" — רמז התאמה + שדות קוד חדש כשאין התאמה
+      if (f.col === 2) {
+        input.addEventListener('input', function() { checkEventTypeCode(true); });
+        input.addEventListener('blur',  function() { checkEventTypeCode(false); });
+
+        var hint = document.createElement('div');
+        hint.id = 'eventCodeHint';
+        hint.style.cssText = 'font-size:11px; font-weight:600; margin-top:2px;';
+        group.appendChild(hint);
+
+        var newCodeGroup = document.createElement('div');
+        newCodeGroup.id = 'newEventCodeGroup';
+        newCodeGroup.style.cssText = 'display:none; gap:6px; margin-top:4px;';
+
+        var codeInput = document.createElement('input');
+        codeInput.id = 'newEventCodeInput';
+        codeInput.className = 'field-input';
+        codeInput.style.cssText = 'flex:1;';
+        codeInput.setAttribute('placeholder', 'קוד (A00)');
+
+        newCodeGroup.appendChild(codeInput);
+        group.appendChild(newCodeGroup);
+      }
+
       container.appendChild(group);
     });
   }
@@ -769,7 +1032,7 @@
   // ════ כפתורי פעולה ════
   function closeDialog() { google.script.host.close(); }
 
-  function doApprove() {
+      function doApprove() {
     setStatus('info', 'מבצע אישור...');
     disableBtns(true);
     google.script.run
@@ -781,9 +1044,9 @@
   function doUpdate() {
     setStatus('info', 'שומר ושולח ללמידה...');
     disableBtns(true);
-    var fieldsJson    = JSON.stringify(collectFields());
-    var complexity    = document.getElementById('complexitySelect').value;
-    var correctionNote = document.getElementById('noteInput').value;
+    var fieldsJson      = JSON.stringify(collectFields());
+    var complexity      = document.getElementById('complexitySelect').value;
+    var correctionNote  = document.getElementById('noteInput').value;
     google.script.run
       .withSuccessHandler(function(res) {
         disableBtns(false);
@@ -808,6 +1071,40 @@
       })
       .withFailureHandler(handleError)
       .s10_learnOnly(ROW, fieldsJson, complexity, correctionNote);
+  }
+
+  function doSaveEventCode() {
+    var codeEl      = document.getElementById('newEventCodeInput');
+    var nameEl      = document.getElementById('newEventNameInput');
+    var eventField  = document.getElementById('field_2');
+    var code        = codeEl ? codeEl.value.trim() : '';
+    var name        = nameEl ? nameEl.value.trim() : '';
+    var rawText     = eventField ? eventField.value.trim() : '';
+
+    if (!rawText) {
+      setStatus('error', '⚠️ אין טקסט "סוג אירוע" לקטלוג');
+      return;
+    }
+    if (!code) {
+      setStatus('error', '⚠️ יש למלא קוד לפני השמירה');
+      return;
+    }
+
+    setStatus('info', 'שומר קוד אירוע...');
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res && res.success) {
+          EVENT_TYPE_MAP[rawText] = { code: code, name: name };
+          buildEventFamilyList();
+          buildEventCodeCatalog();
+          checkEventTypeCode(false);
+          setStatus('success', res.updated ? '🔄 קוד האירוע עודכן בהצלחה' : '💾 קוד האירוע נשמר בהצלחה');
+        } else {
+          setStatus('error', (res && res.msg) || '❌ שמירת הקוד נכשלה');
+        }
+      })
+      .withFailureHandler(handleError)
+      .s10_saveEventCode(rawText, code, name);
   }
 
   function doDelete() {
