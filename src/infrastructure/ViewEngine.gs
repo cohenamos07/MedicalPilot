@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.11.0 | @updated 30/08/2026 19:47 | @service VIEWENGINE
+ * @version 2.10.3 | @updated 10/09/2026 21:19 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -28,11 +28,6 @@
  *              יומן_אירועים_רפואי: setupMedicalEventsIcons — מכניס 4 איקונים אוטומטית.
  *              [v2.9.0] runS14ViewIconEvents כותב לעמודות J/K (Duplicate_Flag/
  *              Duplicate_Target_Ref) — בעקיפין, דרך קריאה ל-runS14() (S14_QArun.gs).
- *              [הרחבה, Task #206] יומן_מצב_רפואי: setupMedicalStatusIcons — מכניס
- *              4 איקונים (רענן שורות/אימות/QA/אינפוגרפיקה). refreshMedicalStatusRows
- *              כותבת S_Row/ET_CODE/Body_System_Normalized/Event_Type_Normalized.
- *              מיפוי_קודים: refreshCodeMapLearning/runRefreshIconCodeMap מוסיפים
- *              שורות קוד_אירוע חדשות (Key/Normalized_Value ריקים למילוי ידני).
  *              תלויות: S01 (checkSystemMorning) | S02 (checkUserAccess)
  *                      S03 (runEmailIngestion) | S04 (syncDriveFiles)
  *                      S05 (extractMetaData) | S06 (run_MedicalPilot_V2_6_2, nightlyConvertBatch)
@@ -41,7 +36,6 @@
  *                      S11 (runQAViewMain) | S14 (runS14)
  * @callers     אייקוני גליון ניהול_מיילים בלבד — שורה 2
  *              אייקוני גליון יומן_אירועים_רפואי — שורה 2
- *              אייקוני גליון יומן_מצב_רפואי ומיפוי_קודים — שורה 2
  * @functions   switchView | viewEngine_buildCriteria | _doExpand | _removeActiveFilter
  *              runExpandView | runSystemCheckIcon | runAccessCheckIcon
  *              runGmailIcon | runWhatsAppIcon | runDriveIcon
@@ -53,31 +47,39 @@
  *              runExpandViewEvents | runS10ViewIconEvents | runS13ViewIconEvents
  *              runS14ViewIconEvents | setupMedicalEventsIcons
  *              refreshMedicalEventsRows | runRefreshRowsIconEvents
- *              refreshMedicalStatusRows | _codeMap_buildLookup | refreshCodeMapLearning
- *              runRefreshIconCodeMap | runRefreshRowsIconMedicalStatus
- *              runVerifyIconMedicalStatus | runQAIconMedicalStatus
- *              _qaMedicalStatus_isDuplicatePair | _qaMedicalStatus_computeDuplicateGroups
- *              runInfographicIconMedicalStatus | setupMedicalStatusIcons
- * @changes     [v2.11.0] Task #206 (סבבים 1-3) — פיצ'ר "מצב רפואי" מלא: 4 איקונים
- *              חדשים ביומן_מצב_רפואי (MEDICAL_STATUS_ICON_MAP — רענן שורות/
- *              אימות/QA/אינפוגרפיקה). refreshMedicalStatusRows: מיון תלת-רמתי
- *              (Medical_System→ET_CODE→Event_Date) + S_Row (כמו יומן_אירועים_
- *              רפואי) + פענוח מערכת גוף/קוד אירוע דרך מיפוי דינמי מגליון
- *              מיפוי_קודים (במקום קבועים קשיחים MEDICAL_STATUS_BODY_SYSTEMS/
- *              MEDICAL_STATUS_EVENT_TYPE_CODES שהוסרו). _codeMap_buildLookup:
- *              מפתח חיפוש תלוי-סוג — Key(B) למערכת_גוף (ערך יחיד), Raw_Value(D)
- *              לקוד_אירוע (מחזיר {code,name} מ-Key/Normalized_Value — מאפשר
- *              יחס N:1, כמה ניסוחים גולמיים שונים לאותו קוד). refreshCodeMap-
- *              Learning/runRefreshIconCodeMap: "למידה" — מאתרת Event_Type
- *              חדשים ביומן_מצב_רפואי ומוסיפה שורות קוד_אירוע (Raw_Value)
- *              למילוי ידני. runVerifyIconMedicalStatus/runQAIconMedicalStatus +
- *              _qaMedicalStatus_isDuplicatePair/_qaMedicalStatus_computeDuplicate-
- *              Groups: זיהוי כפילויות. runInfographicIconMedicalStatus (V1
- *              טקסטואלי): קיבוץ שורות לפי מערכת גוף, ממוין לפי תאריך, מציג
- *              Primary_Diagnosis כטקסט חופשי (לא קוד) — טווח נפרד מהאווטאר
- *              התלת-מימדי מהחזון. setupMedicalStatusIcons: הצבת 4 האיקונים.
- *              עמודה C (Medical_System_Name) הפסיקה להידרס ע"י refreshMedical-
- *              StatusRows — נשארת גולמית (writer S13), כמו Event_Type.
+ * @changes     [v2.10.3] Task #214c — יומן_מצב_רפואי (ייצור): MEDICAL_STATUS_
+ *              ICON_MAP רוכזה לעמודות רצופות 1-4 (A-D), תואם לגליון הניסוי.
+ *              עמודה 4 (אינפוגרפיקה) — script הוחלף מ-runInfographicIconMedical-
+ *              Status (V1, שבורה מאז הרחבת המבנה ל-21 עמודות ב-task214a — קראה
+ *              נתונים לפי מיקום עמודה קבוע של המבנה הישן) ל-runInfographicIcon-
+ *              MedicalStatus_LAB. הפונקציה הזו עודכנה: ss.getActiveSheet() במקום
+ *              גליון קבוע (LAB_INFOGRAPHIC_SHEET_NAME) — משרתת נכון גם ייצור וגם
+ *              ניסוי ללא שכפול קוד; כותרת הסיידבר עודכנה (גם ב-ViewEngine.gs
+ *              html.setTitle וגם בכותרת הפנימית ב-LAB_Infographic.html) מ-"פיילוט
+ *              אינפוגרפיקה — גליון ניסוי" ל-"אינפוגרפיקה רפואית — לפי אירוע".
+ *              setupMedicalStatusIcons — נוסף clearContent() לפני setBackground
+ *              על שורת התוויות (3), כדי לנקות שאריות טקסט מתוויות ישנות
+ *              בעמודות שכבר לא ממופות (למשל F, לפני ריכוז ל-A-D) — לפני
+ *              התיקון הרקע התחלף אך הטקסט הישן נשאר; אומת בשטח (צולם, הראה
+ *              תווית "[ אינפוגרפיקה ]" כפולה לפני התיקון). טקסט הודעת ההצלחה
+ *              עודכן לעמודות A-D ולשמות הסקריפטים הנכונים בפועל (כולל תיקון
+ *              אי-התאמה ישנה: "runVerifyIconMedicalStatus"→"showS16Sidebar").
+ *              קיבוע העמודות (5, A-E) תוקן ידנית ע"י עמוס בגליון (לא בקוד) —
+ *              תואם להחלטת task213c. runInfographicIconMedicalStatus (V1),
+ *              setupInfographicIconLab ו-LAB_INFOGRAPHIC_SHEET_NAME לא נערכו —
+ *              הפיילוט בגליון ניסוי ממשיך לפעול ללא שינוי. אומת מול הקוד החי
+ *              (diff מדויק, 2 בלוקים נפרדים) + בדיקה חיה בגליון (אייקונים
+ *              רצופים A-D, תוויות נקיות, סיידבר פותח כותרת נכונה ונתוני ייצור).
+ * @changes     [v2.10.2] Task #210 — MEDICAL_STATUS_ICON_MAP עמודה 3 (C):
+ *              script הוחלף מ-runVerifyIconMedicalStatus ל-showS16Sidebar,
+ *              label עודכן מ-"[ אימות ]" ל-"[ S16 אימות ]". runVerifyIcon-
+ *              MedicalStatus (ספוט-צ'ק ישן) נמחקה במלואה — הוחלפה בשירות
+ *              S16 החדש (S16_ValidateMedicalStatus.gs). setupMedicalStatus-
+ *              Icons הורץ מחדש בהצלחה בגליון החי (אחרי תיקון הרשאות Drive/
+ *              Sheets/getUi — לא קשור לקוד) — 4/4 אייקונים נכנסו מחדש,
+ *              עמודה C מחוברת כעת ל-S16 בפועל. אומת מול הקוד החי (diff
+ *              מדויק) + בדיקה חיה: לחיצה על האייקון פותחת את דיאלוג S16
+ *              עם נתוני השורה, התווית מוצגת נכון בגליון.
  * @changes     [v2.10.1] Task #207 — runArchiveView: תנאי הזכאות לארכוב (S12)
  *              מקבל כעת גם את Pipeline_Status הישן ("חולץ ליומן אירועים")
  *              וגם את החדש ("חולץ ליומן אירועים רפואי") — תאימות-לאחור,
@@ -227,15 +229,15 @@ const MEDICAL_STATUS_ICON_MAP = [
     fg:     "#ffffff"
   },
   {
-    col:    3,
-    script: "runVerifyIconMedicalStatus",
+    col:    2,
+    script: "showS16Sidebar",
     fileId: "1YZcEifvHAsBtstAFdtVtqNTODpxuXCkM",  // זהה ל-runS10ViewIconEvents
-    label:  "[ אימות ]",
+    label:  "[ S16 אימות ]",
     bg:     "#7E57C2",
     fg:     "#ffffff"
   },
   {
-    col:    4,
+    col:    3,
     script: "runQAIconMedicalStatus",
     fileId: "1hw2sA4t4H5-OR0k8crG7wuI5Pkh0-_3G",  // זהה ל-S14 QA
     label:  "[ QA ]",
@@ -243,8 +245,8 @@ const MEDICAL_STATUS_ICON_MAP = [
     fg:     "#ffffff"
   },
   {
-    col:    6,
-    script: "runInfographicIconMedicalStatus",
+    col:    4,
+    script: "runInfographicIconMedicalStatus_LAB",
     fileId: "1rKJ2A25ZqKM0e_YeZ8K97kOpyNCV82sC",  // anatomy.png — הוחלף בהרחבת Task #206
     label:  "[ אינפוגרפיקה ]",
     bg:     "#00ACC1",
@@ -1870,53 +1872,6 @@ function runRefreshRowsIconMedicalStatus() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// [חדש] Task #206 — runVerifyIconMedicalStatus — עמודה C ביומן_מצב_רפואי
-// אימות = ספוט-צ'ק בלבד: פתיחת Source_URL של השורה הפעילה בכרטיסייה
-// חדשה. לא שער חסימה כמו S10 (S10_Sidebar.gs) — אין אישור/דחייה כאן.
-// ══════════════════════════════════════════════════════════════════
-
-function runVerifyIconMedicalStatus() {
-  try {
-    const ui    = SpreadsheetApp.getUi();
-    const ss    = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getActiveSheet();
-
-    if (sheet.getName() !== MEDICAL_STATUS_SHEET_NAME) {
-      ui.alert("שגיאה", "יש להפעיל את האייקון מתוך גליון '" + MEDICAL_STATUS_SHEET_NAME + "'.", ui.ButtonSet.OK);
-      return;
-    }
-
-    const row = ss.getActiveCell().getRow();
-    const firstDataRow = SHEET_CONFIG[MEDICAL_STATUS_SHEET_NAME].FIRST_DATA_ROW;
-    if (row < firstDataRow) {
-      ui.alert("יש לבחור שורת נתונים (לא שורת כותרת).");
-      return;
-    }
-
-    const sourceUrl = sheet.getRange(row, 12).getValue().toString().trim(); // L = Source_URL
-    if (!sourceUrl) {
-      ui.alert("אין Source_URL בשורה " + row + ".");
-      return;
-    }
-
-    const html = HtmlService.createHtmlOutput(
-      '<div style="font-family:Arial;text-align:center;padding:20px;direction:rtl;">' +
-        '<p>שורה ' + row + ' — ספוט-צ\'ק מסמך מקור</p>' +
-        '<a href="' + sourceUrl + '" target="_blank" ' +
-        'style="display:inline-block;padding:10px 20px;background:#7E57C2;color:#fff;' +
-        'text-decoration:none;border-radius:6px;">פתח בכרטיסייה חדשה ↗</a>' +
-      '</div>'
-    ).setWidth(320).setHeight(140);
-
-    ui.showModalDialog(html, "אימות — ספוט-צ'ק");
-
-  } catch (e) {
-    Logger.log("[ViewEngine] שגיאה ב-runVerifyIconMedicalStatus: " + e.toString());
-    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
 // [חדש] Task #206 — QA כפילויות ביומן_מצב_רפואי: מערכת גוף זהה +
 // חפיפת תאריכים + דמיון טקסט (Primary_Diagnosis), בדומה במבנה ל-S14
 // (S14_QArun.gs, Union-Find) — אך קריאה בלבד: הגליון אינו כולל עמודות
@@ -2104,7 +2059,7 @@ function runInfographicIconMedicalStatus() {
 // ══════════════════════════════════════════════════════════════════
 // [חדש] Task #206 — setupMedicalStatusIcons — הכנסת 4 איקונים אוטומטית
 // לגליון יומן_מצב_רפואי — שורה 2
-// עמודה A = רענן שורות | עמודה C = אימות | עמודה D = QA | עמודה F = אינפוגרפיקה
+// עמודה A = רענן שורות | עמודה B = אימות S16 | עמודה C = QA | עמודה D = אינפוגרפיקה
 // ══════════════════════════════════════════════════════════════════
 
 function setupMedicalStatusIcons() {
@@ -2126,8 +2081,10 @@ function setupMedicalStatusIcons() {
 
     // שכבת בסיס — כל שורה 3 בתכלת בהיר, זהה ל-buildMedicalEventsSheet
     // (יומן_אירועים_רפואי, System_Doc_Builder.gs) — עמודות האייקון ידרסו
-    // אותה בהמשך הפונקציה בצבען הספציפי
-    sheet.getRange(3, 1, 1, 12).setBackground("#cfe2f3");
+    // אותה בהמשך הפונקציה בצבען הספציפי. [תוקן] Task #214c — נוסף
+    // clearContent(): לפני התיקון הרקע התחלף לתכלת אך טקסט תוויות ישנות
+    // מעמודות שכבר לא ממופות (למשל F, לפני ריכוז האייקונים ל-A-D) נשאר.
+    sheet.getRange(3, 1, 1, 12).clearContent().setBackground("#cfe2f3");
 
     const rowHeight = sheet.getRowHeight(2);
     const iconSize  = Math.max(30, rowHeight - 4);
@@ -2170,15 +2127,185 @@ function setupMedicalStatusIcons() {
     ui.alert(
       "✅ איקונים הוכנסו בהצלחה לגליון '" + MEDICAL_STATUS_SHEET_NAME + "'\n\n" +
       "עמודה A — רענן שורות (runRefreshRowsIconMedicalStatus)\n" +
-      "עמודה C — אימות (runVerifyIconMedicalStatus)\n" +
-      "עמודה D — QA (runQAIconMedicalStatus)\n" +
-      "עמודה F — אינפוגרפיקה (runInfographicIconMedicalStatus)"
+      "עמודה B — אימות S16 (showS16Sidebar)\n" +
+      "עמודה C — QA (runQAIconMedicalStatus)\n" +
+      "עמודה D — אינפוגרפיקה (runInfographicIconMedicalStatus_LAB)"
     );
 
     Logger.log("[ViewEngine] setupMedicalStatusIcons הושלם — 4 איקונים");
 
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-setupMedicalStatusIcons: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #212 — פיילוט אינפוגרפיקה רב-שכבתית (חלון HTML, דמות גוף
+// כללית + אייקוני אירוע לחיצים) — פועל אך ורק על גליון ניסוי_
+// יומן_מצב_רפואי. עצמאי לחלוטין מ-runInfographicIconMedicalStatus /
+// MEDICAL_STATUS_ICON_MAP / setupMedicalStatusIcons (ייצור) — אין נגיעה
+// באף אחד מהם.
+// מיפוי האייקון לכל שורה מבוסס כרגע על התאמת מילת-מפתח בטקסט השורה
+// (Medical_System_Name + Event_Code + Event_Description) — פתרון זמני
+// לפיילוט, עד שעמודת Icon_Link בניסוי_מיפוי_קודים תאוכלס בפועל.
+// ══════════════════════════════════════════════════════════════════
+
+const LAB_INFOGRAPHIC_SHEET_NAME           = "ניסוי_ יומן_מצב_רפואי";
+const LAB_INFOGRAPHIC_FIRST_DATA_ROW       = 5;
+const LAB_INFOGRAPHIC_BODY_IMAGE_FILE_ID   = "1AEjeyJoGRnBj6tXKSEmhxCtCwQjuA8Ao"; // icons8-human-body-100.png
+const LAB_INFOGRAPHIC_TRIGGER_ICON_FILE_ID = "1rKJ2A25ZqKM0e_YeZ8K97kOpyNCV82sC"; // anatomy.png — זהה לטריגר בייצור
+
+const LAB_INFOGRAPHIC_EVENT_ICON_KEYWORDS = [
+  { keyword: "MRI",     fileId: "1CPoGKmh_jvYyofOhA-y4LO6ak79uo5Ps", type: "MODALITY", label: "MRI" }, // MRI.png
+  { keyword: "ערמונית", fileId: "1tx2vzmB3A2x7TQGiper_aw3zDW9RQXOB", type: "ORGAN", posTop: "58%", posLeft: "50%" } // prostate-cancer.png
+];
+
+function _labInfographic_blobToDataUri(fileId) {
+  const blob = DriveApp.getFileById(fileId).getBlob();
+  return "data:" + blob.getContentType() + ";base64," + Utilities.base64Encode(blob.getBytes());
+}
+
+function _labInfographic_findEventIcons(text) {
+  return LAB_INFOGRAPHIC_EVENT_ICON_KEYWORDS.filter(function(entry) {
+    return text.indexOf(entry.keyword) !== -1;
+  });
+}
+
+function runInfographicIconMedicalStatus_LAB() {
+  try {
+    const ui    = SpreadsheetApp.getUi();
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    // [שונה] Task #214c — הגליון הפעיל (לא גליון קבוע) — כך שאותה פונקציה
+    // משרתת גם את יומן_מצב_רפואי (ייצור) וגם את ניסוי_ יומן_מצב_רפואי,
+    // לפי הגליון שבו האייקון נלחץ בפועל. getActiveSheet לעולם אינו null —
+    // אין צורך בבדיקת "גליון לא נמצא".
+    const sheet = ss.getActiveSheet();
+
+    const activeRow = sheet.getActiveCell().getRow();
+    if (activeRow < LAB_INFOGRAPHIC_FIRST_DATA_ROW) {
+      ui.alert("יש לבחור שורת נתונים בגליון (משורה " + LAB_INFOGRAPHIC_FIRST_DATA_ROW + " ואילך) ואז ללחוץ שוב על האייקון.");
+      return;
+    }
+
+    // [תוקן] Task #213 — איתור עמודות לפי שם הכותרת בפועל בשורה 4, ולא לפי
+    // מיקום קבוע — מבנה גליון הניסוי כבר השתנה פעמיים (Task #213), וסדר
+    // העמודות עשוי להשתנות שוב; חיפוש לפי שם מונע הישברות חוזרת.
+    const HEADER_ROW = 4;
+    const lastCol    = sheet.getLastColumn();
+    const headers    = sheet.getRange(HEADER_ROW, 1, 1, lastCol).getValues()[0];
+    const colIndexByName = {};
+    headers.forEach(function(name, idx) { colIndexByName[name] = idx + 1; });
+
+    const REQUIRED_FIELDS = ["Medical_System_Name", "Event_Code", "Event_Description"];
+    const missingFields = REQUIRED_FIELDS.filter(function(f) { return !colIndexByName[f]; });
+    if (missingFields.length > 0) {
+      ui.alert("⚠️ לא נמצאו בשורה " + HEADER_ROW + " עמודות בשם: " + missingFields.join(", ") + ".");
+      return;
+    }
+
+    const sysName   = (sheet.getRange(activeRow, colIndexByName["Medical_System_Name"]).getValue() || "").toString().trim();
+    const eventCode = (sheet.getRange(activeRow, colIndexByName["Event_Code"]).getValue() || "").toString().trim();
+    const eventDesc = (sheet.getRange(activeRow, colIndexByName["Event_Description"]).getValue() || "").toString().trim();
+
+    if (!sysName && !eventCode) {
+      ui.alert("בשורה " + activeRow + " אין Medical_System_Name/Event_Code להצגה.");
+      return;
+    }
+
+    const combinedText = sysName + " " + eventCode + " " + eventDesc;
+    const matchedIcons = _labInfographic_findEventIcons(combinedText);
+
+    const icons = matchedIcons.map(function(entry) {
+      return {
+        type:     entry.type,
+        label:    entry.label  || "",
+        posTop:   entry.posTop  || "",
+        posLeft:  entry.posLeft || "",
+        iconData: _labInfographic_blobToDataUri(entry.fileId)
+      };
+    });
+
+    const record = {
+      system:    sysName || "—",
+      eventCode: eventCode || "—",
+      eventDesc: eventDesc || "(ללא תיאור)",
+      icons:     icons
+    };
+
+    const bodyImageData = _labInfographic_blobToDataUri(LAB_INFOGRAPHIC_BODY_IMAGE_FILE_ID);
+
+    const template = HtmlService.createTemplateFromFile('LAB_Infographic');
+    template.bodyImageData = bodyImageData;
+    template.recordJson    = JSON.stringify(record);
+
+    const html = template.evaluate().setWidth(520).setHeight(560);
+    html.setTitle("אינפוגרפיקה רפואית — לפי אירוע");
+    ui.showSidebar(html);
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runInfographicIconMedicalStatus_LAB: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #212 — setupInfographicIconLab — מכניסה אייקון טריגר בודד
+// לחלון האינפוגרפיקה (עמודה F, שורה 2) לגליון ניסוי_ יומן_מצב_רפואי,
+// באותה מוסכמת אייקונים כמו setupMedicalStatusIcons (ייצור) — ללא נגיעה
+// בה. בטוחה להרצה חוזרת — אינה משכפלת את האייקון אם הוא כבר קיים.
+// ══════════════════════════════════════════════════════════════════
+
+function setupInfographicIconLab() {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(LAB_INFOGRAPHIC_SHEET_NAME);
+    const ui    = SpreadsheetApp.getUi();
+
+    if (!sheet) {
+      ui.alert("❌ גליון '" + LAB_INFOGRAPHIC_SHEET_NAME + "' לא נמצא.");
+      return;
+    }
+
+    const alreadyExists = sheet.getImages().some(function(img) {
+      return img.getScript && img.getScript() === "runInfographicIconMedicalStatus_LAB";
+    });
+    if (alreadyExists) {
+      ui.alert("⚠️ האייקון כבר קיים בגליון — לא בוצע שינוי כדי למנוע שכפול.");
+      return;
+    }
+
+    const col = 6; // F
+    const row = 2;
+    const rowHeight = sheet.getRowHeight(row);
+    const iconSize  = Math.max(30, rowHeight - 4);
+    const colWidth  = sheet.getColumnWidth(col);
+    const offsetX   = Math.max(0, Math.floor((colWidth - iconSize) / 2));
+
+    const blob = DriveApp.getFileById(LAB_INFOGRAPHIC_TRIGGER_ICON_FILE_ID).getBlob();
+    const img  = sheet.insertImage(blob, col, row);
+    img.setAltTextTitle("runInfographicIconMedicalStatus_LAB");
+    img.assignScript("runInfographicIconMedicalStatus_LAB");
+    img.setWidth(iconSize);
+    img.setHeight(iconSize);
+    img.setAnchorCell(sheet.getRange(row, col));
+    img.setAnchorCellXOffset(offsetX);
+    img.setAnchorCellYOffset(2);
+
+    const labelCell = sheet.getRange(3, col);
+    labelCell.setValue("[ אינפוגרפיקה - ניסוי ]");
+    labelCell.setBackground("#00ACC1");
+    labelCell.setFontColor("#ffffff");
+    labelCell.setFontWeight("bold");
+    labelCell.setFontSize(9);
+    labelCell.setHorizontalAlignment("center");
+    labelCell.setVerticalAlignment("middle");
+
+    SpreadsheetApp.flush();
+    ui.alert("✅ אייקון האינפוגרפיקה (פיילוט) הוכנס לגליון '" + LAB_INFOGRAPHIC_SHEET_NAME + "', עמודה F.");
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-setupInfographicIconLab: " + e.toString());
     SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
   }
 }
