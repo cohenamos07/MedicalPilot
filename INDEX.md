@@ -1,5 +1,5 @@
 # MedicalPilot — INDEX
-תאריך עדכון: 15/09/2026 12:36
+תאריך עדכון: 15/09/2026 12:41
 
 ## קבצים src/infrastructure
 - [Auth_Check.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Auth_Check.gs)
@@ -8,6 +8,7 @@
 - [EditorToGitHub.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/EditorToGitHub.gs)
 - [GitHubSync.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/GitHubSync.gs)
 - [GitToEditor.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/GitToEditor.gs)
+- [LAB_Infographic.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/LAB_Infographic.gs)
 - [Main.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Main.gs)
 - [Menu_LAB.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Menu_LAB.gs)
 - [Menu_PROD.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Menu_PROD.gs)
@@ -29,6 +30,8 @@
 - [S11_QArun.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S11_QArun.gs)
 - [S13_ExtractMedical.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S13_ExtractMedical.gs)
 - [S14_QArun.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S14_QArun.gs)
+- [S16_Sidebar.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S16_Sidebar.gs)
+- [S16_ValidateMedicalStatus.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S16_ValidateMedicalStatus.gs)
 - [S_Scheduler.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S_Scheduler.gs)
 - [Service_Folders.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Service_Folders.gs)
 - [System_Doc_Builder.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/System_Doc_Builder.gs)
