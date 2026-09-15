@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S10_Validate.gs
- * @version 2.0.0 | @updated 16/08/2026 21:10 | @service S10
+ * @version 2.1.0 | @updated 01/09/2026 20:57 | @service S10
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S10_Validate.gs
  * @description אימות ידני ולמידה של אירועים רפואיים שחולצו על ידי S09.
  *              פותח Dialog לעריכה, אישור ולמידה של שדות מחולצים —
@@ -9,6 +9,8 @@
  *          כתיבה: דוגמאות_למידה_S10 (סכימה שטוחה, שורה לכל אירוע) +
  *          עמודה H (Validation_Status="מאומת") ביומן_אירועים_רפואי, ברמת
  *          השורה הבודדת בלבד — לא ברמת כל האירועים של אותו מסמך.
+ *          כתיבה/עדכון: מיפוי_קודים (קטלוג קודי אירוע) — דרך כפתור נפרד
+ *          בסייד-בר, ללא קשר לאישור/עדכון-ולמידה/למידה-יזומה (Task #209).
  *          תלויות: S10_Sidebar.html, COLUMN_MAP.gs.
  *          מופעל מהכפתור "[ S10 אימות ]" בגליון יומן_אירועים_רפואי (ViewEngine.gs).
  * @callers ViewEngine.gs (runS10ViewIconEvents), Menu_PROD.gs
@@ -16,8 +18,17 @@
  *            _s10_fetchTxtUrl, s10_loadRowData, s10_loadRowByNumber,
  *            s10_loadSiblingRow, s10_fetchTxtContent, s10_approve,
  *            s10_updateAndLearn, s10_learnOnly, s10_delete,
- *            _s10_fieldValue, _s10_saveToLearning, _s10_getCurrentPayload
- * @changes [v2.0.0] Task 185 (בקשת עמוס) — התאמה מלאה לארכיטקטורה החדשה:
+ *            _s10_fieldValue, _s10_saveToLearning, _s10_getCurrentPayload,
+ *            _s10_saveEventCodeToMap, s10_saveEventCode
+ * @changes [v2.1.0] Task #209 (בקשת עמוס) — הפרדה מוחלטת בין קטלוג קודי
+ *                   אירוע (מיפוי_קודים) לבין אישור/עדכון-ולמידה/למידה-יזומה:
+ *                   s10_updateAndLearn/s10_learnOnly חזרו לחתימה המקורית
+ *                   (4 פרמטרים, ללא כתיבה למיפוי_קודים). נוספה פונקציה
+ *                   ייעודית s10_saveEventCode, נקראת מכפתור נפרד בסייד-בר
+ *                   בלבד. _s10_saveEventCodeToMap שונתה: קוד/תיאור לאירוע
+ *                   שכבר קיים בקטלוג (לפי Raw_Value) מעכשיו מתעדכנים
+ *                   בפועל בשורה הקיימת, במקום לדלג על כתיבה כפולה.
+ *          [v2.0.0] Task 185 (בקשת עמוס) — התאמה מלאה לארכיטקטורה החדשה:
  *                   S10_SHEET_CONFIG צומצם ליומן_אירועים_רפואי בלבד + שדה
  *                   Routing_Category נוסף לאימות (היה חסר). S10_LEARNING_SHEET
  *                   → דוגמאות_למידה_S10 (גליון חדש, שטוח). _s10_saveToLearning
@@ -56,7 +67,7 @@ const S10_SOURCE_SHEET    = "ניהול_מיילים";
 const S10_SHEET_CONFIG = {
   "יומן_אירועים_רפואי": {
     icon:      "🏥",
-    fileIdCol: 7,
+    fileIdCol: 12,
     sourceCol: 6,
     validationStatusCol: 8, // [Task 185] Validation_Status — נכתב ב-approve/updateAndLearn/learnOnly
     fields: [
@@ -161,6 +172,14 @@ function _s10_buildPayload(ss, sheet, sheetName, row) {
     // שליפת lastRow בגליון הפעיל
     const lastRow = sheet.getLastRow();
 
+    // [Task #209] הצעות קטלוג ממיפוי_קודים — קריאה בלבד, בעזרת הפונקציה
+    // הגנרית הקיימת ב-ViewEngine.gs (_codeMap_buildLookup). מערכת גוף —
+    // רשימה סגורה להצעה בלבד. קוד אירוע — נשלח כמפה מלאה {rawText:{code,name}}
+    // כדי שהצד-לקוח יבדוק התאמה בלי תקשורת נוספת עם השרת.
+    const bodySystemLookup     = _codeMap_buildLookup(CODE_MAP_TYPE_BODY_SYSTEM);
+    const medicalSystemOptions = Object.keys(bodySystemLookup).map(function(k) { return bodySystemLookup[k]; });
+    const eventTypeMap         = _codeMap_buildLookup(CODE_MAP_TYPE_EVENT);
+
     return {
       row:        row,
       lastRow:    lastRow,
@@ -173,7 +192,9 @@ function _s10_buildPayload(ss, sheet, sheetName, row) {
       splitY:     splitData.y,
       splitLabel: splitData.x + "/" + splitData.y,
       siblingRows: splitData.siblingRows,
-      fields:     fields
+      fields:     fields,
+      medicalSystemOptions: medicalSystemOptions,
+      eventTypeMap:         eventTypeMap
     };
 
   } catch (e) {
@@ -181,7 +202,6 @@ function _s10_buildPayload(ss, sheet, sheetName, row) {
     return null;
   }
 }
-
 // ══════════════════════════════════════════════════════════════════
 // חישוב Split_Index — X/Y לפי fileId בגליון
 // ══════════════════════════════════════════════════════════════════
@@ -534,7 +554,73 @@ function _s10_saveToLearning(fileId, eventIndex, fieldsJson, complexityLevel, co
     return { success: false, msg: "❌ שגיאה בשמירת למידה: " + e.message };
   }
 }
+// ══════════════════════════════════════════════════════════════════
+// [Task #209] הוספת קוד אירוע חדש למיפוי_קודים — נקרא מ-s10_updateAndLearn/
+// s10_learnOnly כשעמוס קובע קוד+תיאור עבור "סוג אירוע" שלא היה קטלוג לו
+// ══════════════════════════════════════════════════════════════════
 
+function _s10_saveEventCodeToMap(rawText, code, normalizedName) {
+  try {
+    if (!rawText || !code) return { success: true, skipped: true };
+
+    const ss        = SpreadsheetApp.getActiveSpreadsheet();
+    const codeSheet  = ss.getSheetByName(CODE_MAP_SHEET_NAME);
+    if (!codeSheet) {
+      return { success: false, msg: "❌ גליון '" + CODE_MAP_SHEET_NAME + "' לא נמצא" };
+    }
+
+    // [Task #209, עדכון] אם Raw_Value כבר קיים בקטלוג — מעדכנים את הקוד/
+    // התיאור הקיימים במקום (עמוס אישר: עדכון תמיד גובר, לא דילוג)
+    const firstDataRow = (SHEET_CONFIG[CODE_MAP_SHEET_NAME] && SHEET_CONFIG[CODE_MAP_SHEET_NAME].FIRST_DATA_ROW) || 5;
+    const lastRow       = codeSheet.getLastRow();
+    let existingRow      = null;
+
+    if (lastRow >= firstDataRow) {
+      const data = codeSheet.getRange(firstDataRow, 1, lastRow - firstDataRow + 1, 4).getValues();
+      for (let i = 0; i < data.length; i++) {
+        const rowType = (data[i][0] || "").toString().trim();
+        const rowRaw  = (data[i][3] || "").toString().trim();
+        if (rowType === CODE_MAP_TYPE_EVENT && rowRaw === rawText) {
+          existingRow = firstDataRow + i;
+          break;
+        }
+      }
+    }
+
+    if (existingRow) {
+      codeSheet.getRange(existingRow, 2, 1, 2).setValues([[code, normalizedName || ""]]);
+      Logger.log("[S10] קוד אירוע עודכן במיפוי_קודים — " + code + " | " + rawText);
+      return { success: true, updated: true };
+    }
+
+    codeSheet.appendRow([CODE_MAP_TYPE_EVENT, code, normalizedName || "", rawText]);
+
+    Logger.log("[S10] קוד אירוע חדש נוסף למיפוי_קודים — " + code + " | " + rawText);
+    return { success: true, updated: false };
+
+  } catch (e) {
+    Logger.log("[S10] _s10_saveEventCodeToMap שגיאה: " + e.message);
+    return { success: false, msg: "❌ שגיאה בשמירת קוד אירוע: " + e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task #209, עדכון] כפתור ייעודי "עדכון קודי אירוע" — קורא ישירות
+// מהסייד-בר, ללא שום קשר לגליון הלמידה או לשדות יומן_אירועים_רפואי
+// ══════════════════════════════════════════════════════════════════
+
+function s10_saveEventCode(rawText, code, normalizedName) {
+  try {
+    if (!rawText || !code) {
+      return { success: false, msg: "❌ חסר טקסט אירוע או קוד" };
+    }
+    return _s10_saveEventCodeToMap(rawText, code, normalizedName);
+
+  } catch (e) {
+    Logger.log("[S10] s10_saveEventCode שגיאה: " + e.message);
+    return { success: false, msg: "❌ שגיאה: " + e.message };
+  }
+}
 // ══════════════════════════════════════════════════════════════════
 // פונקציית עזר — שליפת payload נוכחי
 // ══════════════════════════════════════════════════════════════════
