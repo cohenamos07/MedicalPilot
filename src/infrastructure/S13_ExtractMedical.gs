@@ -1,6 +1,6 @@
 /**
  * @file        S13_ExtractMedical.gs
- * @version     1.3.1 | @updated 27/08/2026 15:56 | @service S13
+ * @version     1.3.2 | @updated 03/09/2026 21:48 | @service S13
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S13_ExtractMedical.gs
  * @description שירות חילוץ עמוק — קורא שורות מאומתות (Validation_Status="מאומת",
  *              Extraction_Status ריק) מיומן_אירועים_רפואי, מקבץ לפי File_ID
@@ -23,6 +23,14 @@
  *              _s13_fetchTxtContent | _s13_buildPrompt | _s13_normalizeDate |
  *              _s13_callGemini | _s13_buildRowValues | _s13_writeExtractedRow |
  *              _s13_processGroup
+ * @changes     [v1.3.2] Task #210 — _s13_processGroup: נוסף medicalSystem
+ *              ל-ctx (מ-eventRow.medicalSystem, S09) — היה קיים בפרומפט
+ *              Gemini אך לא הועבר בפועל לבניית השורה. _s13_buildRowValues,
+ *              ענף ברירת המחדל (מצב רפואי/ניתוח/כללי): תוקן סדר המערך
+ *              המוחזר ל-15 העמודות בפועל של יומן_מצב_רפואי (COLUMN_MAP.gs,
+ *              לאחר Task #206) — היה לא מיושר. עמודה 3 (Medical_System_Name)
+ *              נכתבת כעת מ-ctx.medicalSystem בפועל. אומת מול הקוד החי (diff
+ *              מדויק, node --check).
  * @changes     [v1.3.1] Task #205 — _s13_getEligibleGroups: sheet.getRange
  *              (firstDataRow, 1, numRows, 12) — הורחב ל-12 עמודות (A:L, היה
  *              A:I), בעקבות הוספת S_Row (7) ל-COLUMN_MAP.gs (v2.10.0). fileId
@@ -557,19 +565,29 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
     case "ניתוח/פעולה רפואית":
     case "כללי":
     default:
-      // Event_Date | Event_Type | Medical_System | Issuer | Primary_Diagnosis | Severity_Status | Recommendations | Source_URL | File_ID | Doc_Issuer | Record_Status
+      // [Task #210] תוקן ל-15 עמודות בפועל (COLUMN_MAP.gs, לאחר Task #206):
+      // Event_Date | Event_Type | Medical_System_Name | Primary_Diagnosis |
+      // Severity_Status | Recommendations | Record_Status | Doc_Issuer |
+      // S_Row | Medical_System | ET_CODE | File_ID | Source_URL |
+      // Body_System_Normalized | Event_Type_Normalized.
+      // S_Row/ET_CODE/Body_System_Normalized/Event_Type_Normalized נכתבים
+      // ע"י VIEWENGINE (refreshMedicalStatusRows) — נשארים ריקים כאן.
       return [
         _s13_normalizeDate(ctx.eventDate),
         ctx.eventType || "",
-        fields.Medical_System || "SYS00",
-        ctx.issuer || "",
+        ctx.medicalSystem || "",
         fields.Primary_Diagnosis || "",
         fields.Severity_Status || "",
         fields.Recommendations || "",
-        sourceUrl,
-        ctx.fileId,
+        "חדש",
         ctx.issuer || "",
-        "חדש"
+        "",
+        fields.Medical_System || "SYS00",
+        "",
+        ctx.fileId,
+        sourceUrl,
+        "",
+        ""
       ];
   }
 }
@@ -639,10 +657,11 @@ function _s13_processGroup(ss, sourceSheet, group) {
     }
 
     const ctx = {
-      fileId:    group.fileId,
-      issuer:    eventRow.issuer,
-      eventDate: eventRow.eventDate,
-      eventType: eventRow.eventType
+      fileId:        group.fileId,
+      issuer:        eventRow.issuer,
+      eventDate:     eventRow.eventDate,
+      eventType:     eventRow.eventType,
+      medicalSystem: eventRow.medicalSystem
     };
 
     const ok = _s13_writeExtractedRow(ss, eventRow.routingCategory, result.fields || {}, ctx);
