@@ -1,17 +1,30 @@
 <!--
   MedicalPilot — S16_Sidebar.html
-  @version     1.0.0 | @updated 03/09/2026 19:51 | @service S16
+  @version     2.0.0 | @updated 18/09/2026 17:45 | @service S16
   @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_Sidebar.html
-  @description ממשק Dialog לאימות קוד מערכת גוף (select סגור, S13_BODY_
-               SYSTEMS) וקוד אירוע (מקטלוג מיפוי_קודים, עם מנגנון "קוד
-               חדש") עבור שורה בודדת ביומן_מצב_רפואי. מציג את הקוד שGemini/
-               S13 כבר קבעו, לאישור או תיקון.
-  @impacts     כפתורים: אשר, עדכן קטלוג קוד אירוע, ניווט הקודם/הבא.
-               תלוי ב: S16_ValidateMedicalStatus.gs — כל הלוגיקה מתבצעת שם.
+  @description ממשק Dialog לאימות כל קודי הסיווג ביומן_מצב_רפואי (21 עמודות):
+               קוד מערכת גוף (select סגור), קוד אירוע/התמחות/חומרה/אבחנה
+               (קטלוג פתוח משותף — select + הוספת קוד חדש לכל שדה בנפרד),
+               וודאות אבחנה (select סגור פשוט). פריסת שתי עמודות כמו
+               S10_Sidebar.html: ימין — שדות אימות, שמאל — Event_Date/
+               Doc_Issuer + תצוגת מסמך מקור (הוקטן על חשבון המעבר של שני
+               השדות האלה לכאן, לפי החלטת 15/09/2026).
+  @impacts     כפתורים: אשר, הוסף-קוד (4, אחד לכל שדה קטלוג פתוח), ניווט
+               הקודם/הבא. תלוי ב: S16_ValidateMedicalStatus.gs — כל
+               הלוגיקה מתבצעת שם.
   @callers     S16_ValidateMedicalStatus.gs (showS16Sidebar)
-  @functions   initUI, render, prevRow, nextRow, doApprove, doSaveEventCode,
-               handleResult, handleError
-  @changes     [v1.0.0] Task #210 — גרסה ראשונה.
+  @functions   initUI, render, renderCodeFieldHtml, esc, prevRow, nextRow,
+               doApprove, doSaveCatalogCode, handleResult, handleError
+  @changes     [v2.0.0] Task #214 — שכתוב מלא: הוחלף select+input בודד של
+               "קוד אירוע" ב-4 שדות קטלוג פתוח זהים במבנה (eventCode/
+               specialty/severity/diagnosis), כל אחד עם select של האפשרויות
+               הקיימות + מיני-טופס "קוד חדש" נפרד (renderCodeFieldHtml,
+               לולאה אחת במקום קוד כפול). נוסף select לוודאות אבחנה (לא
+               היה קיים בגרסה הקודמת בכלל). Event_Date/Doc_Issuer עברו
+               לעמודה השמאלית + נוספה תצוגת מסמך מקור (iframe) — לא היו
+               מוצגים בגרסה הקודמת מעבר לקישור טקסטואלי בודד. הוסרו שדות
+               etCodeInput/etNormInput/suggestionHint הישנים (מבנה 15
+               עמודות). אומת מול הקוד החי (diff מדויק).
 -->
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
@@ -56,19 +69,27 @@
     font-size: 11px;
   }
 
-  .content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+  /* ════ גוף — שתי עמודות, כמו S10_Sidebar ════ */
+  .dialog-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    flex: 1; overflow: hidden; min-height: 0;
   }
+
+  .col {
+    padding: 10px 12px;
+    overflow-y: auto;
+    display: flex; flex-direction: column;
+    gap: 10px; min-height: 0;
+  }
+
+  .col-right { border-left: 1px solid #e0e0e0; }
 
   .section {
     border: 1px solid #e0e0e0;
     border-radius: 6px;
     padding: 10px 12px;
+    flex-shrink: 0;
   }
 
   .section-title {
@@ -78,16 +99,12 @@
     margin-bottom: 8px;
   }
 
-  .field-row {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 6px;
-  }
+  .field-row { display: flex; gap: 10px; margin-bottom: 6px; }
 
   .field-label {
     font-size: 11px;
     color: #666;
-    min-width: 90px;
+    min-width: 80px;
     flex-shrink: 0;
     padding-top: 2px;
   }
@@ -97,12 +114,6 @@
     color: #222;
     white-space: pre-wrap;
     word-break: break-word;
-  }
-
-  .edit-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
   }
 
   label.edit-label {
@@ -121,10 +132,22 @@
     font-family: inherit;
   }
 
-  .hint {
-    font-size: 11px;
-    color: #888;
-    margin-top: 4px;
+  .hint { font-size: 11px; color: #888; margin-top: 4px; }
+
+  .new-code-box {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    align-items: flex-end;
+  }
+
+  .new-code-box input { flex: 1; min-width: 0; }
+
+  .btn-add {
+    background: #1976d2; color: #fff;
+    border: none; border-radius: 5px;
+    padding: 6px 10px; font-size: 12px; font-weight: 600;
+    cursor: pointer; white-space: nowrap; flex-shrink: 0;
   }
 
   .source-link {
@@ -133,6 +156,14 @@
     font-size: 12px;
     color: #7E57C2;
     text-decoration: none;
+  }
+
+  .file-preview {
+    flex: 1; min-height: 260px;
+    border: 1px solid #d1c4e9;
+    border-radius: 4px;
+    background: #f5f5f5;
+    width: 100%;
   }
 
   .btn-row {
@@ -155,9 +186,8 @@
     font-family: inherit;
   }
 
-  .btn-approve   { background: #43A047; color: #fff; }
-  .btn-savecode  { background: #FB8C00; color: #fff; }
-  .btn-nav       { background: #eceff1; color: #333; }
+  .btn-approve { background: #43A047; color: #fff; }
+  .btn-nav     { background: #eceff1; color: #333; }
   .btn-row .spacer { flex: 1; }
 
   #statusMsg {
@@ -180,7 +210,10 @@
     <div class="status-badge" id="statusBadge">—</div>
   </div>
 
-  <div class="content" id="content">טוען נתוני שורה…</div>
+  <div class="dialog-body">
+    <div class="col col-right" id="rightCol">טוען נתוני שורה…</div>
+    <div class="col col-left" id="leftCol"></div>
+  </div>
 
   <div id="statusMsg"></div>
 
@@ -188,7 +221,6 @@
     <button class="btn-nav" onclick="prevRow()">◀ הקודם</button>
     <button class="btn-nav" onclick="nextRow()">הבא ▶</button>
     <div class="spacer"></div>
-    <button class="btn-savecode" onclick="doSaveEventCode()">💾 עדכן קטלוג קוד אירוע</button>
     <button class="btn-approve" onclick="doApprove()">✅ אשר</button>
   </div>
 
@@ -197,6 +229,41 @@
 
   function initUI() {
     google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowData();
+  }
+
+  function esc(s) {
+    return (s || '').toString()
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // ════ בניית HTML לשדה קטלוג פתוח בודד (eventCode/specialty/severity/diagnosis) ════
+  function renderCodeFieldHtml(field) {
+    let optionsHtml = '<option value="">— בחר —</option>';
+    field.options.forEach(function(opt) {
+      const sel = (opt.code === field.currentCode) ? ' selected' : '';
+      optionsHtml += '<option value="' + esc(opt.code) + '" data-name="' + esc(opt.name) + '"' + sel + '>' +
+        esc(opt.code) + ' — ' + esc(opt.name) + '</option>';
+    });
+
+    let hintHtml = '';
+    if (field.suggestion) {
+      hintHtml = '<div class="hint">הצעה מהקטלוג: ' + esc(field.suggestion.code) +
+        (field.suggestion.name ? ' — ' + esc(field.suggestion.name) : '') + '</div>';
+    }
+
+    return (
+      '<div class="section" data-field-key="' + field.key + '">' +
+        '<div class="section-title">' + esc(field.label) + '</div>' +
+        '<label class="edit-label">בחירה מהקטלוג</label>' +
+        '<select id="sel_' + field.key + '">' + optionsHtml + '</select>' +
+        hintHtml +
+        '<div class="new-code-box">' +
+          '<div><label class="edit-label">קוד חדש</label><input type="text" id="newCode_' + field.key + '"></div>' +
+          '<div><label class="edit-label">שם מנורמל</label><input type="text" id="newName_' + field.key + '"></div>' +
+          '<button type="button" class="btn-add" onclick="doSaveCatalogCode(\'' + field.key + '\')">+ הוסף</button>' +
+        '</div>' +
+      '</div>'
+    );
   }
 
   function render(payload) {
@@ -210,54 +277,60 @@
       'שורה ' + payload.row + ' מתוך ' + payload.lastRow;
     document.getElementById('statusBadge').textContent = payload.recordStatus || '—';
 
-    const sourceLink = payload.sourceUrl
-      ? '<a class="source-link" href="' + payload.sourceUrl + '" target="_blank">פתח מסמך מקור ↗</a>'
-      : '';
-
-    let optionsHtml = '';
+    // ═══ עמודה ימנית — שדות אימות ═══
+    let sysOptionsHtml = '';
     payload.bodySystemOptions.forEach(function(opt) {
       const sel = (opt.code === payload.currentSysCode) ? ' selected' : '';
-      optionsHtml += '<option value="' + opt.code + '"' + sel + '>' + opt.code + ' — ' + opt.nameHe + '</option>';
+      sysOptionsHtml += '<option value="' + esc(opt.code) + '"' + sel + '>' + esc(opt.code) + ' — ' + esc(opt.nameHe) + '</option>';
     });
 
-    let suggestionHint = '';
-    if (payload.eventSuggestion && payload.eventSuggestion.code !== payload.currentEtCode) {
-      suggestionHint = '<div class="hint">הצעה מהקטלוג: ' + payload.eventSuggestion.code +
-        (payload.eventSuggestion.name ? ' — ' + payload.eventSuggestion.name : '') + '</div>';
-    }
+    let certOptionsHtml = '<option value="">— בחר —</option>';
+    payload.certaintyOptions.forEach(function(opt) {
+      const sel = (opt.code === payload.currentCertainty) ? ' selected' : '';
+      certOptionsHtml += '<option value="' + esc(opt.code) + '"' + sel + '>' + esc(opt.code) + ' — ' + esc(opt.name) + '</option>';
+    });
 
-    document.getElementById('content').innerHTML =
+    let codeFieldsHtml = '';
+    ['eventCode', 'specialty', 'severity', 'diagnosis'].forEach(function(key) {
+      codeFieldsHtml += renderCodeFieldHtml(payload.fields[key]);
+    });
+
+    document.getElementById('rightCol').innerHTML =
       '<div class="section">' +
-        '<div class="section-title">נתוני האירוע (תצוגה בלבד)</div>' +
-        '<div class="field-row"><div class="field-label">תאריך</div><div class="field-value">' + esc(payload.eventDate) + '</div></div>' +
-        '<div class="field-row"><div class="field-label">סוג אירוע</div><div class="field-value">' + esc(payload.eventType) + '</div></div>' +
+        '<div class="section-title">תוכן האירוע (תצוגה בלבד)</div>' +
         '<div class="field-row"><div class="field-label">אבחנה עיקרית</div><div class="field-value">' + esc(payload.primaryDiagnosis) + '</div></div>' +
         '<div class="field-row"><div class="field-label">חומרה</div><div class="field-value">' + esc(payload.severityStatus) + '</div></div>' +
         '<div class="field-row"><div class="field-label">המלצות</div><div class="field-value">' + esc(payload.recommendations) + '</div></div>' +
-        '<div class="field-row"><div class="field-label">מוסד / רופא</div><div class="field-value">' + esc(payload.docIssuer) + '</div></div>' +
-        sourceLink +
       '</div>' +
       '<div class="section">' +
-        '<div class="section-title">אימות קודים</div>' +
-        '<div class="edit-grid">' +
-          '<div>' +
-            '<label class="edit-label">קוד מערכת גוף</label>' +
-            '<select id="sysCodeSelect">' + optionsHtml + '</select>' +
-          '</div>' +
-          '<div>' +
-            '<label class="edit-label">קוד אירוע</label>' +
-            '<input type="text" id="etCodeInput" value="' + esc(payload.currentEtCode) + '">' +
-            '<label class="edit-label" style="margin-top:6px;">שם מנורמל</label>' +
-            '<input type="text" id="etNormInput" value="' + esc(payload.currentEtNorm) + '">' +
-            suggestionHint +
-          '</div>' +
-        '</div>' +
+        '<div class="section-title">קוד מערכת גוף</div>' +
+        '<select id="sysCodeSelect">' + sysOptionsHtml + '</select>' +
+      '</div>' +
+      codeFieldsHtml +
+      '<div class="section">' +
+        '<div class="section-title">וודאות אבחנה</div>' +
+        '<select id="certaintySelect">' + certOptionsHtml + '</select>' +
       '</div>';
-  }
 
-  function esc(s) {
-    return (s || '').toString()
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    // ═══ עמודה שמאלית — Event_Date/Doc_Issuer + תצוגת מסמך מקור ═══
+    const previewUrl = payload.sourceUrl ? payload.sourceUrl.replace('/view', '/preview') : '';
+    const sourceLink = payload.sourceUrl
+      ? '<a class="source-link" href="' + payload.sourceUrl + '" target="_blank">פתח בלשונית חדשה ↗</a>'
+      : '';
+
+    document.getElementById('leftCol').innerHTML =
+      '<div class="section">' +
+        '<div class="section-title">מטא-דאטה</div>' +
+        '<div class="field-row"><div class="field-label">תאריך</div><div class="field-value">' + esc(payload.eventDate) + '</div></div>' +
+        '<div class="field-row"><div class="field-label">מוסד / רופא</div><div class="field-value">' + esc(payload.docIssuer) + '</div></div>' +
+      '</div>' +
+      '<div class="section" style="flex:1; display:flex; flex-direction:column; min-height:0;">' +
+        '<div class="section-title">📄 מסמך מקור</div>' +
+        (previewUrl
+          ? '<iframe class="file-preview" src="' + previewUrl + '" frameborder="0" allowfullscreen></iframe>'
+          : '<div class="hint">אין מסמך מקור לשורה זו</div>') +
+        sourceLink +
+      '</div>';
   }
 
   function prevRow() {
@@ -276,23 +349,34 @@
 
   function doApprove() {
     if (!currentPayload) return;
-    const sysCode  = document.getElementById('sysCodeSelect').value;
-    const etCode   = document.getElementById('etCodeInput').value.trim();
-    const etNorm   = document.getElementById('etNormInput').value.trim();
+    const sysCode   = document.getElementById('sysCodeSelect').value;
+    const certCode  = document.getElementById('certaintySelect').value;
+
+    const fieldValues = {};
+    ['eventCode', 'specialty', 'severity', 'diagnosis'].forEach(function(key) {
+      const sel  = document.getElementById('sel_' + key);
+      const opt  = sel.options[sel.selectedIndex];
+      fieldValues[key] = {
+        code: sel.value || '',
+        name: (opt && opt.getAttribute('data-name')) || ''
+      };
+    });
+
     google.script.run.withSuccessHandler(handleResult).withFailureHandler(handleError)
-      .s16_approve(currentPayload.row, sysCode, etCode, etNorm);
+      .s16_approve(currentPayload.row, sysCode, certCode, fieldValues);
   }
 
-  function doSaveEventCode() {
+  function doSaveCatalogCode(key) {
     if (!currentPayload) return;
-    const etCode = document.getElementById('etCodeInput').value.trim();
-    const etNorm = document.getElementById('etNormInput').value.trim();
-    if (!currentPayload.eventType || !etCode) {
-      handleError({ msg: "❌ חסר סוג אירוע גולמי או קוד לשמירה בקטלוג" });
+    const field   = currentPayload.fields[key];
+    const newCode = document.getElementById('newCode_' + key).value.trim();
+    const newName = document.getElementById('newName_' + key).value.trim();
+    if (!newCode) {
+      handleError({ msg: "❌ חסר קוד חדש עבור " + field.label });
       return;
     }
     google.script.run.withSuccessHandler(handleResult).withFailureHandler(handleError)
-      .s16_saveEventCode(currentPayload.eventType, etCode, etNorm);
+      .s16_saveCatalogCode(key, field.rawText, newCode, newName);
   }
 
   function handleResult(result) {
