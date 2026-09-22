@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S10_Validate.gs
- * @version 2.1.0 | @updated 01/09/2026 20:57 | @service S10
+ * @version 2.1.1 | @updated 18/09/2026 17:31 | @service S10
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S10_Validate.gs
  * @description אימות ידני ולמידה של אירועים רפואיים שחולצו על ידי S09.
  *              פותח Dialog לעריכה, אישור ולמידה של שדות מחולצים —
@@ -11,6 +11,8 @@
  *          השורה הבודדת בלבד — לא ברמת כל האירועים של אותו מסמך.
  *          כתיבה/עדכון: מיפוי_קודים (קטלוג קודי אירוע) — דרך כפתור נפרד
  *          בסייד-בר, ללא קשר לאישור/עדכון-ולמידה/למידה-יזומה (Task #209).
+ *          [v2.1.1] כתיבה/עדכון מיפוי_קודים מתבצעת כעת רק בתוך בלוק אירועים
+ *          E-I (מבנה 6 בלוקים, task215a) — לא ברמת הגליון כולו.
  *          תלויות: S10_Sidebar.html, COLUMN_MAP.gs.
  *          מופעל מהכפתור "[ S10 אימות ]" בגליון יומן_אירועים_רפואי (ViewEngine.gs).
  * @callers ViewEngine.gs (runS10ViewIconEvents), Menu_PROD.gs
@@ -20,7 +22,21 @@
  *            s10_updateAndLearn, s10_learnOnly, s10_delete,
  *            _s10_fieldValue, _s10_saveToLearning, _s10_getCurrentPayload,
  *            _s10_saveEventCodeToMap, s10_saveEventCode
- * @changes [v2.1.0] Task #209 (בקשת עמוס) — הפרדה מוחלטת בין קטלוג קודי
+ * @changes [v2.1.1] Task #214 — _s10_saveEventCodeToMap עודכנה: גליון
+ *                   מיפוי_קודים עבר ל-6 בלוקי-עמודות קבועים (task215a, ראה
+ *                   COLUMN_MAP.gs), והפונקציה עדיין הניחה מבנה שטוח ישן
+ *                   (Type|Key|Normalized_Value|Raw_Value) וכתבה בטעות לבלוק
+ *                   איברים A-D במקום לבלוק אירועים E-I. תוקן: קריאה/זיהוי-
+ *                   שורה-קיימת לפי Raw_Value בעמודה H (במקום D), עדכון כותב
+ *                   לעמודות E-F (Event_Code/Normalized_Value, במקום B-C).
+ *                   הוספת שורה חדשה הוחלפה מ-appendRow (שהיה מסוכן — כותב
+ *                   על כל רוחב הגליון אחרי getLastRow() הכללי, שיכול להיות
+ *                   בתוך בלוק אחר) לחיפוש השורה הריקה הבאה בתוך בלוק אירועים
+ *                   בלבד וכתיבה מוגבלת לעמודות E-I, כדי לא לדרוס בלוקים
+ *                   אחרים (למשל התמחות J-N) באותה שורה. אומת לוגית ב-3
+ *                   תרחישי מוק (עדכון קיים / הוספה עם בלוק איברים ארוך יותר /
+ *                   בלוק אירועים ריק) ומול הקוד החי (diff מדויק, node --check).
+ *          [v2.1.0] Task #209 (בקשת עמוס) — הפרדה מוחלטת בין קטלוג קודי
  *                   אירוע (מיפוי_קודים) לבין אישור/עדכון-ולמידה/למידה-יזומה:
  *                   s10_updateAndLearn/s10_learnOnly חזרו לחתימה המקורית
  *                   (4 פרמטרים, ללא כתיבה למיפוי_קודים). נוספה פונקציה
@@ -557,6 +573,15 @@ function _s10_saveToLearning(fileId, eventIndex, fieldsJson, complexityLevel, co
 // ══════════════════════════════════════════════════════════════════
 // [Task #209] הוספת קוד אירוע חדש למיפוי_קודים — נקרא מ-s10_updateAndLearn/
 // s10_learnOnly כשעמוס קובע קוד+תיאור עבור "סוג אירוע" שלא היה קטלוג לו
+// [תוקן, Task #214] גליון מיפוי_קודים כבר לא שטוח (Type|Key|Normalized_
+// Value|Raw_Value) — הוא 6 בלוקי-עמודות קבועים זה לצד זה (task215a, ראה
+// COLUMN_MAP.gs). הפונקציה כותבת רק לבלוק אירועים E-I (Event_Code|
+// Normalized_Value|Description|Raw_Value|Icon_Link) — אין יותר עמודת
+// "Type" לבדיקה/כתיבה. עדכון שורה קיימת כותב לעמודות E-F בלבד. הוספת
+// שורה חדשה מחפשת את השורה הריקה הבאה בתוך בלוק האירועים עצמו בלבד —
+// לא sheet.getLastRow()/appendRow הכללי, כי בלוקים אחרים (למשל איברים
+// A-D) עלולים להיות ארוכים יותר; כותבת רק לעמודות E-I כדי לא לדרוס
+// בלוקים אחרים באותה שורה.
 // ══════════════════════════════════════════════════════════════════
 
 function _s10_saveEventCodeToMap(rawText, code, normalizedName) {
@@ -564,7 +589,7 @@ function _s10_saveEventCodeToMap(rawText, code, normalizedName) {
     if (!rawText || !code) return { success: true, skipped: true };
 
     const ss        = SpreadsheetApp.getActiveSpreadsheet();
-    const codeSheet  = ss.getSheetByName(CODE_MAP_SHEET_NAME);
+    const codeSheet = ss.getSheetByName(CODE_MAP_SHEET_NAME);
     if (!codeSheet) {
       return { success: false, msg: "❌ גליון '" + CODE_MAP_SHEET_NAME + "' לא נמצא" };
     }
@@ -574,13 +599,17 @@ function _s10_saveEventCodeToMap(rawText, code, normalizedName) {
     const firstDataRow = (SHEET_CONFIG[CODE_MAP_SHEET_NAME] && SHEET_CONFIG[CODE_MAP_SHEET_NAME].FIRST_DATA_ROW) || 5;
     const lastRow       = codeSheet.getLastRow();
     let existingRow      = null;
+    let lastEventRow     = firstDataRow - 1; // עדיין אין שורות בבלוק אירועים
 
     if (lastRow >= firstDataRow) {
-      const data = codeSheet.getRange(firstDataRow, 1, lastRow - firstDataRow + 1, 4).getValues();
+      // בלוק אירועים בלבד (E-I): Event_Code | Normalized_Value | Description | Raw_Value | Icon_Link
+      const data = codeSheet.getRange(firstDataRow, 5, lastRow - firstDataRow + 1, 5).getValues();
       for (let i = 0; i < data.length; i++) {
-        const rowType = (data[i][0] || "").toString().trim();
-        const rowRaw  = (data[i][3] || "").toString().trim();
-        if (rowType === CODE_MAP_TYPE_EVENT && rowRaw === rawText) {
+        const rowCode = (data[i][0] || "").toString().trim(); // E = Event_Code
+        const rowRaw  = (data[i][3] || "").toString().trim(); // H = Raw_Value
+        const hasAny  = rowCode || rowRaw || (data[i][1] || "") || (data[i][2] || "") || (data[i][4] || "");
+        if (hasAny) lastEventRow = firstDataRow + i;
+        if (rowRaw && rowRaw === rawText) {
           existingRow = firstDataRow + i;
           break;
         }
@@ -588,12 +617,13 @@ function _s10_saveEventCodeToMap(rawText, code, normalizedName) {
     }
 
     if (existingRow) {
-      codeSheet.getRange(existingRow, 2, 1, 2).setValues([[code, normalizedName || ""]]);
+      codeSheet.getRange(existingRow, 5, 1, 2).setValues([[code, normalizedName || ""]]);
       Logger.log("[S10] קוד אירוע עודכן במיפוי_קודים — " + code + " | " + rawText);
       return { success: true, updated: true };
     }
 
-    codeSheet.appendRow([CODE_MAP_TYPE_EVENT, code, normalizedName || "", rawText]);
+    const newRow = lastEventRow + 1;
+    codeSheet.getRange(newRow, 5, 1, 5).setValues([[code, normalizedName || "", "", rawText, ""]]);
 
     Logger.log("[S10] קוד אירוע חדש נוסף למיפוי_קודים — " + code + " | " + rawText);
     return { success: true, updated: false };
