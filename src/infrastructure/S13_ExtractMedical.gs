@@ -1,6 +1,6 @@
 /**
  * @file        S13_ExtractMedical.gs
- * @version     1.3.2 | @updated 03/09/2026 21:48 | @service S13
+ * @version     1.3.3 | @updated 15/09/2026 16:22 | @service S13
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S13_ExtractMedical.gs
  * @description שירות חילוץ עמוק — קורא שורות מאומתות (Validation_Status="מאומת",
  *              Extraction_Status ריק) מיומן_אירועים_רפואי, מקבץ לפי File_ID
@@ -23,6 +23,18 @@
  *              _s13_fetchTxtContent | _s13_buildPrompt | _s13_normalizeDate |
  *              _s13_callGemini | _s13_buildRowValues | _s13_writeExtractedRow |
  *              _s13_processGroup
+ * @changes     [v1.3.3] Task #214b — _s13_buildRowValues, ענף ברירת המחדל
+ *              (מצב רפואי / ניתוח/פעולה רפואית / כללי): מערך ההחזרה עודכן
+ *              מ-15 ל-21 עמודות בפועל של יומן_מצב_רפואי, בעקבות מיגרציית
+ *              המבנה (COLUMN_MAP.gs, task214a, 10/09/2026). S_Row (עמודה ח,
+ *              8) נשאר ריק בכוונה — מחושב ע"י ViewEngine.gs/refreshMedical-
+ *              StatusRows. 9 שדות הקידוד החדשים (Specialty_Name, Event_Code,
+ *              Event_Description, Severity_Name, Diagnosis_Name, Diagnosis_
+ *              Certainty ו-3 עמודות הקוד: Specialty_Code/Severity_Code/
+ *              Diagnosis_Code) נשארים ריקים בכוונה — אינם נשאלים עדיין
+ *              מ-Gemini בסכימה הנוכחית (_s13_getSchemaBlock); אכלוסם דורש
+ *              הרחבת פרומפט נפרדת, מחוץ לתחום התיקון הזה. אומת מול הקוד
+ *              החי (diff מדויק, node --check) ונבדק בשטח.
  * @changes     [v1.3.2] Task #210 — _s13_processGroup: נוסף medicalSystem
  *              ל-ctx (מ-eventRow.medicalSystem, S09) — היה קיים בפרומפט
  *              Gemini אך לא הועבר בפועל לבניית השורה. _s13_buildRowValues,
@@ -565,27 +577,39 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
     case "ניתוח/פעולה רפואית":
     case "כללי":
     default:
-      // [Task #210] תוקן ל-15 עמודות בפועל (COLUMN_MAP.gs, לאחר Task #206):
-      // Event_Date | Event_Type | Medical_System_Name | Primary_Diagnosis |
-      // Severity_Status | Recommendations | Record_Status | Doc_Issuer |
-      // S_Row | Medical_System | ET_CODE | File_ID | Source_URL |
-      // Body_System_Normalized | Event_Type_Normalized.
-      // S_Row/ET_CODE/Body_System_Normalized/Event_Type_Normalized נכתבים
-      // ע"י VIEWENGINE (refreshMedicalStatusRows) — נשארים ריקים כאן.
+      // [Task #214] תוקן ל-21 העמודות בפועל של יומן_מצב_רפואי אחרי מיגרציית
+      // המבנה (COLUMN_MAP.gs, task214a, 10/09/2026):
+      // Event_Date | Event_Type | Primary_Diagnosis | Severity_Status |
+      // Recommendations | Doc_Issuer | Record_Status | S_Row |
+      // Specialty_Name | Medical_System_Name | Event_Code | Event_Description |
+      // Severity_Name | Diagnosis_Name | Diagnosis_Certainty | Source_URL |
+      // File_ID | Medical_System | Specialty_Code | Severity_Code | Diagnosis_Code.
+      // S_Row מחושב ע"י VIEWENGINE (refreshMedicalStatusRows) — נשאר ריק כאן.
+      // 9 השדות החדשים (Specialty_Name/Event_Code/Event_Description/
+      // Severity_Name/Diagnosis_Name/Diagnosis_Certainty ו-3 עמודות הקוד)
+      // אינם נשאלים עדיין מ-Gemini בסכימה הנוכחית (_s13_getSchemaBlock,
+      // routingCategory="מצב רפואי") — נשארים ריקים בכוונה; אכלוסם דורש
+      // הרחבת פרומפט נפרדת, מחוץ לתחום התיקון הזה.
       return [
         _s13_normalizeDate(ctx.eventDate),
         ctx.eventType || "",
-        ctx.medicalSystem || "",
         fields.Primary_Diagnosis || "",
         fields.Severity_Status || "",
         fields.Recommendations || "",
-        "חדש",
         ctx.issuer || "",
+        "חדש",
         "",
+        "",
+        ctx.medicalSystem || "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        sourceUrl,
+        ctx.fileId,
         fields.Medical_System || "SYS00",
         "",
-        ctx.fileId,
-        sourceUrl,
         "",
         ""
       ];
