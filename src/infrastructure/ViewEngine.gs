@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.10.3 | @updated 10/09/2026 21:19 | @service VIEWENGINE
+ * @version 2.10.6 | @updated 22/09/2026 22:41 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -28,6 +28,9 @@
  *              יומן_אירועים_רפואי: setupMedicalEventsIcons — מכניס 4 איקונים אוטומטית.
  *              [v2.9.0] runS14ViewIconEvents כותב לעמודות J/K (Duplicate_Flag/
  *              Duplicate_Target_Ref) — בעקיפין, דרך קריאה ל-runS14() (S14_QArun.gs).
+ *              [v2.10.6] מיפוי_קודים: refreshCodeMapLearning (אייקון "[ רענן ]")
+ *              כותב לבלוק אירועים E-I בלבד — Raw_Value (H) + ריקים, בשורה הריקה
+ *              הבאה בתוך הבלוק. אינו נוגע בבלוקים אחרים.
  *              תלויות: S01 (checkSystemMorning) | S02 (checkUserAccess)
  *                      S03 (runEmailIngestion) | S04 (syncDriveFiles)
  *                      S05 (extractMetaData) | S06 (run_MedicalPilot_V2_6_2, nightlyConvertBatch)
@@ -47,6 +50,55 @@
  *              runExpandViewEvents | runS10ViewIconEvents | runS13ViewIconEvents
  *              runS14ViewIconEvents | setupMedicalEventsIcons
  *              refreshMedicalEventsRows | runRefreshRowsIconEvents
+ *              refreshMedicalStatusRows | _codeMap_buildLookup
+ *              refreshCodeMapLearning | runRefreshIconCodeMap
+ * @changes     [v2.10.6] Task #215 — refreshCodeMapLearning ו-runRefreshIconCodeMap
+ *              תוקנו למבנה 6 הבלוקים של מיפוי_קודים (task215a). לפני התיקון:
+ *              חיפוש "קוד_אירוע" בעמודה A (0 התאמות — אין עמודת Type) וכתיבה
+ *              ל-A-D מתחת ל-getLastRow() הכללי (שורה 108+) — שורות זבל בבלוק
+ *              איברים (הטקסט נכנס ל-Icon_Link), ובלוק אירועים E-I לא עודכן
+ *              כלל. לא נדרסו שורות קיימות. אחרי התיקון: קריאה מבלוק אירועים
+ *              E-I בלבד, Event_Type קיימים = Raw_Value (H); השורה האחרונה
+ *              מחושבת בתוך הבלוק בלבד (אותה שיטה כמו _s10_saveEventCodeToMap);
+ *              שורה חדשה = ["", "", "", <Event_Type>, ""] לעמודות E-I בלבד.
+ *              runRefreshIconCodeMap: הודעה נפרדת כשלא נוספו ערכים; נוסף
+ *              SpreadsheetApp.flush() לפני ההודעה (ui.alert חוסם — בלי flush
+ *              הערכים הופיעו רק אחרי "אישור"). עודכנו גם הערות הסעיף (Task
+ *              #206, מבנה ישן) וההערה ⚠️ מעל _codeMap_buildLookup. אומת מול
+ *              הקוד החי (diff מדויק, node --check) אחרי כל בלוק; בדיקה
+ *              פונקציונלית בגליון החי: ללא ערכים חדשים — 0 שינויים; ערך בדיקה
+ *              — נכתב ל-H46 בלבד. הערה: בבדיקה נמצא שהרשאת spreadsheets לא
+ *              הייתה מאושרת בחשבון — חודשה ידנית (auth_02_Sheets), לא שינוי קוד.
+ * @changes     [v2.10.5] Task #214 — _codeMap_buildLookup עודכנה: גליון
+ *              מיפוי_קודים עבר ל-6 בלוקי-עמודות קבועים (task215a, ראה
+ *              COLUMN_MAP.gs), והפונקציה עדיין הניחה את המבנה השטוח הישן
+ *              (Type|Key|Normalized_Value|Raw_Value). תוקן מקור הקריאה בגליון
+ *              בלבד — חתימת הפונקציה וצורת ה-Map המוחזרת נשארו זהות למה שהיה:
+ *              CODE_MAP_TYPE_BODY_SYSTEM קוראת כעת מבלוק איברים A-D (Organ_Code/
+ *              Normalized_Value), עם סינון חדש /^SYS\d{2}$/ שמסנן שורות תת-איבר
+ *              (SYS00A וכו', task215a) כדי לשמור על 15 האפשרויות המקוריות
+ *              ב-medicalSystemOptions (S10) ולהתאים ל-SHEETS_MAP (Medical_System:
+ *              SYS00-SYS14). CODE_MAP_TYPE_EVENT קוראת כעת מבלוק אירועים E-I
+ *              (Event_Code/Normalized_Value/Raw_Value/Icon_Link). הקוראים
+ *              (S10_Validate.gs, S16_ValidateMedicalStatus.gs, S10_Sidebar.html —
+ *              קוראים רק .code/.name) לא נדרשו לשינוי. ⚠️ בעקבות התיקון נמצא:
+ *              refreshCodeMapLearning ו-runRefreshIconCodeMap (מתחת לפונקציה זו,
+ *              לא נערכו) עדיין מניחות מבנה שטוח וכותבות ל-A-D — עכשיו בלוק
+ *              איברים, לא אירועים; לחיצה על אייקון "[ רענן ]" בייצור תדרוס נתונים
+ *              בטעות. מחוץ לתחום תיקון זה — תועד כמשימה נפרדת #215. אומת מול
+ *              הקוד החי (diff מדויק, node --check) פעמיים אחרי הדבקה.
+ * @changes     [v2.10.4] Task #214 — refreshMedicalStatusRows (יומן_מצב_רפואי)
+ *              שוכתבה במלואה, בעקבות מיגרציית המבנה ל-21 עמודות (task214a,
+ *              10/09/2026): (1) מיון תלת-רמתי עודכן ל-Specialty_Code (S=19)
+ *              → Medical_System (R=18) → Event_Date (A=1), על פני כל 21
+ *              העמודות (היה מיון דו-רמתי ישן שהתייחס למבנה הקודם). (2) חישוב
+ *              S_Row עודכן לעמודה ח (8), מול File_ID בעמודה ק (17) — היו
+ *              עמודות אחרות במבנה הישן. (3) הוסרה לוגיקת פענוח Body_System_
+ *              Normalized/ET_CODE/Event_Type_Normalized — שלושת השדות הוסרו
+ *              מהגליון במיגרציה; אין להם עוד תפקיד (ראו S13_ExtractMedical.gs).
+ *              מוחלפים בעתיד במנגנון תיוג הקודים (S16_ValidateMedicalStatus.gs,
+ *              מחוץ לתחום התיקון הזה). אומת מול הקוד החי (diff מדויק) ונבדק
+ *              בשטח בגליון הייצור (לחיצה על "[ רענן שורות ]") — עבר תקין.
  * @changes     [v2.10.3] Task #214c — יומן_מצב_רפואי (ייצור): MEDICAL_STATUS_
  *              ICON_MAP רוכזה לעמודות רצופות 1-4 (A-D), תואם לגליון הניסוי.
  *              עמודה 4 (אינפוגרפיקה) — script הוחלף מ-runInfographicIconMedical-
@@ -255,10 +307,12 @@ const MEDICAL_STATUS_ICON_MAP = [
 ];
 
 // ══════════════════════════════════════════════════════════════════
-// [הרחבה, Task #206] גליון מיפוי_קודים — טבלה אחודה: מערכות גוף (SYS00-
-// SYS14) + קודי אירוע (ET_CODE). עמודות: A=סוג | B=מפתח | C=ערך.
+// [הרחבה, Task #206 | עודכן Task #215] גליון מיפוי_קודים — 6 בלוקי-עמודות
+// קבועים זה לצד זה (task215a, ראה COLUMN_MAP.gs): איברים A-D, אירועים E-I,
+// התמחות J-N, חומרה O-S, אבחנה T-X, וודאות Y-AC.
 // אייקון "[ רענן ]" (runRefreshIconCodeMap) מאתר Event_Type חדשים
-// ביומן_מצב_רפואי ומוסיף שורות קוד_אירוע עם ערך ריק למילוי ידני.
+// ביומן_מצב_רפואי ומוסיף אותם לבלוק אירועים E-I בלבד (Raw_Value בעמודה H),
+// עם Event_Code/Normalized_Value ריקים למילוי ידני.
 // ══════════════════════════════════════════════════════════════════
 
 const CODE_MAP_SHEET_NAME       = "מיפוי_קודים";
@@ -1578,22 +1632,18 @@ function runSortLearningExamplesIcon() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// [חדש] Task #206 — refreshMedicalStatusRows — לוגיקת רענון שורות
-// ביומן_מצב_רפואי, בדומה ל-refreshMedicalEventsRows (Task #205):
-// (1) חישוב Body_System_Normalized (עמודה N=14) לפי Medical_System
-//     (J=10) דרך מיפוי דינמי מגליון מיפוי_קודים (CODE_MAP_TYPE_BODY_
-//     SYSTEM). [הרחבה, Task #206, סבב 3] עמודה C (Medical_System_Name)
-//     כבר לא נדרסת — נשארת גולמית, כתובה ע"י S13 בלבד.
-// (2) חישוב ET_CODE (עמודה K=11) ו-Event_Type_Normalized (עמודה O=15)
-//     לפי Event_Type (B=2) דרך מיפוי דינמי מגליון מיפוי_קודים
-//     (CODE_MAP_TYPE_EVENT); ברירת מחדל ל-ET_CODE אם לא נמצא:
-//     MEDICAL_STATUS_EVENT_TYPE_DEFAULT_CODE (Event_Type_Normalized
-//     נשאר ריק במקרה זה)
-// (3) מיון תלת-רמתי: Medical_System(J) → ET_CODE(K) → Event_Date(A) —
-//     טווח המיון כולל את כל 15 העמודות [הרחבה, Task #206, סבב 3]
-// (4) בניית Map חד-פעמי וטרי של ניהול_מיילים: File_ID(A) → מספר שורה
-// (5) לכל שורה — חישוב S_Row (עמודה I=9) לפי File_ID (עמודה L=12)
+// [עודכן] Task #214 — refreshMedicalStatusRows — לוגיקת רענון שורות
+// ביומן_מצב_רפואי, אחרי מיגרציית המבנה ל-21 עמודות (task214a, 10/09/2026):
+// (1) מיון תלת-רמתי: Specialty_Code (S=19) → Medical_System (R=18) →
+//     Event_Date (A=1) — טווח המיון כולל את כל 21 העמודות.
+// (2) בניית Map חד-פעמי וטרי של ניהול_מיילים: File_ID(A) → מספר שורה
+// (3) לכל שורה — חישוב S_Row (עמודה H=8) לפי File_ID (עמודה Q=17)
 // ללא cache — סריקה מלאה טרייה בכל הרצה.
+// [הוסר] פענוח Body_System_Normalized/ET_CODE/Event_Type_Normalized —
+// שלושת השדות הוסרו מהגליון במיגרציה (task214a); לפי ההערה המפורשת
+// ב-S13_ExtractMedical.gs הם "היו מחושבים, אין להם עוד תפקיד". הוחלפו
+// במנגנון תיוג הקודים החדש (Specialty/Severity/Diagnosis/Certainty),
+// שייבנה ב-S16_ValidateMedicalStatus.gs (מחוץ לתחום התיקון הזה).
 // ══════════════════════════════════════════════════════════════════
 
 function refreshMedicalStatusRows() {
@@ -1612,55 +1662,19 @@ function refreshMedicalStatusRows() {
     const firstDataRow = SHEET_CONFIG[MEDICAL_STATUS_SHEET_NAME].FIRST_DATA_ROW;
     const lastRow       = sheet.getLastRow();
     if (lastRow < firstDataRow) {
-      return { sorted: 0, updated: 0, notFound: 0, decoded: 0, etMapped: 0 };
+      return { sorted: 0, updated: 0, notFound: 0 };
     }
-    const numRows = lastRow - firstDataRow + 1;
+    const numRows  = lastRow - firstDataRow + 1;
+    const NUM_COLS = 21;
 
-    // (1)+(2) טעינת מיפויים דינמיים מגליון מיפוי_קודים, לפני המיון
-    const bodySystemMap = _codeMap_buildLookup(CODE_MAP_TYPE_BODY_SYSTEM);
-    const eventCodeMap  = _codeMap_buildLookup(CODE_MAP_TYPE_EVENT);
-
-    const rawData    = sheet.getRange(firstDataRow, 1, numRows, 15).getValues();
-    const normSysCol = [];
-    const etCol      = [];
-    const normEvtCol = [];
-    let decoded    = 0;
-    let etMapped   = 0;
-    rawData.forEach(function(row) {
-      const sysCode = (row[9] || "").toString().trim(); // J = Medical_System
-      const sysName = bodySystemMap[sysCode];
-      if (sysName) {
-        normSysCol.push([sysName]);
-        decoded++;
-      } else {
-        normSysCol.push([""]);
-      }
-
-      const eventType = (row[1] || "").toString().trim(); // B = Event_Type
-      const eventInfo  = eventCodeMap[eventType];
-      if (eventInfo) {
-        etCol.push([eventInfo.code]);
-        normEvtCol.push([eventInfo.name]);
-        etMapped++;
-      } else {
-        etCol.push([MEDICAL_STATUS_EVENT_TYPE_DEFAULT_CODE]);
-        normEvtCol.push([""]);
-      }
-    });
-    sheet.getRange(firstDataRow, 11, numRows, 1).setValues(etCol);       // K = ET_CODE
-    sheet.getRange(firstDataRow, 14, numRows, 1).setValues(normSysCol);  // N = Body_System_Normalized
-    sheet.getRange(firstDataRow, 15, numRows, 1).setValues(normEvtCol);  // O = Event_Type_Normalized
-
-    // (3) מיון תלת-רמתי: J (Medical_System) → K (ET_CODE) → A (Event_Date)
-    // [הרחבה, Task #206, סבב 3] טווח המיון הורחב ל-15 עמודות כדי לכלול
-    // גם את העמודות המנורמלות החדשות (14-15) בתוך המיון
-    sheet.getRange(firstDataRow, 1, numRows, 15).sort([
-      { column: 10, ascending: true },
-      { column: 11, ascending: true },
+    // (1) מיון תלת-רמתי: S (Specialty_Code) → R (Medical_System) → A (Event_Date)
+    sheet.getRange(firstDataRow, 1, numRows, NUM_COLS).sort([
+      { column: 19, ascending: true },
+      { column: 18, ascending: true },
       { column: 1,  ascending: true }
     ]);
 
-    // (4) Map טרי: File_ID (ניהול_מיילים, עמודה A) → מספר שורה
+    // (2) Map טרי: File_ID (ניהול_מיילים, עמודה A) → מספר שורה
     const emailFirstDataRow = SHEET_CONFIG[VIEW_SHEET_NAME].FIRST_DATA_ROW;
     const emailLastRow      = emailSheet.getLastRow();
     const fileIdToRow = {};
@@ -1672,14 +1686,14 @@ function refreshMedicalStatusRows() {
       });
     }
 
-    // (5) חישוב S_Row (עמודה I=9) מול File_ID (עמודה L=12) אחרי המיון
-    const data     = sheet.getRange(firstDataRow, 1, numRows, 15).getValues();
-    const newSCol  = [];
-    let updated    = 0;
-    let notFound   = 0;
+    // (3) חישוב S_Row (עמודה H=8) מול File_ID (עמודה Q=17) אחרי המיון
+    const data    = sheet.getRange(firstDataRow, 1, numRows, NUM_COLS).getValues();
+    const newSCol = [];
+    let updated   = 0;
+    let notFound  = 0;
 
     data.forEach(function(row) {
-      const fileId    = (row[11] || "").toString().trim(); // L = File_ID
+      const fileId    = (row[16] || "").toString().trim(); // Q = File_ID
       const sourceRow = fileIdToRow[fileId];
       if (sourceRow) {
         newSCol.push([sourceRow]);
@@ -1690,9 +1704,9 @@ function refreshMedicalStatusRows() {
       }
     });
 
-    sheet.getRange(firstDataRow, 9, numRows, 1).setValues(newSCol);
+    sheet.getRange(firstDataRow, 8, numRows, 1).setValues(newSCol);
 
-    return { sorted: numRows, updated: updated, notFound: notFound, decoded: decoded, etMapped: etMapped };
+    return { sorted: numRows, updated: updated, notFound: notFound };
 
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-refreshMedicalStatusRows: " + e.toString());
@@ -1701,15 +1715,16 @@ function refreshMedicalStatusRows() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// [הרחבה, Task #206, סבב 3] פונקציות עזר לגליון מיפוי_קודים (4 עמודות:
-// Type|Key|Normalized_Value|Raw_Value):
-// _codeMap_buildLookup — מפתח חיפוש תלוי-סוג: Key(B) למערכת_גוף (מחזיר
-// מחרוזת), Raw_Value(D) לקוד_אירוע (מחזיר {code,name} מתוך Key/
-// Normalized_Value).
-// refreshCodeMapLearning — "למידה": מאתרת Event_Type ביומן_מצב_רפואי
-// שעוד אין להם שורת קוד_אירוע בגליון (לפי Raw_Value), ומוסיפה שורות
-// חדשות (Key/Normalized_Value ריקים, Raw_Value=הטקסט הגולמי).
-// runRefreshIconCodeMap — עטיפת אייקון "[ רענן ]" לגליון מיפוי_קודים.
+// [תוקן, Task #214] _codeMap_buildLookup — גליון מיפוי_קודים כבר לא
+// שטוח (Type|Key|Normalized_Value|Raw_Value); הוא 6 בלוקי-עמודות
+// קבועים זה לצד זה (task215a, ראה COLUMN_MAP.gs): איברים A-D, אירועים
+// E-I, התמחות J-N, חומרה O-S, אבחנה T-X, וודאות Y-AC. הפונקציה הזו
+// משרתת שני "types" בלבד (כמו קודם): CODE_MAP_TYPE_BODY_SYSTEM קוראת
+// מבלוק איברים A-D, CODE_MAP_TYPE_EVENT קוראת מבלוק אירועים E-I.
+// חתימת הפונקציה וצורת ה-Map המוחזרת נשארו זהות למה שהיה (S10/S16
+// תלויים בכך) — רק מקור הקריאה בגליון תוקן.
+// refreshCodeMapLearning ו-runRefreshIconCodeMap (מתחת) תוקנו ב-Task #215
+// — קוראות וכותבות לבלוק אירועים E-I בלבד, לפי Raw_Value (H).
 // ══════════════════════════════════════════════════════════════════
 
 function _codeMap_buildLookup(type) {
@@ -1722,29 +1737,35 @@ function _codeMap_buildLookup(type) {
   const lastRow       = sheet.getLastRow();
   if (lastRow < firstDataRow) return map;
 
-  const data = sheet.getRange(firstDataRow, 1, lastRow - firstDataRow + 1, 4).getValues();
-  data.forEach(function(row) {
-    const rowType = (row[0] || "").toString().trim(); // A = Type
-    if (rowType !== type) return;
+  const numRows = lastRow - firstDataRow + 1;
 
-    if (type === CODE_MAP_TYPE_EVENT) {
-      // [הרחבה, Task #206, סבב 3] קוד_אירוע: מפתח החיפוש = Raw_Value (D),
-      // הערך המוחזר = קוד (Key, B) + שם מנורמל (Normalized_Value, C)
-      const rawKey = (row[3] || "").toString().trim(); // D = Raw_Value
-      const code   = (row[1] || "").toString().trim(); // B = Key
-      const name   = (row[2] || "").toString().trim(); // C = Normalized_Value
+  if (type === CODE_MAP_TYPE_EVENT) {
+    // בלוק אירועים (E-I): Event_Code | Normalized_Value | Description | Raw_Value | Icon_Link.
+    // מפתח החיפוש = Raw_Value (H), הערך המוחזר = {code: Event_Code(E), name: Normalized_Value(F)} — כפי שהיה.
+    const data = sheet.getRange(firstDataRow, 5, numRows, 5).getValues();
+    data.forEach(function(row) {
+      const code   = (row[0] || "").toString().trim(); // E = Event_Code
+      const name   = (row[1] || "").toString().trim(); // F = Normalized_Value
+      const rawKey = (row[3] || "").toString().trim(); // H = Raw_Value
       if (rawKey && code) {
         map[rawKey] = { code: code, name: name };
       }
-    } else {
-      // מערכת_גוף: מפתח החיפוש = Key (B), ערך = Normalized_Value (C) — כפי שהיה
-      const key   = (row[1] || "").toString().trim(); // B = Key
-      const value = (row[2] || "").toString().trim(); // C = Normalized_Value
-      if (key && value) {
+    });
+  } else {
+    // בלוק איברים (A-D): Organ_Code | Normalized_Value | Raw_Value | Icon_Link.
+    // מפתח החיפוש = Organ_Code (A), הערך המוחזר = Normalized_Value (B) — כפי שהיה.
+    // מסנן רק שורות ברמת המערכת (SYS00-SYS14, בלי אות סיפא) — שורות תת-האיבר
+    // (SYS00A, SYS00B...) שנוספו ב-task215a לא נכללות, כדי לשמור על 15 האפשרויות
+    // המקוריות ב-medicalSystemOptions (S10) ולהתאים ל-SHEETS_MAP (Medical_System: SYS00-SYS14).
+    const data = sheet.getRange(firstDataRow, 1, numRows, 4).getValues();
+    data.forEach(function(row) {
+      const key   = (row[0] || "").toString().trim(); // A = Organ_Code
+      const value = (row[1] || "").toString().trim(); // B = Normalized_Value
+      if (key && value && /^SYS\d{2}$/.test(key)) {
         map[key] = value;
       }
-    }
-  });
+    });
+  }
   return map;
 }
 
@@ -1773,31 +1794,38 @@ function refreshCodeMapLearning() {
       });
     }
 
-    // [הרחבה, Task #206, סבב 3] Event_Type גולמיים שכבר קיימים בגליון
-    // מיפוי_קודים (סוג=CODE_MAP_TYPE_EVENT) — נבדק כעת מול עמודה D
-    // (Raw_Value), לא B — ראה שינוי מבנה העמודות ב-COLUMN_MAP.gs
+    // [תוקן, Task #215] גליון מיפוי_קודים הוא 6 בלוקי-עמודות קבועים
+    // (task215a, ראה COLUMN_MAP.gs) — אין יותר עמודת "Type". קריאה מבלוק
+    // אירועים בלבד (E-I): Event_Code | Normalized_Value | Description |
+    // Raw_Value | Icon_Link. Event_Type גולמיים קיימים = Raw_Value (H).
+    // השורה האחרונה עם תוכן מחושבת בתוך בלוק האירועים עצמו בלבד — לא
+    // getLastRow() הכללי, כי בלוקים אחרים (למשל איברים A-D) ארוכים יותר
+    // (אותה שיטה כמו _s10_saveEventCodeToMap ב-S10_Validate.gs).
     const codeFirstRow = (SHEET_CONFIG[CODE_MAP_SHEET_NAME] && SHEET_CONFIG[CODE_MAP_SHEET_NAME].FIRST_DATA_ROW) || 5;
     const codeLastRow  = codeSheet.getLastRow();
     const existing = {};
+    let lastEventRow = codeFirstRow - 1; // עדיין אין שורות בבלוק אירועים
     if (codeLastRow >= codeFirstRow) {
-      const rows = codeSheet.getRange(codeFirstRow, 1, codeLastRow - codeFirstRow + 1, 4).getValues();
-      rows.forEach(function(r) {
-        if ((r[0] || "").toString().trim() === CODE_MAP_TYPE_EVENT) {
-          existing[(r[3] || "").toString().trim()] = true;
-        }
+      const rows = codeSheet.getRange(codeFirstRow, 5, codeLastRow - codeFirstRow + 1, 5).getValues();
+      rows.forEach(function(r, i) {
+        const rowCode = (r[0] || "").toString().trim(); // E = Event_Code
+        const rowRaw  = (r[3] || "").toString().trim(); // H = Raw_Value
+        const hasAny  = rowCode || rowRaw || (r[1] || "") || (r[2] || "") || (r[4] || "");
+        if (hasAny) lastEventRow = codeFirstRow + i;
+        if (rowRaw) existing[rowRaw] = true;
       });
     }
 
-    // הוספת שורות חדשות לערכים שלא קיימים עדיין — Key/Normalized_Value
-    // נכתבים ריקים למילוי ידני; Raw_Value (D) מקבל את הטקסט הגולמי
+    // הוספת שורות חדשות לערכים שלא קיימים עדיין — Event_Code/Normalized_Value/
+    // Description/Icon_Link נכתבים ריקים למילוי ידני; Raw_Value (H) מקבל את
+    // הטקסט הגולמי. כתיבה לעמודות E-I בלבד — לא נוגעת בבלוקים אחרים באותה שורה.
     const toAdd = [];
     Object.keys(seen).forEach(function(t) {
-      if (!existing[t]) toAdd.push([CODE_MAP_TYPE_EVENT, "", "", t]);
+      if (!existing[t]) toAdd.push(["", "", "", t, ""]);
     });
 
     if (toAdd.length > 0) {
-      const nextRow = Math.max(codeLastRow + 1, codeFirstRow);
-      codeSheet.getRange(nextRow, 1, toAdd.length, 4).setValues(toAdd);
+      codeSheet.getRange(lastEventRow + 1, 5, toAdd.length, 5).setValues(toAdd);
     }
 
     return { added: toAdd.length };
@@ -1819,10 +1847,15 @@ function runRefreshIconCodeMap() {
     }
     if (typeof refreshCodeMapLearning === "function") {
       const result = refreshCodeMapLearning();
+      // [Task #215] כתיבה מיידית לגליון לפני הצגת ההודעה — ui.alert חוסם את
+      // הריצה, וללא flush הערכים החדשים מופיעים רק אחרי לחיצה על "אישור".
+      SpreadsheetApp.flush();
       if (result.error) {
         ui.alert("שגיאה", result.error, ui.ButtonSet.OK);
+      } else if (result.added > 0) {
+        ui.alert("✅ רענון הושלם", "נוספו " + result.added + " ערכי Event_Type חדשים לבלוק אירועים (E-I).\nיש למלא Event_Code ו-Normalized_Value ידנית.", ui.ButtonSet.OK);
       } else {
-        ui.alert("✅ רענון הושלם", "נוספו " + result.added + " ערכי Event_Type חדשים לטבלה.", ui.ButtonSet.OK);
+        ui.alert("✅ רענון הושלם", "לא נמצאו ערכי Event_Type חדשים — כל הערכים ביומן_מצב_רפואי כבר קיימים בבלוק אירועים (E-I).", ui.ButtonSet.OK);
       }
     } else {
       ui.alert("שגיאה", "הפונקציה refreshCodeMapLearning לא נמצאה.", ui.ButtonSet.OK);
