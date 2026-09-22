@@ -1,17 +1,18 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.11.1 | @updated 30/08/2026 21:05 | @service COLUMN_MAP
+ * @version 2.11.0 | @updated 18/09/2026 16:36 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
- *          מיפוי_קודים (4 עמודות — גליון למידה לניהול קודי מערכת_גוף/קוד_אירוע, בסיס
- *          הנתונים הדינמי ל-יומן_מצב_רפואי ולאינפוגרפיקה שלו, בדומה בתפקידו ל-
- *          דוגמאות_למידה_S10; כותרות אנגליות בפועל בגליון מ-[v2.11.1], Task #208:
- *          Type|Key|Normalized_Value|Raw_Value),
  *          יומן_אירועים_רפואי (12 עמודות — [v2.10.0] עודכן מ-11, Task #205:
  *          נוספה S_Row בעמודה 7 [writers: VIEWENGINE], File_ID הוזז לעמודה 12).
- *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (15 עמודות — [v2.11.0]
- *          עודכן מ-11, Task #206: ראה @changes), בדיקות_דם (10),
+ *          [v2.11.0] יומן_מצב_רפואי מתועד עכשיו כ-21 עמודות (היה 15 — כלל 3
+ *          שדות שהוסרו בפועל: ET_CODE/Body_System_Normalized/Event_Type_
+ *          Normalized). מיפוי_קודים מתועד עכשיו כ-29 עמודות, 6 בלוקים
+ *          (איברים A-D/אירועים E-I/התמחות J-N/חומרה O-S/אבחנה T-X/וודאות
+ *          Y-AC), במקום 4 עמודות שטוחות Type|Key. תיעוד בלבד — עדכון
+ *          בדיעבד למבנה שכבר קיים בייצור מ-10/09/2026 (task214a/task215a).
+ *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (11), בדיקות_דם (10),
  *          בדיקות_גנטיות (8), הנחיות_רפואיות_ומשימות (8) — 5 גליונות יעד של S09,
  *          נוספו ל-SHEET_CONFIG/SHEETS_MAP עם כותרות באנגלית, יושרו בפועל
  *          לתקן 4-השורות המוגן (Task 183/184).
@@ -37,25 +38,23 @@
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol, _medDate_normalizeDate
- * @changes [v2.11.1] Task #208 — עדכון שורת כותרת (row 4) בגליון מיפוי_קודים בפועל
- *          מעברית לאנגלית (הייתה נשארת עברית מאז יצירת הגליון ב-Task #206, למרות
- *          ש-SHEETS_MAP כבר הוגדר באנגלית מסבב 3) — פונקציה חד-פעמית
- *          task208_renameCodeMapHeadersToEnglishNoUI (QA_Tests.gs), הרצה ואימות
- *          מול הגליון החי הצליחו. עיצוב (#1A3A5C/טקסט לבן), הקפאת 4 שורות
- *          והאייקון "[ רענן ]" לא נדרשו שינוי — נמצאו תקינים מראש. תיעוד: מיפוי_קודים
- *          מוגדר כעת רשמית כ"גליון למידה" (ראה @impacts) — בסיס נתונים דינמי
- *          (במקום קבועים קשיחים בקוד) הנקרא ע"י refreshMedicalStatusRows/
- *          _codeMap_buildLookup (ViewEngine.gs) עבור יומן_מצב_רפואי ואינפוגרפיקתו.
- * @changes [v2.11.0] Task #206 (סבבים 1-3) — תשתית מיפוי קודים למצב רפואי:
- *          הוספת SHEET_CONFIG/SHEETS_MAP["מיפוי_קודים"] (4 עמודות: Type|Key|
- *          Normalized_Value|Raw_Value) — טבלה אחודה למערכות גוף (SYS00-SYS14)
- *          וקודי אירוע, נטענת דינמית ב-ViewEngine.gs (_codeMap_buildLookup),
- *          מחליפה קבועים קשיחים שהוסרו (MEDICAL_STATUS_BODY_SYSTEMS/
- *          MEDICAL_STATUS_EVENT_TYPE_CODES). SHEETS_MAP["יומן_מצב_רפואי"]
- *          הורחב מ-11 ל-15 עמודות: S_Row (9, הוזז), ET_CODE (11), File_ID/
- *          Source_URL הוזזו (12-13), Body_System_Normalized/Event_Type_
- *          Normalized נוספו בסוף (14-15). Medical_System_Name (עמודה 3)
- *          חזרה להיות גולמית (writer S13) — לא נדרסת יותר ע"י VIEWENGINE.
+ * @changes [v2.11.0] Task #214 (המשך) — עדכון SHEETS_MAP["יומן_מצב_רפואי"]
+ *          ו-SHEETS_MAP["מיפוי_קודים"] (תיעוד בלבד, אין שינוי לוגי). התיעוד
+ *          היה שקרי כמעט שבוע — תיאר מבנה ישן (15 עמודות / 4 עמודות שטוחות
+ *          Type|Key) בזמן שהייצור עבר מיגרציה חד-פעמית (task214a/task215a,
+ *          10/09/2026) למבנה החדש. מקור האמת לכל שדה: _s13_buildRowValues
+ *          (S13_ExtractMedical.gs) + אינדקסי refreshMedicalStatusRows
+ *          (ViewEngine.gs) עבור יומן_מצב_רפואי; task215a_migrateCodeMap
+ *          SheetToProduction (QA_Tests.gs) עבור מיפוי_קודים — נקרא ישירות
+ *          מהקוד שבנה את הגליון בפועל, לא הונח. אומת מול הקוד החי (diff
+ *          מדויק אחרי הדבקה) וגם מול צילומי-מסך של עמוס מהגליון החי בייצור
+ *          (S_Row=6/68 תואם בדיוק לחפיפת 10/09 — מאשר שזה הגליון האמיתי).
+ *          ממצא צד שהתגלה באימות: onEdit (_labJournal_autoFillClassification
+ *          Code, QA_Tests.gs) עדיין בדוק לגליון הניסוי בלבד ("ניסוי_ יומן_
+ *          מצב_רפואי"/"ניסוי_מיפוי_קודים") — לא פעיל על הייצור, בניגוד
+ *          לכתוב בחפיפת 10/09 שהוא "הורחב לפעול על שני היומנים". תועד
+ *          בהערות השדות (Specialty_Code/Severity_Code/Diagnosis_Code) —
+ *          לא תוקן, מחוץ לתחום המשימה הזו (ממתין לבניית S16 מחדש).
  * @changes [v2.10.0] Task #205 — SHEETS_MAP["יומן_אירועים_רפואי"]: נוספה עמודה
  *          7 = S_Row (zone: טכני, writers:["VIEWENGINE"], readers:[]) — מספר
  *          שורת המקור בניהול_מיילים, מחושב ומתעדכן ע"י כפתור "רענן שורות"
@@ -334,22 +333,28 @@ const SHEETS_MAP = {
   ],
 
     // [Task 184] גליון יעד — מצב רפואי (medical_status) שחולץ ע"י S09 (כותרות אנגלית)
-      "יומן_מצב_רפואי": [
-    { col: 1,  name: "Event_Date",             zone: "אירוע", writers: ["S13"],        readers: [], values: "תאריך DD/MM/YYYY", notes: "מהמסמך או תאריך המסמך כברירת מחדל" },
-    { col: 2,  name: "Event_Type",             zone: "אירוע", writers: ["S13"],        readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 3,  name: "Medical_System_Name",    zone: "אירוע", writers: ["S13"],        readers: [], values: "טקסט חופשי",       notes: "[Task #206, סבב 3] גולמי — מחליף את Issuer שהיה כאן. הקוד מפסיק לדרוס אותה (בדומה ל-Event_Type); הגרסה המנורמלת עברה לעמודה 14 (Body_System_Normalized)" },
-    { col: 4,  name: "Primary_Diagnosis",      zone: "תוכן",  writers: ["S13"],        readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 5,  name: "Severity_Status",        zone: "תוכן",  writers: ["S13"],        readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 6,  name: "Recommendations",        zone: "תוכן",  writers: ["S13"],        readers: [], values: "טקסט חופשי — ארוך", notes: "מקור MAX_TOKENS ב-Task 180" },
-    { col: 7,  name: "Record_Status",          zone: "טכני",  writers: ["S13"],        readers: [], values: "חדש",               notes: "" },
-    { col: 8,  name: "Doc_Issuer",             zone: "טכני",  writers: ["S13"],        readers: [], values: "טקסט חופשי",        notes: "docIssuer" },
-    { col: 9,  name: "S_Row",                  zone: "טכני",  writers: ["VIEWENGINE"], readers: [], values: "מספר שורה",        notes: "[Task #206] שורת מקור ב-ניהול_מיילים לפי File_ID (עמ' 12) — אותו מנגנון בדיוק כמו S_Row ביומן_אירועים_רפואי (Task #205)" },
-    { col: 10, name: "Medical_System",         zone: "טכני",  writers: ["S13"],        readers: [], values: "SYS00-SYS14",      notes: "[Task #206] הועבר לכאן מעמודה 3. [Task #188] דינמי — Gemini קובע לפי תוכן השורה" },
-    { col: 11, name: "ET_CODE",                zone: "טכני",  writers: ["VIEWENGINE"], readers: [], values: "קוד אירוע (למשל A00)", notes: "[הרחבה, Task #206] קוד אירוע מפוענח מ-Event_Type (עמ' 2) דרך מיפוי דינמי מגליון מיפוי_קודים (CODE_MAP_TYPE_EVENT, ViewEngine.gs); ברירת מחדל A00 (בדיקה) לערך לא ממופה. מחושב בכפתור 'רענן שורות' (refreshMedicalStatusRows)" },
-    { col: 12, name: "File_ID",                zone: "טכני",  writers: ["S13"],        readers: [], values: "Drive ID",          notes: "[הרחבה, Task #206] הוזז לעמודה 12 (היה 11) עם הוספת ET_CODE" },
-    { col: 13, name: "Source_URL",             zone: "טכני",  writers: ["S13"],        readers: [], values: "https://drive.google.com/...", notes: "[הרחבה, Task #206] הוזז לעמודה 13 (היה 12) עם הוספת ET_CODE" },
-    { col: 14, name: "Body_System_Normalized", zone: "טכני",  writers: ["VIEWENGINE"], readers: [], values: "טקסט חופשי — פענוח SYS", notes: "[הרחבה, Task #206, סבב 3] שם מערכת גוף מנורמל להצגה — מחושב בכפתור 'רענן שורות' מתוך Medical_System (עמ' 10) דרך מיפוי דינמי מגליון מיפוי_קודים (CODE_MAP_TYPE_BODY_SYSTEM)" },
-    { col: 15, name: "Event_Type_Normalized",  zone: "טכני",  writers: ["VIEWENGINE"], readers: [], values: "טקסט חופשי",       notes: "[הרחבה, Task #206, סבב 3] שם מנורמל של האירוע להצגה — מחושב בכפתור 'רענן שורות' מתוך Event_Type (עמ' 2) דרך מיפוי דינמי מגליון מיפוי_קודים (CODE_MAP_TYPE_EVENT); ריק אם אין התאמה" }
+         "יומן_מצב_רפואי": [
+    { col: 1,  name: "Event_Date",           zone: "אירוע", writers: ["S13"],       readers: [], values: "תאריך DD/MM/YYYY", notes: "מהמסמך או תאריך המסמך כברירת מחדל" },
+    { col: 2,  name: "Event_Type",           zone: "אירוע", writers: ["S13"],       readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 3,  name: "Primary_Diagnosis",    zone: "תוכן",  writers: ["S13"],       readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 4,  name: "Severity_Status",      zone: "תוכן",  writers: ["S13"],       readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 5,  name: "Recommendations",      zone: "תוכן",  writers: ["S13"],       readers: [], values: "טקסט חופשי — ארוך", notes: "מקור MAX_TOKENS ב-Task 180" },
+    { col: 6,  name: "Doc_Issuer",           zone: "טכני",  writers: ["S13"],       readers: [], values: "טקסט חופשי",       notes: "docIssuer" },
+    { col: 7,  name: "Record_Status",        zone: "טכני",  writers: ["S13","S16"], readers: [], values: "חדש|מאומת",        notes: "\"חדש\" בכתיבת S13; \"מאומת\" בעדכון S16 בעת אישור" },
+    { col: 8,  name: "S_Row",                zone: "טכני",  writers: ["VIEWENGINE"],readers: [], values: "מספר שורה",         notes: "[Task #206/#214] שורת מקור ב-ניהול_מיילים לפי File_ID (עמ' 17) — מחושב ע\"י refreshMedicalStatusRows" },
+    { col: 9,  name: "Specialty_Name",       zone: "אירוע", writers: ["עמוס"],      readers: [], values: "רשימת בחירה — מיפוי_קודים בלוק התמחות", notes: "[Task #214/#216] Data Validation; אמורה למלא אוטומטית את Specialty_Code (עמ' 19) — ⚠️ בפועל onEdit לא פעיל בייצור, ראה דוח" },
+    { col: 10, name: "Medical_System_Name",  zone: "אירוע", writers: ["S13"],       readers: [], values: "טקסט חופשי",       notes: "[Task #206] גולמי — הקוד מפסיק לדרוס אותה (בדומה ל-Event_Type)" },
+    { col: 11, name: "Event_Code",           zone: "טכני",  writers: [],            readers: [], values: "קוד אירוע (למשל A0A)", notes: "[Task #214] ריק בפועל — אין מנגנון מילוי היום; מתוכנן ב-S16 (מיפוי_קודים בלוק אירועים E-I)" },
+    { col: 12, name: "Event_Description",    zone: "אירוע", writers: [],            readers: [], values: "טקסט חופשי",       notes: "[Task #214] ריק בפועל — אותו סטטוס כמו Event_Code" },
+    { col: 13, name: "Severity_Name",        zone: "תוכן",  writers: ["עמוס"],      readers: [], values: "רשימת בחירה — מיפוי_קודים בלוק חומרה", notes: "[Task #214/#216] Data Validation; ⚠️ אותה בעיית onEdit כמו Specialty_Name" },
+    { col: 14, name: "Diagnosis_Name",       zone: "תוכן",  writers: ["עמוס"],      readers: [], values: "רשימת בחירה — מיפוי_קודים בלוק אבחנה", notes: "[Task #214/#216] Data Validation; ⚠️ אותה בעיית onEdit" },
+    { col: 15, name: "Diagnosis_Certainty",  zone: "תוכן",  writers: ["עמוס"],      readers: [], values: "רשימת בחירה — מיפוי_קודים בלוק וודאות", notes: "[Task #214] עמודת קוד ישירה, בלי עמודת שם/פענוח נפרדת (יותר מדי מעט ערכים כדי להצדיק זוג)" },
+    { col: 16, name: "Source_URL",           zone: "טכני",  writers: ["S13"],       readers: [], values: "https://drive.google.com/...", notes: "" },
+    { col: 17, name: "File_ID",              zone: "טכני",  writers: ["S13"],       readers: [], values: "Drive ID",          notes: "" },
+    { col: 18, name: "Medical_System",       zone: "טכני",  writers: ["S13","S16"], readers: [], values: "SYS00-SYS14",       notes: "[Task #188] דינמי — Gemini קובע לפי תוכן השורה" },
+    { col: 19, name: "Specialty_Code",       zone: "טכני",  writers: [],            readers: [], values: "SPEC00-SPEC18",      notes: "[Task #214] ⚠️ מיועד להתמלא ע\"י onEdit — לא פעיל בייצור כרגע (ראה דוח)" },
+    { col: 20, name: "Severity_Code",        zone: "טכני",  writers: [],            readers: [], values: "SEV0-SEV4",          notes: "[Task #214] ⚠️ אותו ממצא" },
+    { col: 21, name: "Diagnosis_Code",       zone: "טכני",  writers: [],            readers: [], values: "DX00-DX13",          notes: "[Task #214] ⚠️ אותו ממצא" }
   ],
   // [Task 184] גליון יעד — בדיקות דם שחולצו ע"י S09 (כותרות אנגלית)
   "בדיקות_דם": [
@@ -464,11 +469,47 @@ const SHEETS_MAP = {
   // (SYS00-SYS14) + קודי אירוע (ET_CODE). נטען דינמית ע"י _codeMap_buildLookup
   // (ViewEngine.gs). מפתח החיפוש תלוי-סוג: Key עבור מערכת_גוף, Raw_Value
   // עבור קוד_אירוע.
-  "מיפוי_קודים": [
-    { col: 1, name: "Type",              zone: "מיפוי", writers: ["VIEWENGINE","עמוס"], readers: [], values: "מערכת_גוף|קוד_אירוע", notes: "[הרחבה, Task #206] קטגוריית השורה — קובעת לאיזה מיפוי היא שייכת" },
-    { col: 2, name: "Key",               zone: "מיפוי", writers: ["VIEWENGINE","עמוס"], readers: [], values: "SYS00-SYS14 / קוד אירוע (למשל A00)", notes: "[הרחבה, Task #206] עבור מערכת_גוף — קוד SYS, זהו מפתח החיפוש. עבור קוד_אירוע — קוד האירוע עצמו (התוצאה, לא מפתח החיפוש — ראה Raw_Value)" },
-    { col: 3, name: "Normalized_Value",  zone: "מיפוי", writers: ["עמוס"],              readers: [], values: "טקסט חופשי",       notes: "[הרחבה, Task #206] התוצאה הממופה להצגה — שם מערכת גוף (מערכת_גוף) או שם מנורמל של האירוע (קוד_אירוע). ריק = טרם מולא" },
-    { col: 4, name: "Raw_Value",         zone: "מיפוי", writers: ["VIEWENGINE","עמוס"], readers: [], values: "טקסט חופשי",       notes: "[הרחבה, Task #206, סבב 3] בשימוש רק עבור קוד_אירוע — הטקסט הגולמי כפי שמופיע ב-Event_Type; זהו מפתח החיפוש בפועל לסוג זה. לא בשימוש עבור מערכת_גוף" }
+    "מיפוי_קודים": [
+    // בלוק איברים (A-D) — קטלוג מערכות/איברי גוף. אינו נקרא בקוד כרגע.
+    { col: 1, name: "Organ_Code",       zone: "מיפוי", writers: ["עמוס"], readers: [], values: "SYS00-SYS14 / תת-איבר (למשל SYS00A)", notes: "[Task #215a] בלוק איברים A-D. לא נקרא בקוד כרגע — קטלוג לשימוש עתידי" },
+    { col: 2, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי — שם מערכת/איבר", notes: "" },
+    { col: 3, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",       notes: "לא בשימוש בפועל ברוב השורות" },
+    { col: 4, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL",               notes: "מאוכלס רק לחלק מהשורות" },
+
+    // בלוק אירועים (E-I) — 5 קטגוריות (A0-A4) + קוד עצמאי A5.
+    { col: 5, name: "Event_Code",       zone: "מיפוי", writers: ["עמוס"], readers: [], values: "A0-A4 (קטגוריה) / A0A וכו' (תת-קוד) / A5", notes: "[Task #215a] בלוק אירועים E-I. _s10_saveEventCodeToMap (S10_Validate.gs) מיועדת לכתוב לכאן — כרגע כותבת בטעות ל-A-D (ראה משימה #214)" },
+    { col: 6, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 7, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",       notes: "" },
+    { col: 8, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",       notes: "מפתח חיפוש לשורות תת-קוד; ריק בשורות הקטגוריה (A0-A4)" },
+    { col: 9, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL",               notes: "" },
+
+    // בלוק התמחות (J-N).
+    { col: 10, name: "Specialty_Code",   zone: "מיפוי", writers: ["עמוס"], readers: [], values: "SPEC00-SPEC18", notes: "[Task #215a] בלוק התמחות J-N. onEdit (_labJournal_autoFillClassificationCode, QA_Tests.gs) קורא מכאן — פעיל רק בגליון הניסוי (ראה ממצא בדוח)" },
+    { col: 11, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",     notes: "" },
+    { col: 12, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",     notes: "" },
+    { col: 13, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",     notes: "" },
+    { col: 14, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL",             notes: "" },
+
+    // בלוק חומרה (O-S).
+    { col: 15, name: "Severity_Code",    zone: "מיפוי", writers: ["עמוס"], readers: [], values: "SEV0-SEV4", notes: "[Task #215a] בלוק חומרה O-S. אותה הערת onEdit כמו התמחות" },
+    { col: 16, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 17, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 18, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 19, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL",         notes: "" },
+
+    // בלוק אבחנה (T-X).
+    { col: 20, name: "Diagnosis_Code",   zone: "מיפוי", writers: ["עמוס"], readers: [], values: "DX00-DX13", notes: "[Task #215a] בלוק אבחנה T-X. אותה הערת onEdit" },
+    { col: 21, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 22, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 23, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 24, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL",         notes: "" },
+
+    // בלוק וודאות אבחנה (Y-AC) — אין עמודת קוד נפרדת ביומן (ראה Diagnosis_Certainty).
+    { col: 25, name: "Certainty_Code",   zone: "מיפוי", writers: ["עמוס"], readers: [], values: "CRT0-CRT3", notes: "[Task #215a] בלוק וודאות Y-AC. משמש כמקור לרשימת הבחירה ב-Diagnosis_Certainty; אין מנגנון onEdit לבלוק הזה" },
+    { col: 26, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 27, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 28, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 29, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL",         notes: "" }
   ]
 
 };
