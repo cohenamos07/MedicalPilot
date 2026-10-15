@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S16_ValidateMedicalStatus.gs
- * @version     2.0.0 | @updated 18/09/2026 17:45 | @service S16
+ * @version     2.3.0 | @updated 15/10/2026 22:12 | @service S16
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_ValidateMedicalStatus.gs
  * @description שער אימות אנושי לכל קודי הסיווג בגליון יומן_מצב_רפואי (21
  *              עמודות, task214a): קוד מערכת גוף (Medical_System) — select
@@ -13,6 +13,13 @@
  *              שהתבססה על מבנה 15 העמודות שהוסר (task214a, 10/09/2026) —
  *              קבועי S16_COL_* הישנים (ET_CODE/Event_Type_Normalized)
  *              כבר לא קיימים בגליון. ארכיטקטורה סוכמה עם עמוס ב-15/09/2026.
+ *              [v2.1.0] קוד איבר (Organ_Code, עמודה 22) — select סגור של
+ *              תת-קודי איבר מבלוק A-D במיפוי_קודים (למשל SYS12A ערמונית),
+ *              מסונן בחלון לפי המערכת שנבחרה; ריק = ללא איבר.
+ *              [v2.2.0] הצעה אוטומטית לכל השדות לפי מילות מפתח מהקטלוג
+ *              (Raw_Value) בטקסט הגולמי של השורה, ועדכון המלצה מהחלון.
+ *              [v2.3.0] וודאות אבחנה — "+ קוד חדש" מהחלון (בלוק Y-AC), ושם
+ *              המערכת (עמודה 10) מתעדכן באישור לפי הקוד שנבחר.
  * @impacts     יומן_מצב_רפואי: קורא שורה בודדת (21 עמודות), כותב
  *              Medical_System(18), Event_Code(11)+Event_Description(12),
  *              Specialty_Name(9)+Specialty_Code(19),
@@ -21,10 +28,19 @@
  *              Diagnosis_Certainty(15), Record_Status(7) — ברמת השורה
  *              הפעילה בלבד. Event_Type(2)/Doc_Issuer(6) נקראים בלבד —
  *              לעולם לא נכתבים (טקסט גולמי מ-S13/Gemini).
+ *              [v2.1.0] קורא עד עמודה 22 (או פחות אם אינה קיימת בגליון)
+ *              וכותב Organ_Code(22) באישור — רק אם העמודה קיימת.
+ *              [v2.2.0] כותב Recommendations(5) באישור — רק אם נשלח ערך
+ *              (לא null) והוא שונה מהקיים בתא.
  *              מיפוי_קודים: קורא (4 בלוקים פתוחים: E-I/J-N/O-S/T-X, בלוק
- *              Y-AC לקריאה בלבד), כותב/מעדכן שורות קוד בבלוקים הפתוחים דרך
+ *              Y-AC לקריאה בלבד, [v2.1.0] בלוק A-D לקריאה בלבד), כותב/מעדכן שורות קוד בבלוקים הפתוחים דרך
  *              s16_saveCatalogCode (כפתור נפרד לכל שדה, ללא קשר לאישור
  *              השורה).
+ *              [v2.3.0] כותב Medical_System_Name(10) באישור (שם מ-S13_BODY_
+ *              SYSTEMS לפי הקוד שנבחר). מיפוי_קודים: s16_saveCatalogCode
+ *              כותב גם לבלוק הוודאות Y-AC (key="certainty", ללא Raw_Value).
+ *              נקרא גם ע"י S13_ExtractMedical.gs (_s16_readCatalogBlock,
+ *              S16_CODE_FIELDS, S16_CERTAINTY/ORGAN_MAP_FIRST_COL — v1.4.0).
  *              תלויות: S16_Sidebar.html, COLUMN_MAP.gs (SHEET_CONFIG),
  *              ViewEngine.gs (MEDICAL_STATUS_SHEET_NAME, CODE_MAP_SHEET_NAME),
  *              S13_ExtractMedical.gs (S13_BODY_SYSTEMS).
@@ -33,7 +49,50 @@
  * @functions   showS16Sidebar | _s16_buildPayload | _s16_buildFieldPayload |
  *              _s16_readCatalogBlock | _s16_formatDate | s16_loadRowData |
  *              s16_loadRowByNumber | s16_approve | s16_saveCatalogCode |
- *              _s16_saveCatalogCode | _s16_getCurrentPayload
+ *              _s16_saveCatalogCode | _s16_getCurrentPayload |
+ *              _s16_keywordMatches | _s16_findKeywordSuggestion
+ * @changes     [v2.3.0] Task #220 שלב ב — נוסף S16_COL_MEDICAL_SYSTEM_NAME=10;
+ *              s16_approve כותב לעמודה 10 את שם המערכת (S13_BODY_SYSTEMS)
+ *              לפי הקוד שנבחר — במקום הטקסט החופשי מ-S09 (למשל "אורולוגיה"
+ *              בשורה 7). s16_saveCatalogCode — fieldKey="certainty" ממופה
+ *              לבלוק הוודאות (S16_CERTAINTY_MAP_FIRST_COL, Y-AC) — מאפשר
+ *              "+ קוד חדש" לוודאות מהחלון; Raw_Value נשמר ריק (אין עמודה
+ *              גולמית בשורה). הרכיבים S16_CODE_FIELDS/_s16_readCatalogBlock
+ *              משמשים גם את S13 v1.4.0 (קודי קטלוג מ-Gemini). אומת מול
+ *              הקוד החי (diff מדויק, node --check) ובבדיקת שטח: שורות 9
+ *              (מאירועים 130 — נמחקה, ו-137) — עמודה 10 נכונה באישור;
+ *              CRT9 ניסיוני נכתב ל-Y9:Z9 ונמחק.
+ * @changes     [v2.2.0] Task #220 שלב א' — הצעת סיווג אוטומטית לפי מילות
+ *              מפתח. חדש: _s16_keywordMatches (מילה שלמה, עד 2 אותיות שימוש
+ *              ו/ה/ב/כ/ל/מ/ש לפניה — "ערמונית" ב"הערמונית", "קל" לא ב"קליני")
+ *              ו-_s16_findKeywordSuggestion (מילת המפתח הארוכה גוברת; תיקו —
+ *              הראשון בקטלוג). S16_CODE_FIELDS קיבל suggestCols: התמחות ←
+ *              Doc_Issuer+Event_Type, חומרה ← Severity_Status+Primary_Diagnosis,
+ *              אבחנה ← Primary_Diagnosis+Event_Type; קוד אירוע — ללא שינוי
+ *              (התאמה מלאה ל-Event_Type). הסיבה: Raw_Value בבלוקים אלה הוא
+ *              רשימת מילות מפתח, וההתאמה המלאה הישנה לעולם לא מצאה. נוספו
+ *              S16_CERTAINTY_SUGGEST_COLS / S16_ORGAN_SUGGEST_COLS ובנתוני
+ *              החלון certaintySuggestion + organSuggestion (כולל systemCode
+ *              של האיבר — רמז אם שייך למערכת אחרת). _s16_readCatalogBlock
+ *              מחזיר גם desc (עמודה שלישית בבלוק; בבלוק איברים A-D זו עמודת
+ *              Raw_Value — שם האיבר + מילים נוספות משמשים להצעה). הצעה נשלחת
+ *              רק אם שונה מהקוד השמור. s16_approve קיבל פרמטר שישי
+ *              recommendation (null = לא שונה). אומת מול הקוד החי (diff
+ *              מדויק, node --check), בסימולציה עם נתוני הגליון, ובבדיקת שטח
+ *              מלאה S10→S13→S16→כרטיס על 2 שורות חדשות (7: MRI ערמונית,
+ *              8: פתולוגיה תריס) — הצעת איבר, בחירה מראש, היעדר הצעה שגויה
+ *              בממצא שלילי, כתיבת המלצה; שורות 5-6 והקטלוג ללא שינוי.
+ * @changes     [v2.1.0] Task #219 — קוד איבר: נוספו S16_COL_ORGAN_CODE=22 ו-
+ *              S16_ORGAN_MAP_FIRST_COL=1. _s16_buildPayload קורא עד עמודה 22
+ *              (Math.min מול getMaxColumns — לא נשבר בגליון בלי העמודה)
+ *              ומחזיר currentOrganCode + organOptions (קוד, שם, systemCode —
+ *              קוד מערכת מ-S13_BODY_SYSTEMS שהאיבר מתחיל בו; קוד שמור שלא
+ *              בקטלוג נשמר כאפשרות). s16_approve קיבל פרמטר חמישי organCode:
+ *              נדחה אם אינו שייך למערכת שנבחרה, או אם חסרה עמודה 22 ונבחר
+ *              איבר; נכתב לעמודה 22 (ריק = ללא איבר). קריאה ישנה עם 4
+ *              פרמטרים כותבת איבר ריק. אומת מול הקוד החי (diff מדויק,
+ *              node --check) ובבדיקת שטח: שורה 6 → V6 = SYS12A. הוחזרה
+ *              השורה הריקה אחרי S16_PROP_KEY שנמחקה בהדבקת הבלוק הראשון.
  * @changes     [v2.0.0] Task #214 — שכתוב מלא: מנגנון גנרי אחד (S16_CODE_
  *              FIELDS, 4 רשומות: eventCode/specialty/severity/diagnosis)
  *              במקום לוגיקה כפולה לכל שדה — _s16_readCatalogBlock ו-
@@ -58,7 +117,8 @@
 
 const S16_PROP_KEY = "S16_CURRENT_PAYLOAD";
 
-// אינדקסי עמודות יומן_מצב_רפואי (ראה COLUMN_MAP.gs, מבנה 21 עמודות)
+// אינדקסי עמודות יומן_מצב_רפואי (ראה COLUMN_MAP.gs, מבנה 22 עמודות —
+// [Task #219] נוספה Organ_Code בעמודה 22)
 const S16_COL_EVENT_DATE          = 1;
 const S16_COL_EVENT_TYPE          = 2;  // גולמי (S13/Gemini) — לעולם לא נכתב מ-S16
 const S16_COL_PRIMARY_DIAGNOSIS   = 3;
@@ -67,6 +127,7 @@ const S16_COL_RECOMMENDATIONS     = 5;
 const S16_COL_DOC_ISSUER          = 6;  // גולמי — לעולם לא נכתב מ-S16
 const S16_COL_RECORD_STATUS       = 7;
 const S16_COL_SPECIALTY_NAME      = 9;
+const S16_COL_MEDICAL_SYSTEM_NAME = 10; // [Task #220 שלב ב] שם המערכת — נכתב באישור לפי הקוד שנבחר
 const S16_COL_EVENT_CODE          = 11;
 const S16_COL_EVENT_DESCRIPTION   = 12;
 const S16_COL_SEVERITY_NAME       = 13;
@@ -78,10 +139,15 @@ const S16_COL_MEDICAL_SYSTEM      = 18;
 const S16_COL_SPECIALTY_CODE      = 19;
 const S16_COL_SEVERITY_CODE       = 20;
 const S16_COL_DIAGNOSIS_CODE      = 21;
+const S16_COL_ORGAN_CODE          = 22; // [Task #219] קוד איבר (למשל SYS12A) — ריק = ללא איבר
 
 // בלוק וודאות אבחנה במיפוי_קודים (Y-AC, עמודה 25) — בחירה סגורה פשוטה,
 // 4 ערכים קבועים (CRT0-CRT3), בלי מנגנון הוספת-קוד-חדש.
 const S16_CERTAINTY_MAP_FIRST_COL = 25;
+
+// [Task #219] בלוק מערכות/איברים במיפוי_קודים (A-D, עמודה 1) — בחירה סגורה
+// של תת-קוד איבר (קוד ארוך מקוד מערכת שמתחיל בו, למשל SYS12A תחת SYS12).
+const S16_ORGAN_MAP_FIRST_COL     = 1;
 
 // [Task #214] מנוע גנרי — קטלוג פתוח משותף ל-4 סוגי קוד. כל רשומה מצביעה
 // לבלוק העמודות שלה במיפוי_קודים (5 עמודות רצופות: Code|Normalized_Value|
@@ -89,12 +155,19 @@ const S16_CERTAINTY_MAP_FIRST_COL = 25;
 // journalRawCol — עמודת הטקסט המשמש לחיפוש/הצעה מהקטלוג (לא נכתב מעולם,
 // חוץ מ-specialty/severity/diagnosis שם הוא זהה ל-journalNameCol בכוונה —
 // עמודות אלו כבר מיועדות לערך מהקטלוג, לא לטקסט גולמי מ-Gemini).
+// [Task #220] suggestCols — עמודות הטקסט ביומן שבהן מחפשים את מילות המפתח
+// של הקטלוג (Raw_Value = רשימה מופרדת בפסיקים) להצעה אוטומטית. ריק = רק
+// התאמה מלאה ל-journalRawCol (קוד אירוע — Raw_Value שם הוא משפט שלם).
 const S16_CODE_FIELDS = [
-  { key: "eventCode", label: "קוד אירוע", mapFirstCol: 5,  journalRawCol: S16_COL_EVENT_TYPE,    journalCodeCol: S16_COL_EVENT_CODE,     journalNameCol: S16_COL_EVENT_DESCRIPTION },
-  { key: "specialty", label: "התמחות",   mapFirstCol: 10, journalRawCol: S16_COL_SPECIALTY_NAME, journalCodeCol: S16_COL_SPECIALTY_CODE, journalNameCol: S16_COL_SPECIALTY_NAME },
-  { key: "severity",  label: "חומרה",     mapFirstCol: 15, journalRawCol: S16_COL_SEVERITY_NAME,  journalCodeCol: S16_COL_SEVERITY_CODE,  journalNameCol: S16_COL_SEVERITY_NAME },
-  { key: "diagnosis", label: "אבחנה",     mapFirstCol: 20, journalRawCol: S16_COL_DIAGNOSIS_NAME, journalCodeCol: S16_COL_DIAGNOSIS_CODE, journalNameCol: S16_COL_DIAGNOSIS_NAME }
+  { key: "eventCode", label: "קוד אירוע", mapFirstCol: 5,  journalRawCol: S16_COL_EVENT_TYPE,    journalCodeCol: S16_COL_EVENT_CODE,     journalNameCol: S16_COL_EVENT_DESCRIPTION, suggestCols: [] },
+  { key: "specialty", label: "התמחות",   mapFirstCol: 10, journalRawCol: S16_COL_SPECIALTY_NAME, journalCodeCol: S16_COL_SPECIALTY_CODE, journalNameCol: S16_COL_SPECIALTY_NAME,    suggestCols: [S16_COL_DOC_ISSUER, S16_COL_EVENT_TYPE] },
+  { key: "severity",  label: "חומרה",     mapFirstCol: 15, journalRawCol: S16_COL_SEVERITY_NAME,  journalCodeCol: S16_COL_SEVERITY_CODE,  journalNameCol: S16_COL_SEVERITY_NAME,     suggestCols: [S16_COL_SEVERITY_STATUS, S16_COL_PRIMARY_DIAGNOSIS] },
+  { key: "diagnosis", label: "אבחנה",     mapFirstCol: 20, journalRawCol: S16_COL_DIAGNOSIS_NAME, journalCodeCol: S16_COL_DIAGNOSIS_CODE, journalNameCol: S16_COL_DIAGNOSIS_NAME,    suggestCols: [S16_COL_PRIMARY_DIAGNOSIS, S16_COL_EVENT_TYPE] }
 ];
+
+// [Task #220] מקורות טקסט להצעת ודאות ואיבר (שדות סגורים, לא ב-S16_CODE_FIELDS)
+const S16_CERTAINTY_SUGGEST_COLS = [S16_COL_SEVERITY_STATUS, S16_COL_PRIMARY_DIAGNOSIS];
+const S16_ORGAN_SUGGEST_COLS     = [S16_COL_EVENT_TYPE, S16_COL_PRIMARY_DIAGNOSIS];
 
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה — פתיחת חלון אימות
@@ -159,11 +232,40 @@ function _s16_readCatalogBlock(mapFirstCol) {
     const code   = (rowVals[0] || "").toString().trim(); // Code
     const name   = (rowVals[1] || "").toString().trim(); // Normalized_Value
     const raw    = (rowVals[3] || "").toString().trim(); // Raw_Value
-    const hasAny = code || name || raw || (rowVals[2] || "") || (rowVals[4] || "");
+    const desc   = (rowVals[2] || "").toString().trim(); // Description (בבלוק איברים A-D: Raw_Value)
+    const hasAny = code || name || raw || desc || (rowVals[4] || "");
     if (hasAny) result.lastBlockRow = rowNum;
-    if (code) result.options.push({ code: code, name: name, raw: raw, row: rowNum });
+    if (code) result.options.push({ code: code, name: name, raw: raw, desc: desc, row: rowNum });
   });
   return result;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task #220] הצעה לפי מילות מפתח — חיפוש מילה שלמה בטקסט השורה.
+// מותרות עד 2 אותיות שימוש לפני המילה (ו/ה/ב/כ/ל/מ/ש — "ערמונית" נמצאת
+// ב"הערמונית"), ואחריה חייב לבוא סוף מילה ("קל" לא נמצאת ב"קליני").
+// מילת המפתח הארוכה ביותר גוברת; תיקו — הקוד הראשון בקטלוג.
+// keywordsOf(option) מחזירה מחרוזת מילות מפתח מופרדות בפסיקים.
+// ══════════════════════════════════════════════════════════════════
+
+function _s16_keywordMatches(keyword, text) {
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp("(^|[^\u0590-\u05FFA-Za-z0-9])[והבכלמש]{0,2}" + escaped + "(?=$|[^\u0590-\u05FFA-Za-z0-9])", "i");
+  return re.test(text);
+}
+
+function _s16_findKeywordSuggestion(options, keywordsOf, texts) {
+  let best = null;
+  const cleanTexts = texts.map(function(t) { return (t || "").toString(); }).filter(function(t) { return t.trim(); });
+  if (cleanTexts.length === 0) return null;
+  options.forEach(function(o) {
+    keywordsOf(o).split(",").map(function(k) { return k.trim(); }).filter(Boolean).forEach(function(k) {
+      if (best && k.length <= best.keyword.length) return;
+      const found = cleanTexts.some(function(t) { return _s16_keywordMatches(k, t); });
+      if (found) best = { code: o.code, name: o.name, keyword: k };
+    });
+  });
+  return best;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -182,6 +284,14 @@ function _s16_buildFieldPayload(fieldCfg, rowValues) {
     if (match && match.code !== currentCode) {
       suggestion = { code: match.code, name: match.name };
     }
+  }
+
+  // [Task #220] אין התאמה מלאה — חיפוש מילות מפתח (Raw_Value) בעמודות
+  // suggestCols של השורה. מוצעת רק אם שונה מהקוד השמור.
+  if (!suggestion && fieldCfg.suggestCols && fieldCfg.suggestCols.length > 0) {
+    const texts = fieldCfg.suggestCols.map(function(col) { return rowValues[col - 1]; });
+    const kwMatch = _s16_findKeywordSuggestion(block.options, function(o) { return o.raw; }, texts);
+    if (kwMatch && kwMatch.code !== currentCode) suggestion = kwMatch;
   }
 
   const options = block.options.map(function(o) { return { code: o.code, name: o.name }; });
@@ -216,7 +326,10 @@ function _s16_buildPayload(ss, sheet, row) {
     const lastRow       = sheet.getLastRow();
     if (lastRow < firstDataRow) return null;
 
-    const rowValues = sheet.getRange(row, 1, 1, 21).getValues()[0];
+    // [Task #219] קריאה עד עמודה 22 (Organ_Code). אם העמודה עוד לא קיימת
+    // בגליון — קוראים רק את מה שקיים, וקוד האיבר יחזור ריק.
+    const readWidth = Math.min(S16_COL_ORGAN_CODE, sheet.getMaxColumns());
+    const rowValues = sheet.getRange(row, 1, 1, readWidth).getValues()[0];
 
     const fileId   = (rowValues[S16_COL_FILE_ID - 1] || "").toString().trim();
     let sourceUrl   = (rowValues[S16_COL_SOURCE_URL - 1] || "").toString().trim();
@@ -232,6 +345,42 @@ function _s16_buildPayload(ss, sheet, row) {
     const currentCertainty  = (rowValues[S16_COL_DIAGNOSIS_CERTAINTY - 1] || "").toString().trim();
     const certaintyBlock    = _s16_readCatalogBlock(S16_CERTAINTY_MAP_FIRST_COL);
     const certaintyOptions  = certaintyBlock.options.map(function(o) { return { code: o.code, name: o.name }; });
+
+    // [Task #220] הצעת ודאות לפי מילות מפתח (Raw_Value, למשל PIRADS 4 ב-AB5)
+    let certaintySuggestion = _s16_findKeywordSuggestion(certaintyBlock.options, function(o) { return o.raw; },
+      S16_CERTAINTY_SUGGEST_COLS.map(function(col) { return rowValues[col - 1]; }));
+    if (certaintySuggestion && certaintySuggestion.code === currentCertainty) certaintySuggestion = null;
+
+    // [Task #219] select סגור — תת-קודי איבר מבלוק A-D. כל איבר משויך לקוד
+    // המערכת שהוא מתחיל בו (S13_BODY_SYSTEMS); הסינון לפי המערכת שנבחרה
+    // מתבצע בחלון. קוד איבר שמור שלא נמצא בקטלוג נשמר כאפשרות נוספת.
+    const currentOrganCode = (rowValues[S16_COL_ORGAN_CODE - 1] || "").toString().trim();
+    const organBlock       = _s16_readCatalogBlock(S16_ORGAN_MAP_FIRST_COL);
+    const organOptions     = [];
+    organBlock.options.forEach(function(o) {
+      const systemCode = Object.keys(S13_BODY_SYSTEMS).filter(function(sys) {
+        return o.code.length > sys.length && o.code.indexOf(sys) === 0;
+      })[0];
+      if (systemCode) organOptions.push({ code: o.code, name: o.name, systemCode: systemCode });
+    });
+    if (currentOrganCode && !organOptions.some(function(o) { return o.code === currentOrganCode; })) {
+      organOptions.push({ code: currentOrganCode, name: "(לא נמצא בקטלוג)", systemCode: currentOrganCode.substring(0, 5) });
+    }
+
+    // [Task #220] הצעת איבר לפי שם האיבר (Normalized_Value) ומילים נוספות
+    // בעמודת Raw_Value של בלוק A-D (עמודה C). כולל קוד המערכת של האיבר —
+    // החלון מציג רמז אם המערכת שונה מהנבחרת (בלי החלפה אוטומטית).
+    let organSuggestion = _s16_findKeywordSuggestion(organOptions, function(o) {
+      const src = organBlock.options.filter(function(b) { return b.code === o.code; })[0];
+      return [o.name, src ? src.desc : ""].join(",");
+    }, S16_ORGAN_SUGGEST_COLS.map(function(col) { return rowValues[col - 1]; }));
+    if (organSuggestion) {
+      if (organSuggestion.code === currentOrganCode) {
+        organSuggestion = null;
+      } else {
+        organSuggestion.systemCode = organOptions.filter(function(o) { return o.code === organSuggestion.code; })[0].systemCode;
+      }
+    }
 
     // 4 שדות הקטלוג הפתוח — דרך המנוע הגנרי
     const fields = {};
@@ -254,6 +403,10 @@ function _s16_buildPayload(ss, sheet, row) {
       bodySystemOptions: bodySystemOptions,
       currentCertainty: currentCertainty,
       certaintyOptions: certaintyOptions,
+      certaintySuggestion: certaintySuggestion,
+      currentOrganCode: currentOrganCode,
+      organOptions:     organOptions,
+      organSuggestion:  organSuggestion,
       fields:           fields
     };
 
@@ -305,9 +458,11 @@ function s16_loadRowByNumber(row) {
 // כפתור — אישור (כותב את כל קודי הסיווג + Record_Status="מאומת")
 // fieldValues: { eventCode:{code,name}, specialty:{code,name},
 //                severity:{code,name}, diagnosis:{code,name} }
+// [Task #219] organCode — קוד איבר (עמודה 22), ריק = ללא איבר
+// [Task #220] recommendation — טקסט המלצה (עמודה 5); null = לא שונה בחלון
 // ══════════════════════════════════════════════════════════════════
 
-function s16_approve(row, systemCode, certaintyCode, fieldValues) {
+function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, recommendation) {
   try {
     if (!systemCode || !S13_BODY_SYSTEMS[systemCode]) {
       return { success: false, msg: "⚠️ קוד מערכת לא תקין: " + systemCode };
@@ -317,7 +472,18 @@ function s16_approve(row, systemCode, certaintyCode, fieldValues) {
     const sheet = ss.getSheetByName(MEDICAL_STATUS_SHEET_NAME);
     if (!sheet) return { success: false, msg: "❌ גליון לא נמצא: " + MEDICAL_STATUS_SHEET_NAME };
 
+    // [Task #219] קוד איבר חייב להשתייך למערכת שנבחרה, והעמודה חייבת להתקיים
+    organCode = (organCode || "").toString().trim();
+    if (organCode && organCode.indexOf(systemCode) !== 0) {
+      return { success: false, msg: "⚠️ האיבר " + organCode + " לא שייך למערכת " + systemCode };
+    }
+    if (organCode && sheet.getMaxColumns() < S16_COL_ORGAN_CODE) {
+      return { success: false, msg: "⚠️ חסרה עמודה Organ_Code (עמודה 22) בגליון " + MEDICAL_STATUS_SHEET_NAME };
+    }
+
     sheet.getRange(row, S16_COL_MEDICAL_SYSTEM).setValue(systemCode);
+    // [Task #220 שלב ב] שם המערכת (עמודה 10) מתעדכן לפי הקוד שנבחר — במקום הטקסט החופשי מ-S09
+    sheet.getRange(row, S16_COL_MEDICAL_SYSTEM_NAME).setValue(S13_BODY_SYSTEMS[systemCode].nameHe);
     sheet.getRange(row, S16_COL_DIAGNOSIS_CERTAINTY).setValue(certaintyCode || "");
 
     S16_CODE_FIELDS.forEach(function(cfg) {
@@ -326,9 +492,24 @@ function s16_approve(row, systemCode, certaintyCode, fieldValues) {
       sheet.getRange(row, cfg.journalNameCol).setValue(val.name || "");
     });
 
+    if (sheet.getMaxColumns() >= S16_COL_ORGAN_CODE) {
+      sheet.getRange(row, S16_COL_ORGAN_CODE).setValue(organCode);
+    }
+
+    // [Task #220] המלצה — נכתבת רק אם נשלחה (לא null) ושונה מהערך בתא
+    let recoUpdated = false;
+    if (recommendation !== null && recommendation !== undefined) {
+      const recoCell = sheet.getRange(row, S16_COL_RECOMMENDATIONS);
+      const newReco  = recommendation.toString().trim();
+      if (newReco !== (recoCell.getValue() || "").toString().trim()) {
+        recoCell.setValue(newReco);
+        recoUpdated = true;
+      }
+    }
+
     sheet.getRange(row, S16_COL_RECORD_STATUS).setValue("מאומת");
 
-    Logger.log("[S16] אישור שורה " + row + " — SYS:" + systemCode + " | CERT:" + certaintyCode);
+    Logger.log("[S16] אישור שורה " + row + " — SYS:" + systemCode + " | ORGAN:" + organCode + " | CERT:" + certaintyCode + (recoUpdated ? " | המלצה עודכנה" : ""));
     return { success: true, msg: "✅ השורה אושרה" };
 
   } catch (e) {
@@ -343,7 +524,10 @@ function s16_approve(row, systemCode, certaintyCode, fieldValues) {
 
 function s16_saveCatalogCode(fieldKey, rawText, code, name) {
   try {
-    const fieldCfg = S16_CODE_FIELDS.filter(function(c) { return c.key === fieldKey; })[0];
+    // [Task #220 שלב ב] וודאות אבחנה — בלוק Y-AC, אינו חלק מ-S16_CODE_FIELDS (אין לו עמודה גולמית בשורה)
+    const fieldCfg = (fieldKey === "certainty")
+      ? { key: "certainty", label: "וודאות אבחנה", mapFirstCol: S16_CERTAINTY_MAP_FIRST_COL }
+      : S16_CODE_FIELDS.filter(function(c) { return c.key === fieldKey; })[0];
     if (!fieldCfg) return { success: false, msg: "❌ שדה קוד לא מוכר: " + fieldKey };
     if (!code) return { success: false, msg: "❌ חסר קוד לשמירה" };
 
