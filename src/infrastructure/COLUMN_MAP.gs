@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.11.0 | @updated 18/09/2026 16:36 | @service COLUMN_MAP
+ * @version 2.11.1 | @updated 13/10/2026 20:36 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
@@ -12,6 +12,8 @@
  *          (איברים A-D/אירועים E-I/התמחות J-N/חומרה O-S/אבחנה T-X/וודאות
  *          Y-AC), במקום 4 עמודות שטוחות Type|Key. תיעוד בלבד — עדכון
  *          בדיעבד למבנה שכבר קיים בייצור מ-10/09/2026 (task214a/task215a).
+ *          [v2.11.1] יומן_מצב_רפואי — 22 עמודות: נוספה Organ_Code (עמודה 22,
+ *          writers: S16), Task #219.
  *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (11), בדיקות_דם (10),
  *          בדיקות_גנטיות (8), הנחיות_רפואיות_ומשימות (8) — 5 גליונות יעד של S09,
  *          נוספו ל-SHEET_CONFIG/SHEETS_MAP עם כותרות באנגלית, יושרו בפועל
@@ -38,6 +40,14 @@
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol, _medDate_normalizeDate
+ * @changes [v2.11.1] Task #219 — SHEETS_MAP["יומן_מצב_רפואי"]: נוספה עמודה
+ *          22 = Organ_Code (zone: טכני, writers: ["S16"]) — תת-קוד איבר מבלוק
+ *          איברים A-D במיפוי_קודים (למשל SYS12A ערמונית), נבחר ב-S16 מתוך
+ *          האיברים של Medical_System; ריק = ללא איבר. נקרא ע"י הכרטיס
+ *          האינפוגרפי (runInfographicIconMedicalStatus_LAB, ViewEngine.gs).
+ *          העמודה נוספה בגליון החי ע"י עמוס (כותרת V4, צבע כמו R4-U4).
+ *          S13 ממשיך לכתוב 21 ערכים בשורה חדשה — עמודה 22 נשארת ריקה עד
+ *          אימות ב-S16. אומת מול הקוד החי (diff מדויק, node --check).
  * @changes [v2.11.0] Task #214 (המשך) — עדכון SHEETS_MAP["יומן_מצב_רפואי"]
  *          ו-SHEETS_MAP["מיפוי_קודים"] (תיעוד בלבד, אין שינוי לוגי). התיעוד
  *          היה שקרי כמעט שבוע — תיאר מבנה ישן (15 עמודות / 4 עמודות שטוחות
@@ -354,7 +364,8 @@ const SHEETS_MAP = {
     { col: 18, name: "Medical_System",       zone: "טכני",  writers: ["S13","S16"], readers: [], values: "SYS00-SYS14",       notes: "[Task #188] דינמי — Gemini קובע לפי תוכן השורה" },
     { col: 19, name: "Specialty_Code",       zone: "טכני",  writers: [],            readers: [], values: "SPEC00-SPEC18",      notes: "[Task #214] ⚠️ מיועד להתמלא ע\"י onEdit — לא פעיל בייצור כרגע (ראה דוח)" },
     { col: 20, name: "Severity_Code",        zone: "טכני",  writers: [],            readers: [], values: "SEV0-SEV4",          notes: "[Task #214] ⚠️ אותו ממצא" },
-    { col: 21, name: "Diagnosis_Code",       zone: "טכני",  writers: [],            readers: [], values: "DX00-DX13",          notes: "[Task #214] ⚠️ אותו ממצא" }
+    { col: 21, name: "Diagnosis_Code",       zone: "טכני",  writers: [],            readers: [], values: "DX00-DX13",          notes: "[Task #214] ⚠️ אותו ממצא" },
+    { col: 22, name: "Organ_Code",           zone: "טכני",  writers: ["S16"],       readers: [], values: "תת-קוד איבר (למשל SYS12A) או ריק", notes: "[Task #219] select סגור ב-S16 מבלוק איברים A-D במיפוי_קודים, מסונן לפי Medical_System; ריק = ללא איבר. נקרא ע\"י runInfographicIconMedicalStatus_LAB (ViewEngine)" }
   ],
   // [Task 184] גליון יעד — בדיקות דם שחולצו ע"י S09 (כותרות אנגלית)
   "בדיקות_דם": [
