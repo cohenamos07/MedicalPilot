@@ -1,6 +1,6 @@
 /**
  * @file        S13_ExtractMedical.gs
- * @version     1.3.3 | @updated 15/09/2026 16:22 | @service S13
+ * @version     1.4.0 | @updated 15/10/2026 21:40 | @service S13
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S13_ExtractMedical.gs
  * @description שירות חילוץ עמוק — קורא שורות מאומתות (Validation_Status="מאומת",
  *              Extraction_Status ריק) מיומן_אירועים_רפואי, מקבץ לפי File_ID
@@ -12,17 +12,40 @@
  *              בדיקת דם/בדיקה גנטית/מרשם תרופה מקבלים קוד מערכת קבוע
  *              (SYS06/SYS14/SYS00 בהתאמה, ללא שאילתת Gemini); מצב רפואי
  *              והנחיה מקבלים קוד דינמי שנקבע ע"י Gemini לכל שורה.
+ *              [v1.4.0] מצב רפואי/ניתוח/כללי — Gemini מחזיר גם קודי קטלוג
+ *              (מיפוי_קודים) לאיבר/אירוע/התמחות/חומרה/אבחנה/ודאות; כל קוד
+ *              מאומת מול הקטלוג לפני כתיבה (Record_Status="חדש" — הצעה בלבד).
  * @impacts     יומן_אירועים_רפואי: קורא בלבד (A-L, [v1.3.1] עודכן מ-A-I, Task
  *              #205 — File_ID עבר לעמודה L), כותב Extraction_Status (I).
  *              בדיקות_דם/בדיקות_גנטיות/תרופות_קבועות/הנחיות_רפואיות_ומשימות/
  *              יומן_מצב_רפואי: כותב שורות חדשות (appendRow) בלבד, לא דורס.
  *              ניהול_מיילים: קורא בלבד (TXT_URL, fallback).
+ *              [v1.4.0] יומן_מצב_רפואי: 22 עמודות (נוסף Organ_Code) + 10 שדות
+ *              הקידוד. מיפוי_קודים: קורא בלבד, דרך _s16_readCatalogBlock
+ *              (S16_ValidateMedicalStatus.gs — תלות, עם בדיקת typeof).
  * @callers     runS13ViewIconEvents (ViewEngine.gs, עמודה F ביומן_אירועים_רפואי)
  * @functions   runS13 | _s13_checkRow | _s13_getEligibleGroups | _s13_processSingleRow |
  *              _s13_processBatch | _s13_getSchemaBlock | _s13_fetchTxtUrlByFileId |
  *              _s13_fetchTxtContent | _s13_buildPrompt | _s13_normalizeDate |
  *              _s13_callGemini | _s13_buildRowValues | _s13_writeExtractedRow |
- *              _s13_processGroup
+ *              _s13_processGroup | _s13_loadCatalog | _s13_validateCode
+ * @changes     [v1.4.0] Task #220 שלב ב — קודי קטלוג מ-Gemini ליומן_מצב_רפואי:
+ *              _s13_loadCatalog (חדשה) — טוען 6 בלוקי מיפוי_קודים דרך
+ *              _s16_readCatalogBlock הקיימת (כמו ViewEngine.gs), עם בדיקת typeof
+ *              ו-try/catch; לא זמינה → null והחילוץ ממשיך בלי קודים.
+ *              _s13_validateCode (חדשה) — קוד נכתב רק אם קיים בקטלוג; איבר
+ *              חייב להתחיל בקוד המערכת. _s13_getSchemaBlock — 6 שדות *_Code
+ *              בענף ברירת המחדל. _s13_buildPrompt — פרמטר catalog; בלוק קטלוג
+ *              + כללים (3) קוד מהרשימה בלבד, (4) המלצה אישית בלבד בלי מקרא
+ *              כללי ("אין המלצה מפורשת בדוח"); נשלח רק כשיש שורה ליומן_מצב_
+ *              רפואי; Medical_System של S09 מסומן "ייתכן שגוי". _s13_build-
+ *              RowValues — 22 עמודות: קוד + שם מנורמל מהקטלוג, Medical_System_
+ *              Name נגזר מקוד המערכת (לא מטקסט S09), קוד מערכת לא תקין → SYS00.
+ *              _s13_processGroup — טוען קטלוג פעם אחת לכל File_ID ומעביר
+ *              לפרומפט (כולל fallback) ול-ctx. אומת מול הקוד החי (diff מדויק,
+ *              node --check), הדמיה, ובדיקת שטח על שורות 130 ו-137 ביומן
+ *              האירועים (SYS11/SYS11A ו-SYS05/SYS05B למרות "אורולוגיה"/
+ *              "אנדוקרינולוגיה" מ-S09).
  * @changes     [v1.3.3] Task #214b — _s13_buildRowValues, ענף ברירת המחדל
  *              (מצב רפואי / ניתוח/פעולה רפואית / כללי): מערך ההחזרה עודכן
  *              מ-15 ל-21 עמודות בפועל של יומן_מצב_רפואי, בעקבות מיגרציית
@@ -299,8 +322,59 @@ function _s13_getSchemaBlock(routingCategory) {
     case "ניתוח/פעולה רפואית":
     case "כללי":
     default:
-      return '{"Medical_System":"קוד SYS00-SYS14 בלבד","Primary_Diagnosis":"","Severity_Status":"","Recommendations":""}';
+      // [Task #220 שלב ב] נוספו 6 שדות קוד מתוך קטלוג מיפוי_קודים
+      return '{"Medical_System":"קוד SYS00-SYS14 בלבד","Organ_Code":"קוד איבר מהקטלוג או ריק",' +
+        '"Event_Code":"קוד מהקטלוג או ריק","Specialty_Code":"קוד מהקטלוג או ריק",' +
+        '"Severity_Code":"קוד מהקטלוג או ריק","Diagnosis_Code":"קוד מהקטלוג או ריק",' +
+        '"Certainty_Code":"קוד מהקטלוג או ריק","Primary_Diagnosis":"","Severity_Status":"","Recommendations":""}';
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task #220 שלב ב] טעינת קטלוג מיפוי_קודים — דרך הפונקציה הקיימת
+// _s16_readCatalogBlock (S16_ValidateMedicalStatus.gs, אותו פרויקט),
+// באותה שיטה שבה ViewEngine.gs (כרטיס אינפוגרפי) כבר משתמש בה.
+// אם אינה זמינה — מחזיר null והחילוץ ממשיך בלי קודי קטלוג (כמו בעבר).
+// מחזיר: { eventCode, specialty, severity, diagnosis, certainty, organ }
+// — כל אחד מערך options [{code, name, raw, desc, row}].
+// ══════════════════════════════════════════════════════════════════
+
+function _s13_loadCatalog() {
+  if (typeof _s16_readCatalogBlock !== "function" || typeof S16_CODE_FIELDS === "undefined" ||
+      typeof S16_CERTAINTY_MAP_FIRST_COL === "undefined" || typeof S16_ORGAN_MAP_FIRST_COL === "undefined") {
+    Logger.log("[S13] קטלוג מיפוי_קודים לא זמין (S16) — חילוץ ללא קודי קטלוג");
+    return null;
+  }
+  try {
+    const catalog = {};
+    S16_CODE_FIELDS.forEach(function(f) {
+      catalog[f.key] = _s16_readCatalogBlock(f.mapFirstCol).options;
+    });
+    catalog.certainty = _s16_readCatalogBlock(S16_CERTAINTY_MAP_FIRST_COL).options;
+    // בבלוק האיברים נשארים רק קודי איבר (SYS12A וכו') — קודי המערכת עצמם (5 תווים) מוחרגים
+    catalog.organ = _s16_readCatalogBlock(S16_ORGAN_MAP_FIRST_COL).options.filter(function(o) {
+      return o.code.length > 5;
+    });
+    return catalog;
+  } catch (e) {
+    Logger.log("[S13] שגיאת קריאת קטלוג מיפוי_קודים: " + e.message + " — חילוץ ללא קודי קטלוג");
+    return null;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task #220 שלב ב] אימות קוד שהחזיר Gemini מול הקטלוג — מחזיר את
+// האפשרות {code, name, ...} רק אם הקוד קיים בקטלוג; אחרת null.
+// systemCode (לאיבר בלבד) — הקוד חייב להתחיל בקוד המערכת שנבחרה.
+// ══════════════════════════════════════════════════════════════════
+
+function _s13_validateCode(options, code, systemCode) {
+  const c = (code || "").toString().trim();
+  if (!c || !options) return null;
+  const match = options.filter(function(o) { return o.code === c; })[0];
+  if (!match) return null;
+  if (systemCode && c.indexOf(systemCode) !== 0) return null;
+  return match;
 }
 // ══════════════════════════════════════════════════════════════════
 // שליפת TXT_URL מניהול_מיילים לפי File_ID — לשימוש כ-fallback בלבד
@@ -352,7 +426,7 @@ function _s13_fetchTxtContent(txtUrl) {
 // תוכן שורות היומן בלבד. fallbackTxt מוזרק רק אם קיים (מוחלט בשלב הקריאה).
 // ══════════════════════════════════════════════════════════════════
 
-function _s13_buildPrompt(group, fallbackTxt) {
+function _s13_buildPrompt(group, fallbackTxt, catalog) {
   const bodySystemsListStr = Object.keys(S13_BODY_SYSTEMS)
     .map(function(code) { return code + "=" + S13_BODY_SYSTEMS[code].nameHe; })
     .join(", ");
@@ -363,7 +437,7 @@ function _s13_buildPrompt(group, fallbackTxt) {
     rowsBlock += "Routing_Category: " + r.routingCategory + "\n";
     rowsBlock += "Event_Date: " + r.eventDate + "\n";
     rowsBlock += "Event_Type: " + r.eventType + "\n";
-    rowsBlock += "Medical_System (חופשי, מ-S09): " + r.medicalSystem + "\n";
+    rowsBlock += "Medical_System (חופשי, מ-S09 — ייתכן שגוי, קבע לפי תוכן הממצא): " + r.medicalSystem + "\n";
     rowsBlock += "Issuer: " + r.issuer + "\n";
     rowsBlock += "Summary: " + r.summary + "\n";
     rowsBlock += "סכימת JSON נדרשת לשורה זו: " + _s13_getSchemaBlock(r.routingCategory) + "\n";
@@ -376,8 +450,38 @@ function _s13_buildPrompt(group, fallbackTxt) {
     "אם שדה נדרש חסר/לא ברור מתוך השורה בלבד — ואם סופק טקסט מסמך מלא בהמשך, חפש בו את הפרט החסר.\n" +
     "כללים: (1) תאריכים תמיד בפורמט DD/MM/YYYY בלבד, לעולם לא נקודות. " +
     "(2) עבור שורות עם סכימת Medical_System — Medical_System חייב להיות אחד מהקודים הבאים בלבד: " +
-    bodySystemsListStr + ". אם לא ברור — קוד SYS00.\n" +
-    rowsBlock;
+    bodySystemsListStr + ". אם לא ברור — קוד SYS00.\n";
+
+  // [Task #220 שלב ב] קטלוג קודים — רק אם יש בקבוצה שורה שמנותבת ליומן_מצב_רפואי
+  const needsCatalog = catalog && group.rows.some(function(r) {
+    return (S13_TARGET_SHEETS[r.routingCategory] || S13_TARGET_SHEETS["כללי"]) === "יומן_מצב_רפואי";
+  });
+
+  if (needsCatalog) {
+    const listOf = function(options, extraOf) {
+      return (options || []).map(function(o) {
+        const extra = (extraOf(o) || "").toString().substring(0, 100);
+        return o.code + "=" + o.name + (extra ? " (" + extra + ")" : "");
+      }).join("\n");
+    };
+    prompt +=
+      "(3) שדות *_Code — בחר קוד אך ורק מהרשימות שלהלן (מתוך הקטלוג). אם אין קוד מתאים בבירור — השאר ריק. " +
+      "לעולם אל תמציא קוד שאינו ברשימה. Organ_Code חייב להתחיל בקוד ה-Medical_System שנבחר " +
+      "(למשל SYS12A תחת SYS12) — אם האיבר שייך למערכת אחרת, בחר את המערכת של האיבר. " +
+      "Specialty_Code = ההתמחות של הרופא/המכון שהפיק את המסמך (לפי Issuer ו-Event_Type).\n" +
+      "(4) Recommendations — רק המלצה אישית למטופל במסמך הזה. אל תעתיק טבלאות מקרא, הסברי סיווג " +
+      "כלליים (למשל טבלת הסבר PIRADS) או נוסח סטנדרטי של הדוח. אם אין המלצה אישית מפורשת — " +
+      "\"אין המלצה מפורשת בדוח\".\n" +
+      "\n--- קטלוג Organ_Code (קוד=איבר) ---\n" + listOf(catalog.organ, function(o) { return o.desc; }) +
+      "\n--- קטלוג Event_Code (קוד=סוג אירוע) ---\n" + listOf(catalog.eventCode, function(o) { return o.desc; }) +
+      "\n--- קטלוג Specialty_Code ---\n" + listOf(catalog.specialty, function(o) { return o.raw; }) +
+      "\n--- קטלוג Severity_Code ---\n" + listOf(catalog.severity, function(o) { return o.raw; }) +
+      "\n--- קטלוג Diagnosis_Code ---\n" + listOf(catalog.diagnosis, function(o) { return o.raw; }) +
+      "\n--- קטלוג Certainty_Code ---\n" + listOf(catalog.certainty, function(o) { return o.raw; }) +
+      "\n";
+  }
+
+  prompt += rowsBlock;
 
   if (fallbackTxt) {
     prompt += "\n--- טקסט מסמך מלא (הקשר נוסף, רק אם שדה חסר מהשורות לעיל) ---\n" +
@@ -576,20 +680,29 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
     case "מצב רפואי":
     case "ניתוח/פעולה רפואית":
     case "כללי":
-    default:
+    default: {
       // [Task #214] תוקן ל-21 העמודות בפועל של יומן_מצב_רפואי אחרי מיגרציית
-      // המבנה (COLUMN_MAP.gs, task214a, 10/09/2026):
+      // המבנה (COLUMN_MAP.gs, task214a, 10/09/2026).
+      // [Task #220 שלב ב] הורחב ל-22 עמודות (Organ_Code) ו-10 שדות הקידוד
+      // מתמלאים מקודי Gemini — רק קוד שקיים בקטלוג (_s13_validateCode),
+      // יחד עם השם המנורמל שלו. קוד לא תקין/חסר → ריק. Record_Status="חדש"
+      // — הקודים הם הצעה בלבד עד אימות ב-S16.
       // Event_Date | Event_Type | Primary_Diagnosis | Severity_Status |
       // Recommendations | Doc_Issuer | Record_Status | S_Row |
       // Specialty_Name | Medical_System_Name | Event_Code | Event_Description |
       // Severity_Name | Diagnosis_Name | Diagnosis_Certainty | Source_URL |
-      // File_ID | Medical_System | Specialty_Code | Severity_Code | Diagnosis_Code.
+      // File_ID | Medical_System | Specialty_Code | Severity_Code | Diagnosis_Code | Organ_Code.
       // S_Row מחושב ע"י VIEWENGINE (refreshMedicalStatusRows) — נשאר ריק כאן.
-      // 9 השדות החדשים (Specialty_Name/Event_Code/Event_Description/
-      // Severity_Name/Diagnosis_Name/Diagnosis_Certainty ו-3 עמודות הקוד)
-      // אינם נשאלים עדיין מ-Gemini בסכימה הנוכחית (_s13_getSchemaBlock,
-      // routingCategory="מצב רפואי") — נשארים ריקים בכוונה; אכלוסם דורש
-      // הרחבת פרומפט נפרדת, מחוץ לתחום התיקון הזה.
+      // Medical_System_Name נגזר מקוד המערכת הסופי (לא מהטקסט החופשי של S09).
+      const cat       = ctx.catalog || {};
+      const rawSys    = (fields.Medical_System || "").toString().trim();
+      const sysCode   = S13_BODY_SYSTEMS[rawSys] ? rawSys : "SYS00";
+      const organ     = _s13_validateCode(cat.organ,     fields.Organ_Code, sysCode);
+      const eventCode = _s13_validateCode(cat.eventCode, fields.Event_Code);
+      const specialty = _s13_validateCode(cat.specialty, fields.Specialty_Code);
+      const severity  = _s13_validateCode(cat.severity,  fields.Severity_Code);
+      const diagnosis = _s13_validateCode(cat.diagnosis, fields.Diagnosis_Code);
+      const certainty = _s13_validateCode(cat.certainty, fields.Certainty_Code);
       return [
         _s13_normalizeDate(ctx.eventDate),
         ctx.eventType || "",
@@ -599,20 +712,22 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
         ctx.issuer || "",
         "חדש",
         "",
-        "",
-        ctx.medicalSystem || "",
-        "",
-        "",
-        "",
-        "",
-        "",
+        specialty ? specialty.name : "",
+        S13_BODY_SYSTEMS[sysCode].nameHe,
+        eventCode ? eventCode.code : "",
+        eventCode ? eventCode.name : "",
+        severity  ? severity.name  : "",
+        diagnosis ? diagnosis.name : "",
+        certainty ? certainty.code : "",
         sourceUrl,
         ctx.fileId,
-        fields.Medical_System || "SYS00",
-        "",
-        "",
-        ""
+        sysCode,
+        specialty ? specialty.code : "",
+        severity  ? severity.code  : "",
+        diagnosis ? diagnosis.code : "",
+        organ     ? organ.code     : ""
       ];
+    }
   }
 }
 
@@ -641,7 +756,10 @@ function _s13_writeExtractedRow(ss, routingCategory, fields, ctx) {
 // ══════════════════════════════════════════════════════════════════
 
 function _s13_processGroup(ss, sourceSheet, group) {
-  let prompt = _s13_buildPrompt(group, null);
+  // [Task #220 שלב ב] קטלוג מיפוי_קודים — נטען פעם אחת לכל מסמך (File_ID)
+  const catalog = _s13_loadCatalog();
+
+  let prompt = _s13_buildPrompt(group, null, catalog);
   let response = _s13_callGemini(prompt);
 
   let results = response && response.results;
@@ -656,7 +774,7 @@ function _s13_processGroup(ss, sourceSheet, group) {
     const fallbackTxt = txtUrl ? _s13_fetchTxtContent(txtUrl) : null;
 
     if (fallbackTxt) {
-      prompt   = _s13_buildPrompt(group, fallbackTxt);
+      prompt   = _s13_buildPrompt(group, fallbackTxt, catalog);
       response = _s13_callGemini(prompt);
       results  = response && response.results;
     }
@@ -685,7 +803,8 @@ function _s13_processGroup(ss, sourceSheet, group) {
       issuer:        eventRow.issuer,
       eventDate:     eventRow.eventDate,
       eventType:     eventRow.eventType,
-      medicalSystem: eventRow.medicalSystem
+      medicalSystem: eventRow.medicalSystem,
+      catalog:       catalog
     };
 
     const ok = _s13_writeExtractedRow(ss, eventRow.routingCategory, result.fields || {}, ctx);
