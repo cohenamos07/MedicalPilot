@@ -1,6 +1,6 @@
 /**
  * @file        S13_ExtractMedical.gs
- * @version     1.4.0 | @updated 15/10/2026 21:40 | @service S13
+ * @version     1.5.0 | @updated 21/10/2026 23:11 | @service S13
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S13_ExtractMedical.gs
  * @description שירות חילוץ עמוק — קורא שורות מאומתות (Validation_Status="מאומת",
  *              Extraction_Status ריק) מיומן_אירועים_רפואי, מקבץ לפי File_ID
@@ -15,6 +15,8 @@
  *              [v1.4.0] מצב רפואי/ניתוח/כללי — Gemini מחזיר גם קודי קטלוג
  *              (מיפוי_קודים) לאיבר/אירוע/התמחות/חומרה/אבחנה/ודאות; כל קוד
  *              מאומת מול הקטלוג לפני כתיבה (Record_Status="חדש" — הצעה בלבד).
+ *              [v1.5.0] שורה עם Event_Type="מחלת רקע" (S09 v2.1.0) — חומרה ריקה
+ *              וודאות CRT4 ("רקע ידוע") נאכפות בקוד, ללא תלות בתשובת Gemini.
  * @impacts     יומן_אירועים_רפואי: קורא בלבד (A-L, [v1.3.1] עודכן מ-A-I, Task
  *              #205 — File_ID עבר לעמודה L), כותב Extraction_Status (I).
  *              בדיקות_דם/בדיקות_גנטיות/תרופות_קבועות/הנחיות_רפואיות_ומשימות/
@@ -23,12 +25,24 @@
  *              [v1.4.0] יומן_מצב_רפואי: 22 עמודות (נוסף Organ_Code) + 10 שדות
  *              הקידוד. מיפוי_קודים: קורא בלבד, דרך _s16_readCatalogBlock
  *              (S16_ValidateMedicalStatus.gs — תלות, עם בדיקת typeof).
+ *              [v1.5.0] מיפוי_קודים: תלות בערך CRT4 בבלוק הוודאות (Y-AC) — אם
+ *              יוסר, הוודאות לשורות רקע נשארת ריקה (ללא שגיאה).
  * @callers     runS13ViewIconEvents (ViewEngine.gs, עמודה F ביומן_אירועים_רפואי)
  * @functions   runS13 | _s13_checkRow | _s13_getEligibleGroups | _s13_processSingleRow |
  *              _s13_processBatch | _s13_getSchemaBlock | _s13_fetchTxtUrlByFileId |
  *              _s13_fetchTxtContent | _s13_buildPrompt | _s13_normalizeDate |
  *              _s13_callGemini | _s13_buildRowValues | _s13_writeExtractedRow |
  *              _s13_processGroup | _s13_loadCatalog | _s13_validateCode
+ * @changes     [v1.5.0] Task #223 — טיפול במחלות רקע (שורות עם Event_Type="מחלת
+ *              רקע" שמסמן S09 v2.1.0): _s13_buildPrompt — כלל (5) חדש: Severity_
+ *              Code ו-Severity_Status ריקים, Certainty_Code=CRT4, בלי להסיק חומרה
+ *              או ודאות כאילו זה ממצא חדש. _s13_buildRowValues, ענף ברירת המחדל
+ *              (יומן_מצב_רפואי) — isBackground: קוד חומרה ותיאור חומרה נכתבים
+ *              ריקים, ודאות נאכפת ל-CRT4 דרך _s13_validateCode (בלי קשר לתשובת
+ *              Gemini). שאר סוגי האירועים — ללא שינוי. ערך הקטלוג CRT4 "רקע
+ *              ידוע" נוסף ידנית במיפוי_קודים (Y9:AB9). אומת מול הקוד החי (diff,
+ *              node --check), הדמיה, ובדיקת שטח 21/10/2026 על מסמך 52: סוכרת
+ *              וסרטן כליה → חומרה ריקה + CRT4; סרטן תריס (עיקרי) → SEV1 + CRT2.
  * @changes     [v1.4.0] Task #220 שלב ב — קודי קטלוג מ-Gemini ליומן_מצב_רפואי:
  *              _s13_loadCatalog (חדשה) — טוען 6 בלוקי מיפוי_קודים דרך
  *              _s16_readCatalogBlock הקיימת (כמו ViewEngine.gs), עם בדיקת typeof
@@ -472,6 +486,9 @@ function _s13_buildPrompt(group, fallbackTxt, catalog) {
       "(4) Recommendations — רק המלצה אישית למטופל במסמך הזה. אל תעתיק טבלאות מקרא, הסברי סיווג " +
       "כלליים (למשל טבלת הסבר PIRADS) או נוסח סטנדרטי של הדוח. אם אין המלצה אישית מפורשת — " +
       "\"אין המלצה מפורשת בדוח\".\n" +
+      "(5) שורה עם Event_Type \"מחלת רקע\" היא מחלה שאובחנה בעבר ומוזכרת במסמך כרקע בלבד: " +
+      "Severity_Code ו-Severity_Status נשארים ריקים, ו-Certainty_Code = CRT4. " +
+      "אל תסיק חומרה או ודאות כאילו זה ממצא חדש.\n" +
       "\n--- קטלוג Organ_Code (קוד=איבר) ---\n" + listOf(catalog.organ, function(o) { return o.desc; }) +
       "\n--- קטלוג Event_Code (קוד=סוג אירוע) ---\n" + listOf(catalog.eventCode, function(o) { return o.desc; }) +
       "\n--- קטלוג Specialty_Code ---\n" + listOf(catalog.specialty, function(o) { return o.raw; }) +
@@ -700,14 +717,16 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
       const organ     = _s13_validateCode(cat.organ,     fields.Organ_Code, sysCode);
       const eventCode = _s13_validateCode(cat.eventCode, fields.Event_Code);
       const specialty = _s13_validateCode(cat.specialty, fields.Specialty_Code);
-      const severity  = _s13_validateCode(cat.severity,  fields.Severity_Code);
+           // [Task #223] מחלת רקע — חומרה ריקה, ודאות נאכפת ל-CRT4 ("רקע ידוע") בלי קשר לתשובת Gemini
+      const isBackground = (ctx.eventType || "").toString().trim() === "מחלת רקע";
+      const severity  = isBackground ? null : _s13_validateCode(cat.severity,  fields.Severity_Code);
       const diagnosis = _s13_validateCode(cat.diagnosis, fields.Diagnosis_Code);
-      const certainty = _s13_validateCode(cat.certainty, fields.Certainty_Code);
+      const certainty = _s13_validateCode(cat.certainty, isBackground ? "CRT4" : fields.Certainty_Code);
       return [
         _s13_normalizeDate(ctx.eventDate),
         ctx.eventType || "",
         fields.Primary_Diagnosis || "",
-        fields.Severity_Status || "",
+        isBackground ? "" : (fields.Severity_Status || ""),
         fields.Recommendations || "",
         ctx.issuer || "",
         "חדש",
