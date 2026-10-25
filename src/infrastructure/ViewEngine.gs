@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.10.7 | @updated 13/10/2026 20:25 | @service VIEWENGINE
+ * @version 2.10.9 | @updated 25/10/2026 21:20 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -27,6 +27,9 @@
  *              MedicalStatus_LAB + LAB_Infographic.html) — תצוגה גרפית לפי
  *              קודים מאומתים: איבר/מערכת על דמות הגוף, חומרה, ודאות+דירוג,
  *              סוג אירוע, המלצה. אייקונים לפי שם קובץ = קוד בתיקיית אייקונים.
+ *              [v2.10.9] הכרטיס האינפוגרפי מקבל את כל רשומות הגליון — מצב
+ *              "אירוע" (השורה הפעילה) ומצב "היסטוריה" (כל האירועים על הדמות,
+ *              סינון לפי מערכת גוף או התמחות רופא, ציר זמן).
  * @impacts     ניהול_מיילים: קורא פילטרים — לא כותב ערכים לתאים.
  *              runStatusCheck כותב צבע רקע לשורות שגויות בלבד.
  *              יומן_אירועים_רפואי: setupMedicalEventsIcons — מכניס 4 איקונים אוטומטית.
@@ -40,6 +43,9 @@
  *              Organ_Code), מיפוי_קודים (בלוקים A-D/E-I/Y-AC דרך
  *              _s16_readCatalogBlock), תיקיית האייקונים בדרייב
  *              (1LMQWPaoXisYz8OoeeUee5lW1qNJqrP-K). לא כותב לשום גליון.
+ *              [v2.10.9] runInfographicIconMedicalStatus_LAB — קריאה בלבד:
+ *              כל שורות הנתונים ביומן_מצב_רפואי (משורה 5), ובנוסף בלוק
+ *              ההתמחויות J-N במיפוי_קודים (עמודה 10). לא כותב לשום גליון.
  *              תלויות: S01 (checkSystemMorning) | S02 (checkUserAccess)
  *                      S03 (runEmailIngestion) | S04 (syncDriveFiles)
  *                      S05 (extractMetaData) | S06 (run_MedicalPilot_V2_6_2, nightlyConvertBatch)
@@ -63,6 +69,35 @@
  *              refreshCodeMapLearning | runRefreshIconCodeMap
  *              _labInfographic_blobToDataUri | _labInfographic_findEventIcons
  *              _labInfographic_loadIconMap | runInfographicIconMedicalStatus_LAB
+ *              _labInfographic_buildCatalogs | _labInfographic_buildRecord
+ * @changes     [v2.10.9] Task #211 — כרטיס אינפוגרפי עם מצב היסטוריה
+ *              (runInfographicIconMedicalStatus_LAB שוכתבה). (1) חדש:
+ *              _labInfographic_buildCatalogs — קורא פעם אחת את קטלוגי האיברים,
+ *              משפחות האירועים, הוודאות וההתמחויות (בלוק J-N, עמודה 10 —
+ *              LAB_INFOGRAPHIC_SPECIALTY_MAP_FIRST_COL). (2) חדש:
+ *              _labInfographic_buildRecord — בונה רשומת תצוגה לשורה אחת (אותה
+ *              לוגיקה של הכרטיס הבודד: מערכת, איבר, מיקום, אייקון אירוע,
+ *              חומרה, אבחנה, ודאות, המלצה) + תאריך כמספר למיון, סטטוס אימות
+ *              ומפתח מיקום לקיבוץ. (3) הפונקציה הראשית בונה רשומות לכל שורות
+ *              הגליון משורה 5 ושולחת לעמוד JSON אחד: רשומות, מפת אייקונים
+ *              (ללא כפילויות), אינדקס השורה הפעילה, מצב פתיחה, שמות מערכות
+ *              (S13_BODY_SYSTEMS), רשימת התמחויות ומיפוי התמחות→מערכות/
+ *              אבחנות. שורה פעילה ללא נתונים → הודעה; אין שורת נתונים פעילה
+ *              (שורות 1-4) → פתיחה ישירה במצב היסטוריה. (4) חדש: הקבוע
+ *              LAB_INFOGRAPHIC_SPECIALTY_FILTER — מיפוי 19 התמחויות (SPEC00-
+ *              SPEC18) למערכות גוף ו/או קודי אבחנה; כלליות (משפחה, פנימית,
+ *              תעסוקה ועוד) = הכל. כותרת החלון: "אינפוגרפיקה רפואית". אומת
+ *              מול הקוד החי (diff מדויק, node --check) ובבדיקה פונקציונלית
+ *              בגליון: מצב אירוע זהה לקודם (שורה 7 — MRI, PIRADS 4), היסטוריה
+ *              עם 8 סמנים מקובצים + אזור מערכתי, סינון מערכות והתמחויות,
+ *              רשימה→כרטיס→חזרה, ציר זמן ופס מחלות רקע (11).
+ * @changes     [v2.10.8] Task #228 — refreshMedicalStatusRows: רוחב המיון
+ *              ביומן_מצב_רפואי היה קבוע (NUM_COLS=21) ולא כלל את Organ_Code
+ *              (עמודה 22, Task #219) — בכל רענון השורות זזו וקוד האיבר נשאר
+ *              במקום (שורות 7-8 שובשו). תוקן לרוחב דינמי (getLastColumn), כולל
+ *              עמודות עתידיות (Task #224). שינוי של שורה אחת. אומת מול הקוד החי
+ *              (diff מדויק, node --check) ובבדיקת שטח: רענון הזיז את שורות 5-11
+ *              וכל 22 העמודות נשארו צמודות לשורה (השוואת שורות מלאה לפני/אחרי).
  * @changes     [v2.10.7] Task #214 + Task #219 — כרטיס אינפוגרפי גרפי לאירוע
  *              בודד (runInfographicIconMedicalStatus_LAB). (1) קריאת השורה
  *              כולה פעם אחת ושדות לפי שם כותרת (readField) — עמודה חסרה מחזירה
@@ -1697,7 +1732,7 @@ function refreshMedicalStatusRows() {
       return { sorted: 0, updated: 0, notFound: 0 };
     }
     const numRows  = lastRow - firstDataRow + 1;
-    const NUM_COLS = 21;
+    const NUM_COLS = sheet.getLastColumn(); // [Task #228] רוחב דינמי — כולל Organ_Code (22) ועמודות עתידיות
 
     // (1) מיון תלת-רמתי: S (Specialty_Code) → R (Medical_System) → A (Event_Date)
     sheet.getRange(firstDataRow, 1, numRows, NUM_COLS).sort([
@@ -2287,25 +2322,179 @@ function _labInfographic_loadIconMap() {
   return map;
 }
 
+// [Task #211] טבלת סינון לפי התמחות — מצב "היסטוריה" בכרטיס האינפוגרפי.
+// כל התמחות מציגה את הרשומות שמערכת הגוף שלהן (Medical_System) או קטגוריית
+// האבחנה שלהן (Diagnosis_Code) מופיעה ברשימה. all:true = כל הרשומות.
+// טבלה קבועה בקוד — ללא שינוי בקטלוג מיפוי_קודים (הוספת עמודה לבלוק
+// ההתמחות הייתה מזיזה את כל הבלוקים שאחריו). אושרה ע"י עמוס 25/10/2026.
+const LAB_INFOGRAPHIC_SPECIALTY_FILTER = {
+  "SPEC00": { all: true },                                                    // כללית/משפחה
+  "SPEC01": { all: true },                                                    // פנימית
+  "SPEC02": { systems: ["SYS06"],          dx: ["DX02"] },                    // קרדיולוגיה
+  "SPEC03": { systems: ["SYS04"],          dx: ["DX03"] },                    // נוירולוגיה
+  "SPEC04": { systems: ["SYS01", "SYS02"], dx: ["DX04"] },                    // אורתופדיה
+  "SPEC05": { systems: ["SYS11", "SYS12"], dx: ["DX06", "DX07"] },            // אורולוגיה
+  "SPEC06": { systems: ["SYS12"],          dx: ["DX07"] },                    // גינקולוגיה
+  "SPEC07": { systems: ["SYS13"],          dx: [] },                          // עיניים
+  "SPEC08": { systems: ["SYS13", "SYS09"], dx: [] },                          // אף אוזן גרון
+  "SPEC09": { systems: ["SYS03"],          dx: ["DX11"] },                    // עור
+  "SPEC10": { systems: ["SYS04"],          dx: ["DX10"] },                    // פסיכיאטריה
+  "SPEC11": { all: true },                                                    // כירורגיה כללית
+  "SPEC12": { systems: [],                 dx: ["DX01"] },                    // אונקולוגיה
+  "SPEC13": { systems: ["SYS01", "SYS02", "SYS08"], dx: [] },                 // ראומטולוגיה
+  "SPEC14": { systems: ["SYS05"],          dx: ["DX09"] },                    // אנדוקרינולוגיה
+  "SPEC15": { systems: ["SYS10"],          dx: ["DX05"] },                    // גסטרואנטרולוגיה
+  "SPEC16": { systems: ["SYS09"],          dx: ["DX08"] },                    // ריאות
+  "SPEC17": { all: true },                                                    // רפואה תעסוקתית
+  "SPEC18": { all: true }                                                     // רדיולוגיה/דימות
+};
+
+// [Task #211] בלוק ההתמחות במיפוי_קודים (J-N) — עמודה ראשונה של הבלוק.
+const LAB_INFOGRAPHIC_SPECIALTY_MAP_FIRST_COL = 10;
+
+// [Task #211] קריאת בלוקי הקטלוג פעם אחת לכל פתיחת חלון (במקום קריאה
+// נפרדת לכל רשומה) — איברים, משפחות אירוע, ודאות, התמחויות. אם פונקציית
+// הקריאה של S16 אינה זמינה — מוחזרים מילונים ריקים (הכרטיס מציג קודים).
+function _labInfographic_buildCatalogs() {
+  const catalogs = { organs: {}, eventFamilies: {}, certainty: {}, specialties: [] };
+  if (typeof _s16_readCatalogBlock !== "function") return catalogs;
+
+  if (typeof S16_ORGAN_MAP_FIRST_COL !== "undefined") {
+    _s16_readCatalogBlock(S16_ORGAN_MAP_FIRST_COL).options.forEach(function(o) {
+      catalogs.organs[o.code] = o.name;
+    });
+  }
+  _s16_readCatalogBlock(5).options.forEach(function(o) {
+    catalogs.eventFamilies[o.code] = (o.name || "").trim();
+  });
+  if (typeof S16_CERTAINTY_MAP_FIRST_COL !== "undefined") {
+    _s16_readCatalogBlock(S16_CERTAINTY_MAP_FIRST_COL).options.forEach(function(o) {
+      catalogs.certainty[o.code] = { name: o.name, raw: o.raw };
+    });
+  }
+  _s16_readCatalogBlock(LAB_INFOGRAPHIC_SPECIALTY_MAP_FIRST_COL).options.forEach(function(o) {
+    catalogs.specialties.push({ code: o.code, name: o.name || o.code });
+  });
+  return catalogs;
+}
+
+// [Task #211] בניית רשומה אחת משורה ביומן_מצב_רפואי — הלוגיקה הקיימת של
+// הכרטיס הבודד (Task #214/#219), מופרדת לשימוש חוזר לכל השורות.
+// האייקונים מוחזרים כמפתחות (קוד מתיקיית האייקונים, או "FILE:" + מזהה קובץ
+// לאייקון מילת מפתח) — ההמרה לתמונה נעשית פעם אחת לכל מפתח בפונקציה הראשית.
+// מחזירה null לשורה בלי Medical_System_Name / Medical_System / Event_Code.
+function _labInfographic_buildRecord(rowNum, rowValues, colIndexByName, iconMap, catalogs) {
+  function readField(name) {
+    const col = colIndexByName[name];
+    if (!col) return "";
+    const val = rowValues[col - 1];
+    if (val instanceof Date) return Utilities.formatDate(val, Session.getScriptTimeZone(), "dd/MM/yyyy");
+    return (val === null || val === undefined) ? "" : val.toString().trim();
+  }
+
+  const sysName    = readField("Medical_System_Name");
+  const eventCode  = readField("Event_Code");
+  const eventDesc  = readField("Event_Description");
+  const systemCode = readField("Medical_System");
+
+  if (!sysName && !eventCode && !systemCode) return null;
+
+  // שם מערכת הגוף לתצוגה נגזר מהקוד המאומת (Medical_System, נכתב ע"י S16)
+  const systemDisplay = (systemCode && typeof S13_BODY_SYSTEMS !== "undefined" && S13_BODY_SYSTEMS[systemCode])
+    ? S13_BODY_SYSTEMS[systemCode].nameHe
+    : sysName;
+
+  // מילות מפתח לסוג הבדיקה (MODALITY) — בטקסט הגולמי של השורה
+  const combinedText = [sysName, systemDisplay, eventCode, eventDesc,
+                        readField("Event_Type"), readField("Primary_Diagnosis")].join(" ");
+  const matchedIcons  = _labInfographic_findEventIcons(combinedText);
+  const modalityMatch = matchedIcons.filter(function(m) { return m.type === "MODALITY"; })[0];
+
+  const eventFamily = eventCode ? eventCode.substring(0, 2) : "";
+
+  const systemIconKey = iconMap[systemCode] ? systemCode : "";
+
+  // איבר מקוד מאומת (Organ_Code) — שם מבלוק A-D, אייקון לפי שם קובץ = קוד
+  const organCode    = readField("Organ_Code");
+  const organName    = organCode ? (catalogs.organs[organCode] || "") : "";
+  const organIconKey = (organCode && iconMap[organCode]) ? organCode : "";
+  const markerIconKey = organIconKey || systemIconKey;
+  const markerPos = LAB_INFOGRAPHIC_ORGAN_POSITIONS[organCode]
+    || LAB_INFOGRAPHIC_SYSTEM_POSITIONS[systemCode] || null;
+  // מפתח המיקום לקיבוץ סמנים במצב היסטוריה: איבר שיש לו מיקום, אחרת מערכת
+  // שיש לה מיקום, אחרת "מערכתי" (ללא מיקום על הגוף)
+  const positionKey = LAB_INFOGRAPHIC_ORGAN_POSITIONS[organCode] ? organCode
+    : (LAB_INFOGRAPHIC_SYSTEM_POSITIONS[systemCode] ? systemCode : "");
+
+  // אייקון האירוע: קוד העלה (A0A) ← מילת מפתח (MRI) ← משפחת הקוד (A0)
+  let eventIconKey = "";
+  if (eventCode && iconMap[eventCode]) eventIconKey = eventCode;
+  else if (modalityMatch) eventIconKey = "FILE:" + modalityMatch.fileId;
+  else if (eventFamily && iconMap[eventFamily]) eventIconKey = eventFamily;
+
+  const eventCategory = eventFamily ? (catalogs.eventFamilies[eventFamily] || "") : "";
+
+  // ודאות — שם מבלוק Y-AC; דירוג (למשל PIRADS 4) ממילת מפתח עם ספרה
+  const certaintyCode = readField("Diagnosis_Certainty");
+  let certaintyName   = "";
+  let certaintyDetail = "";
+  const certMatch = certaintyCode ? catalogs.certainty[certaintyCode] : null;
+  if (certMatch) {
+    certaintyName = certMatch.name;
+    const gradeKeywords = (certMatch.raw || "").split(",").map(function(k) { return k.trim(); })
+      .filter(function(k) { return k && /\d/.test(k); });
+    [readField("Severity_Status"), readField("Primary_Diagnosis")].some(function(text) {
+      const found = gradeKeywords.filter(function(k) { return text.indexOf(k) !== -1; })[0];
+      if (found) certaintyDetail = found;
+      return !!found;
+    });
+  }
+
+  const recommendation = readField("Recommendations");
+  const recoIconKey    = (recommendation && iconMap["RECO"]) ? "RECO" : "";
+
+  // [Task #211] חותמת זמן לציר הזמן — מתאריך האירוע (DD/MM/YYYY)
+  const eventDate = readField("Event_Date");
+  let eventTs = null;
+  const dm = eventDate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dm) eventTs = new Date(Number(dm[3]), Number(dm[2]) - 1, Number(dm[1])).getTime();
+
+  return {
+    row:           rowNum,
+    system:        systemDisplay || "—",
+    systemCode:    systemCode,
+    systemIconKey: systemIconKey,
+    organ:         { code: organCode, name: organName || organCode, iconKey: organIconKey },
+    markerIconKey: markerIconKey,
+    markerPos:     markerPos,
+    positionKey:   positionKey,
+    eventCode:     eventCode,
+    eventDesc:     eventDesc || "(ללא תיאור)",
+    eventIconKey:  eventIconKey,
+    eventCategory: eventCategory,
+    eventDate:     eventDate,
+    eventTs:       eventTs,
+    recordStatus:  readField("Record_Status"),
+    docIssuer:     readField("Doc_Issuer"),
+    specialty:     { name: readField("Specialty_Name"), code: readField("Specialty_Code") },
+    severity:      { name: readField("Severity_Name"),  code: readField("Severity_Code") },
+    diagnosis:     { name: readField("Diagnosis_Name"), code: readField("Diagnosis_Code") },
+    certainty:     { name: certaintyName, code: certaintyCode, detail: certaintyDetail },
+    recommendation: recommendation,
+    recoIconKey:   recoIconKey
+  };
+}
+
 function runInfographicIconMedicalStatus_LAB() {
   try {
     const ui    = SpreadsheetApp.getUi();
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     // [שונה] Task #214c — הגליון הפעיל (לא גליון קבוע) — כך שאותה פונקציה
     // משרתת גם את יומן_מצב_רפואי (ייצור) וגם את ניסוי_ יומן_מצב_רפואי,
-    // לפי הגליון שבו האייקון נלחץ בפועל. getActiveSheet לעולם אינו null —
-    // אין צורך בבדיקת "גליון לא נמצא".
+    // לפי הגליון שבו האייקון נלחץ בפועל.
     const sheet = ss.getActiveSheet();
 
-    const activeRow = sheet.getActiveCell().getRow();
-    if (activeRow < LAB_INFOGRAPHIC_FIRST_DATA_ROW) {
-      ui.alert("יש לבחור שורת נתונים בגליון (משורה " + LAB_INFOGRAPHIC_FIRST_DATA_ROW + " ואילך) ואז ללחוץ שוב על האייקון.");
-      return;
-    }
-
-    // [תוקן] Task #213 — איתור עמודות לפי שם הכותרת בפועל בשורה 4, ולא לפי
-    // מיקום קבוע — מבנה גליון הניסוי כבר השתנה פעמיים (Task #213), וסדר
-    // העמודות עשוי להשתנות שוב; חיפוש לפי שם מונע הישברות חוזרת.
+    // [תוקן] Task #213 — איתור עמודות לפי שם הכותרת בפועל בשורה 4
     const HEADER_ROW = 4;
     const lastCol    = sheet.getLastColumn();
     const headers    = sheet.getRange(HEADER_ROW, 1, 1, lastCol).getValues()[0];
@@ -2319,141 +2508,80 @@ function runInfographicIconMedicalStatus_LAB() {
       return;
     }
 
-    // [Task #214 — כרטיס אירוע מורחב] קריאת השורה כולה פעם אחת; שדות
-    // הסיווג החדשים אופציונליים — עמודה שלא קיימת בגליון (למשל גליון
-    // הניסוי) מחזירה ערך ריק במקום לעצור את הכרטיס.
-    const rowValues = sheet.getRange(activeRow, 1, 1, lastCol).getValues()[0];
-    function readField(name) {
-      const col = colIndexByName[name];
-      if (!col) return "";
-      const val = rowValues[col - 1];
-      if (val instanceof Date) return Utilities.formatDate(val, Session.getScriptTimeZone(), "dd/MM/yyyy");
-      return (val === null || val === undefined) ? "" : val.toString().trim();
+    // [Task #211] שורה נבחרת → פתיחה במצב "אירוע" עליה; אין שורת נתונים
+    // נבחרת → פתיחה ישירה במצב "היסטוריה" (במקום הודעת שגיאה)
+    const activeRow  = sheet.getActiveCell().getRow();
+    const hasRowPick = activeRow >= LAB_INFOGRAPHIC_FIRST_DATA_ROW;
+
+    const iconMap  = _labInfographic_loadIconMap();
+    const catalogs = _labInfographic_buildCatalogs();
+
+    // [Task #211] כל רשומות הגליון — נקראות פעם אחת
+    const lastRow = sheet.getLastRow();
+    const records = [];
+    let currentIndex = -1;
+    if (lastRow >= LAB_INFOGRAPHIC_FIRST_DATA_ROW) {
+      const allValues = sheet.getRange(LAB_INFOGRAPHIC_FIRST_DATA_ROW, 1,
+        lastRow - LAB_INFOGRAPHIC_FIRST_DATA_ROW + 1, lastCol).getValues();
+      allValues.forEach(function(rowValues, i) {
+        const rowNum = LAB_INFOGRAPHIC_FIRST_DATA_ROW + i;
+        const rec = _labInfographic_buildRecord(rowNum, rowValues, colIndexByName, iconMap, catalogs);
+        if (!rec) return;
+        if (rowNum === activeRow) currentIndex = records.length;
+        records.push(rec);
+      });
     }
 
-    const sysName   = readField("Medical_System_Name");
-    const eventCode = readField("Event_Code");
-    const eventDesc = readField("Event_Description");
-
-    if (!sysName && !eventCode) {
+    if (hasRowPick && currentIndex === -1) {
       ui.alert("בשורה " + activeRow + " אין Medical_System_Name/Event_Code להצגה.");
       return;
     }
-
-    // [Task #214] שם מערכת הגוף לתצוגה נגזר מהקוד המאומת (Medical_System,
-    // נכתב ע"י S16) — Medical_System_Name הוא טקסט גולמי מ-S13 ואינו מתעדכן
-    // באישור S16 (נמצא בשורה 6: SYS12 מאומת, השם הגולמי "מערכת השתן").
-    const systemCode = readField("Medical_System");
-    const systemDisplay = (systemCode && typeof S13_BODY_SYSTEMS !== "undefined" && S13_BODY_SYSTEMS[systemCode])
-      ? S13_BODY_SYSTEMS[systemCode].nameHe
-      : sysName;
-
-    // [Task #214] מילות מפתח נבדקות גם בטקסט הגולמי של סוג האירוע והאבחנה —
-    // שם מופיע בדרך כלל האיבר (למשל "בלוטת הערמונית").
-    const combinedText = [sysName, systemDisplay, eventCode, eventDesc,
-                          readField("Event_Type"), readField("Primary_Diagnosis")].join(" ");
-    const matchedIcons = _labInfographic_findEventIcons(combinedText);
-    const modalityMatch = matchedIcons.filter(function(m) { return m.type === "MODALITY"; })[0];
-
-    // [Task #214] אייקונים לפי קוד מתיקיית האייקונים
-    const iconMap = _labInfographic_loadIconMap();
-    function iconData(fileId) {
-      if (!fileId) return "";
-      try { return _labInfographic_blobToDataUri(fileId); } catch (e) { return ""; }
-    }
-    const eventFamily = eventCode ? eventCode.substring(0, 2) : "";
-
-    const systemIcon = iconData(iconMap[systemCode]);
-
-    // [Task #219] איבר מקוד מאומת (Organ_Code, נכתב ע"י S16): שם מבלוק A-D
-    // במיפוי_קודים, אייקון לפי שם קובץ = קוד (למשל SYS12A.png). כשיש איבר —
-    // הסמן על הגוף הוא אייקון האיבר במיקום האיבר; אחרת אייקון ומיקום המערכת.
-    const organCode = readField("Organ_Code");
-    let organName = "";
-    if (organCode && typeof _s16_readCatalogBlock === "function" && typeof S16_ORGAN_MAP_FIRST_COL !== "undefined") {
-      const organMatch = _s16_readCatalogBlock(S16_ORGAN_MAP_FIRST_COL).options.filter(function(o) {
-        return o.code === organCode;
-      })[0];
-      if (organMatch) organName = organMatch.name;
-    }
-    const organIcon  = organCode ? iconData(iconMap[organCode]) : "";
-    const markerIcon = organIcon || systemIcon;
-    const markerPos  = LAB_INFOGRAPHIC_ORGAN_POSITIONS[organCode]
-      || LAB_INFOGRAPHIC_SYSTEM_POSITIONS[systemCode] || null;
-
-    // אייקון האירוע: קוד העלה (למשל A0A) ← מילת מפתח (MRI) ← משפחת הקוד (A0)
-    let eventIconId = iconMap[eventCode] || "";
-    if (!eventIconId && modalityMatch) eventIconId = modalityMatch.fileId;
-    if (!eventIconId) eventIconId = iconMap[eventFamily] || "";
-    const eventIcon = iconData(eventIconId);
-
-    // שם קטגוריית האירוע (A0 → "בדיקות דימות") מבלוק האירועים במיפוי_קודים
-    let eventCategory = "";
-    if (eventFamily && typeof _s16_readCatalogBlock === "function") {
-      const fam = _s16_readCatalogBlock(5).options.filter(function(o) { return o.code === eventFamily; })[0];
-      if (fam) eventCategory = (fam.name || "").trim();
+    if (records.length === 0) {
+      ui.alert("אין רשומות להצגה בגליון " + sheet.getName() + ".");
+      return;
     }
 
-    // [Task #214] שם הוודאות מבלוק Y-AC במיפוי_קודים — דרך הפונקציה הקיימת
-    // ב-S16_ValidateMedicalStatus.gs (ללא קוד כפול). אם אינה זמינה — הקוד בלבד.
-    const certaintyCode = readField("Diagnosis_Certainty");
-    let certaintyName = "";
-    let certaintyDetail = "";
-    if (certaintyCode && typeof _s16_readCatalogBlock === "function" && typeof S16_CERTAINTY_MAP_FIRST_COL !== "undefined") {
-      const match = _s16_readCatalogBlock(S16_CERTAINTY_MAP_FIRST_COL).options.filter(function(o) {
-        return o.code === certaintyCode;
-      })[0];
-      if (match) {
-        certaintyName = match.name;
-        // [Task #219] דירוג (למשל PIRADS 4): מילת מפתח מעמודת Raw_Value של קוד
-        // הוודאות (למשל AB5) שמכילה ספרה, ומופיעה בעמודת החומרה הגולמית
-        // (Severity_Status) או, אם לא נמצאה שם, באבחנה הגולמית (Primary_Diagnosis).
-        // מילים כלליות בלי ספרה (חשד/ייתכן/סביר) לא מוצגות — הן כבר שם הוודאות.
-        const gradeKeywords = (match.raw || "").split(",").map(function(k) { return k.trim(); })
-          .filter(function(k) { return k && /\d/.test(k); });
-        [readField("Severity_Status"), readField("Primary_Diagnosis")].some(function(text) {
-          const found = gradeKeywords.filter(function(k) { return text.indexOf(k) !== -1; })[0];
-          if (found) certaintyDetail = found;
-          return !!found;
-        });
-      }
+    // [Task #211] מפת תמונות משותפת — כל אייקון מוטמע פעם אחת בלבד
+    const icons = {};
+    function addIcon(key) {
+      if (!key || icons[key] !== undefined) return;
+      const fileId = key.indexOf("FILE:") === 0 ? key.substring(5) : iconMap[key];
+      try { icons[key] = fileId ? _labInfographic_blobToDataUri(fileId) : ""; } catch (e) { icons[key] = ""; }
     }
+    records.forEach(function(r) {
+      addIcon(r.systemIconKey);
+      addIcon(r.organ.iconKey);
+      addIcon(r.markerIconKey);
+      addIcon(r.eventIconKey);
+      addIcon(r.recoIconKey);
+    });
 
-    // [Task #219] המלצה — הטקסט מעמודת Recommendations כפי שהוא, עם אייקון
-    // RECO.png מתיקיית האייקונים. ריק = שורת ההמלצה לא מוצגת בכרטיס.
-    const recommendation = readField("Recommendations");
-    const recoIcon       = recommendation ? iconData(iconMap["RECO"]) : "";
-
-    const record = {
-      system:        systemDisplay || "—",
-      systemCode:    systemCode,
-      systemIcon:    systemIcon,
-      organ:         { code: organCode, name: organName || organCode, icon: organIcon },
-      markerIcon:    markerIcon,
-      markerPos:     markerPos,
-      eventCode:     eventCode,
-      eventDesc:     eventDesc || "(ללא תיאור)",
-      eventIcon:     eventIcon,
-      eventCategory: eventCategory,
-      eventDate:     readField("Event_Date"),
-      recordStatus:  readField("Record_Status"),
-      docIssuer:     readField("Doc_Issuer"),
-      specialty:     { name: readField("Specialty_Name"), code: readField("Specialty_Code") },
-      severity:      { name: readField("Severity_Name"),  code: readField("Severity_Code") },
-      diagnosis:     { name: readField("Diagnosis_Name"), code: readField("Diagnosis_Code") },
-      certainty:     { name: certaintyName,               code: certaintyCode, detail: certaintyDetail },
-      recommendation: recommendation,
-      recoIcon:      recoIcon
-    };
+    // [Task #211] שמות מערכות הגוף לכפתורי הסינון
+    const systemNames = {};
+    if (typeof S13_BODY_SYSTEMS !== "undefined") {
+      Object.keys(S13_BODY_SYSTEMS).forEach(function(code) {
+        systemNames[code] = S13_BODY_SYSTEMS[code].nameHe;
+      });
+    }
 
     const bodyImageData = _labInfographic_blobToDataUri(LAB_INFOGRAPHIC_BODY_IMAGE_FILE_ID);
 
     const template = HtmlService.createTemplateFromFile('LAB_Infographic');
     template.bodyImageData = bodyImageData;
-    template.recordJson    = JSON.stringify(record);
+    template.dataJson = JSON.stringify({
+      records:          records,
+      icons:            icons,
+      currentIndex:     currentIndex,
+      startMode:        currentIndex >= 0 ? "event" : "history",
+      systemNames:      systemNames,
+      specialties:      catalogs.specialties,
+      specialtyFilter:  LAB_INFOGRAPHIC_SPECIALTY_FILTER,
+      systemPositions:  LAB_INFOGRAPHIC_SYSTEM_POSITIONS,
+      organPositions:   LAB_INFOGRAPHIC_ORGAN_POSITIONS
+    });
 
     const html = template.evaluate().setWidth(520).setHeight(560);
-    html.setTitle("אינפוגרפיקה רפואית — לפי אירוע");
+    html.setTitle("אינפוגרפיקה רפואית");
     ui.showSidebar(html);
 
   } catch (e) {
