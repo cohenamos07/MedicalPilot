@@ -1,6 +1,6 @@
 /**
  * @file        S13_ExtractMedical.gs
- * @version     1.5.0 | @updated 21/10/2026 23:11 | @service S13
+ * @version     1.6.0 | @updated 22/10/2026 22:13 | @service S13
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S13_ExtractMedical.gs
  * @description שירות חילוץ עמוק — קורא שורות מאומתות (Validation_Status="מאומת",
  *              Extraction_Status ריק) מיומן_אירועים_רפואי, מקבץ לפי File_ID
@@ -17,6 +17,8 @@
  *              מאומת מול הקטלוג לפני כתיבה (Record_Status="חדש" — הצעה בלבד).
  *              [v1.5.0] שורה עם Event_Type="מחלת רקע" (S09 v2.1.0) — חומרה ריקה
  *              וודאות CRT4 ("רקע ידוע") נאכפות בקוד, ללא תלות בתשובת Gemini.
+ *              [v1.6.0] שורת ניתוח — Gemini מחזיר גם מצב וצד האיבר שנותח (קטלוג
+ *              מצב_איבר/צד_איבר), ו-Primary_Diagnosis = שם הניתוח (לא ממצא).
  * @impacts     יומן_אירועים_רפואי: קורא בלבד (A-L, [v1.3.1] עודכן מ-A-I, Task
  *              #205 — File_ID עבר לעמודה L), כותב Extraction_Status (I).
  *              בדיקות_דם/בדיקות_גנטיות/תרופות_קבועות/הנחיות_רפואיות_ומשימות/
@@ -27,12 +29,33 @@
  *              (S16_ValidateMedicalStatus.gs — תלות, עם בדיקת typeof).
  *              [v1.5.0] מיפוי_קודים: תלות בערך CRT4 בבלוק הוודאות (Y-AC) — אם
  *              יוסר, הוודאות לשורות רקע נשארת ריקה (ללא שגיאה).
+ *              [v1.6.0] יומן_מצב_רפואי: 24 עמודות — Organ_State_Code (23) ו-
+ *              Organ_Side_Code (24), מתמלאות רק בשורת ניתוח (אחרת ריקות).
+ *              מיפוי_קודים: בלוקים AD-AH/AI-AM, קריאה בלבד (תלות ב-S16 v2.4.0
+ *              — S16_ORGAN_STATE/SIDE_MAP_FIRST_COL, עם בדיקת typeof).
  * @callers     runS13ViewIconEvents (ViewEngine.gs, עמודה F ביומן_אירועים_רפואי)
  * @functions   runS13 | _s13_checkRow | _s13_getEligibleGroups | _s13_processSingleRow |
  *              _s13_processBatch | _s13_getSchemaBlock | _s13_fetchTxtUrlByFileId |
  *              _s13_fetchTxtContent | _s13_buildPrompt | _s13_normalizeDate |
  *              _s13_callGemini | _s13_buildRowValues | _s13_writeExtractedRow |
  *              _s13_processGroup | _s13_loadCatalog | _s13_validateCode
+ * @changes     [v1.6.0] Task #224 (שלב 4) — מצב וצד איבר בשורות ניתוח.
+ *              _s13_getSchemaBlock — ענף נפרד ל-"ניתוח/פעולה רפואית" עם
+ *              Organ_State_Code + Organ_Side_Code (שאר הקטגוריות ללא שינוי).
+ *              _s13_loadCatalog — טוען גם organState/organSide (בלוקים 30/35 דרך
+ *              _s16_readCatalogBlock; S16 ישן → מערכים ריקים). _s13_buildPrompt —
+ *              כלל (6): בשורת ניתוח Primary_Diagnosis = שם הניתוח בעברית + המונח
+ *              המקורי; Organ_State_Code לפי מה שהוסר; Organ_Side_Code לפי הכותרת,
+ *              האבחנה ושם הניתוח — סתירה בטקסט → ריק; LAT0 רק לאיבר ללא צדדים
+ *              שנותח כולו, באיבר עם אונות — צד האונה, צד לא ידוע → ריק. נוספו
+ *              רשימות קטלוג המצב והצד. _s13_buildRowValues — 24 ערכים; מצב וצד
+ *              מאומתים מול הקטלוג (_s13_validateCode) ורק בשורת ניתוח. אומת מול
+ *              הקוד החי (diff מדויק לכל בלוק, node --check, השוואת קוד מלאה מול
+ *              התכנון), הדמיה, ובדיקת שטח על 3 ניתוחים ממסמך כללית (אירועים
+ *              240-242 → יומן_מצב_רפואי 13-15): שם הניתוח באבחנה, איבר ומצב
+ *              נכונים בשלושתם. צד — 13/14 העתיקו טעות של S09 (עמודת צד מוזזת
+ *              בטבלת המקור, Task #231), 15 קיבל LAT0 — תוקן ניסוח הכלל בפרומפט
+ *              (צד לאיבר עם אונות). שלושתם תוקנו ואושרו ידנית ב-S16.
  * @changes     [v1.5.0] Task #223 — טיפול במחלות רקע (שורות עם Event_Type="מחלת
  *              רקע" שמסמן S09 v2.1.0): _s13_buildPrompt — כלל (5) חדש: Severity_
  *              Code ו-Severity_Status ריקים, Certainty_Code=CRT4, בלי להסיק חומרה
@@ -332,8 +355,15 @@ function _s13_getSchemaBlock(routingCategory) {
     case "הנחיה":
          return '{"Task_Description":"","Task_Type":"","Due_Date":"DD/MM/YYYY","Status":"פתוח|בוצע","Medical_System":"קוד SYS00-SYS14 בלבד"}';
 
-    case "מצב רפואי":
+    // [Task #224] ניתוח — אותה סכימה + מצב וצד האיבר שנותח
     case "ניתוח/פעולה רפואית":
+      return '{"Medical_System":"קוד SYS00-SYS14 בלבד","Organ_Code":"קוד איבר מהקטלוג או ריק",' +
+        '"Event_Code":"קוד מהקטלוג או ריק","Specialty_Code":"קוד מהקטלוג או ריק",' +
+        '"Severity_Code":"קוד מהקטלוג או ריק","Diagnosis_Code":"קוד מהקטלוג או ריק",' +
+        '"Certainty_Code":"קוד מהקטלוג או ריק","Organ_State_Code":"קוד מהקטלוג או ריק",' +
+        '"Organ_Side_Code":"קוד מהקטלוג או ריק","Primary_Diagnosis":"","Severity_Status":"","Recommendations":""}';
+
+    case "מצב רפואי":
     case "כללי":
     default:
       // [Task #220 שלב ב] נוספו 6 שדות קוד מתוך קטלוג מיפוי_קודים
@@ -351,6 +381,7 @@ function _s13_getSchemaBlock(routingCategory) {
 // אם אינה זמינה — מחזיר null והחילוץ ממשיך בלי קודי קטלוג (כמו בעבר).
 // מחזיר: { eventCode, specialty, severity, diagnosis, certainty, organ }
 // — כל אחד מערך options [{code, name, raw, desc, row}].
+// [Task #224] + organState, organSide (בלוקים AD-AH / AI-AM; ריקים אם S16 ישן).
 // ══════════════════════════════════════════════════════════════════
 
 function _s13_loadCatalog() {
@@ -369,13 +400,17 @@ function _s13_loadCatalog() {
     catalog.organ = _s16_readCatalogBlock(S16_ORGAN_MAP_FIRST_COL).options.filter(function(o) {
       return o.code.length > 5;
     });
+    // [Task #224] מצב וצד איבר אחרי ניתוח (בלוקים AD-AH / AI-AM) — רק אם S16 v2.4.0+
+    catalog.organState = (typeof S16_ORGAN_STATE_MAP_FIRST_COL !== "undefined")
+      ? _s16_readCatalogBlock(S16_ORGAN_STATE_MAP_FIRST_COL).options : [];
+    catalog.organSide  = (typeof S16_ORGAN_SIDE_MAP_FIRST_COL !== "undefined")
+      ? _s16_readCatalogBlock(S16_ORGAN_SIDE_MAP_FIRST_COL).options : [];
     return catalog;
   } catch (e) {
     Logger.log("[S13] שגיאת קריאת קטלוג מיפוי_קודים: " + e.message + " — חילוץ ללא קודי קטלוג");
     return null;
   }
 }
-
 // ══════════════════════════════════════════════════════════════════
 // [Task #220 שלב ב] אימות קוד שהחזיר Gemini מול הקטלוג — מחזיר את
 // האפשרות {code, name, ...} רק אם הקוד קיים בקטלוג; אחרת null.
@@ -489,12 +524,24 @@ function _s13_buildPrompt(group, fallbackTxt, catalog) {
       "(5) שורה עם Event_Type \"מחלת רקע\" היא מחלה שאובחנה בעבר ומוזכרת במסמך כרקע בלבד: " +
       "Severity_Code ו-Severity_Status נשארים ריקים, ו-Certainty_Code = CRT4. " +
       "אל תסיק חומרה או ודאות כאילו זה ממצא חדש.\n" +
-      "\n--- קטלוג Organ_Code (קוד=איבר) ---\n" + listOf(catalog.organ, function(o) { return o.desc; }) +
+      // [Task #224] שורות ניתוח — מצב וצד האיבר, ושם הניתוח כאבחנה העיקרית
+      "(6) שורה עם Routing_Category \"ניתוח/פעולה רפואית\": Primary_Diagnosis = שם הניתוח/הפעולה " +
+      "שבוצעו בפועל, בעברית ובמונח המקורי בסוגריים (למשל \"כריתת אונה שמאל של בלוטת התריס " +
+      "(Hemithyroidectomy)\") — לא ממצא, גוש או אבחנה אחרת מהמסמך. Organ_Code = האיבר שנותח. " +
+      "Organ_State_Code = מצב האיבר אחרי הניתוח, מקטלוג מצב האיבר (כריתה חלקית/אונה → הוסר חלקית, " +
+      "כריתה מלאה → הוסר, ניתוח שלא הסיר רקמה → קיים). Organ_Side_Code = הצד של האיבר שנותח, " +
+      "מקטלוג הצד, לפי הכותרת, האבחנה ושם הניתוח. אם הטקסט סותר את עצמו לגבי הצד (למשל \"אונה " +
+      "שמאל\" בכותרת ו\"האונה הימנית\" בגוף) — השאר Organ_Side_Code ריק. LAT0 רק לאיבר ללא צדדים שנותח " +
+      "כולו (למשל קיבה, ערמונית). איבר עם אונות/צדדים (תריס, ריאה, כבד, כליה) — הצד של מה שנותח (למשל " +
+      "כריתת אונה שמאל של התריס → LAT2). אם הצד לא מופיע בשום מקום — השאר ריק, לא LAT0.\n" +     
+       "\n--- קטלוג Organ_Code (קוד=איבר) ---\n" + listOf(catalog.organ, function(o) { return o.desc; }) +
       "\n--- קטלוג Event_Code (קוד=סוג אירוע) ---\n" + listOf(catalog.eventCode, function(o) { return o.desc; }) +
       "\n--- קטלוג Specialty_Code ---\n" + listOf(catalog.specialty, function(o) { return o.raw; }) +
       "\n--- קטלוג Severity_Code ---\n" + listOf(catalog.severity, function(o) { return o.raw; }) +
       "\n--- קטלוג Diagnosis_Code ---\n" + listOf(catalog.diagnosis, function(o) { return o.raw; }) +
       "\n--- קטלוג Certainty_Code ---\n" + listOf(catalog.certainty, function(o) { return o.raw; }) +
+      "\n--- קטלוג Organ_State_Code (מצב איבר — לשורות ניתוח בלבד) ---\n" + listOf(catalog.organState, function(o) { return o.desc; }) +
+      "\n--- קטלוג Organ_Side_Code (צד איבר — לשורות ניתוח בלבד) ---\n" + listOf(catalog.organSide, function(o) { return o.desc; }) +
       "\n";
   }
 
@@ -708,7 +755,8 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
       // Recommendations | Doc_Issuer | Record_Status | S_Row |
       // Specialty_Name | Medical_System_Name | Event_Code | Event_Description |
       // Severity_Name | Diagnosis_Name | Diagnosis_Certainty | Source_URL |
-      // File_ID | Medical_System | Specialty_Code | Severity_Code | Diagnosis_Code | Organ_Code.
+      // File_ID | Medical_System | Specialty_Code | Severity_Code | Diagnosis_Code | Organ_Code |
+      // Organ_State_Code | Organ_Side_Code ([Task #224] — רק בשורת ניתוח, אחרת ריקים).
       // S_Row מחושב ע"י VIEWENGINE (refreshMedicalStatusRows) — נשאר ריק כאן.
       // Medical_System_Name נגזר מקוד המערכת הסופי (לא מהטקסט החופשי של S09).
       const cat       = ctx.catalog || {};
@@ -722,6 +770,10 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
       const severity  = isBackground ? null : _s13_validateCode(cat.severity,  fields.Severity_Code);
       const diagnosis = _s13_validateCode(cat.diagnosis, fields.Diagnosis_Code);
       const certainty = _s13_validateCode(cat.certainty, isBackground ? "CRT4" : fields.Certainty_Code);
+      // [Task #224] מצב וצד איבר — רק בשורת ניתוח, ורק קוד שקיים בקטלוג (אחרת ריק)
+      const isSurgery  = routingCategory === "ניתוח/פעולה רפואית";
+      const organState = isSurgery ? _s13_validateCode(cat.organState, fields.Organ_State_Code) : null;
+      const organSide  = isSurgery ? _s13_validateCode(cat.organSide,  fields.Organ_Side_Code)  : null;
       return [
         _s13_normalizeDate(ctx.eventDate),
         ctx.eventType || "",
@@ -744,7 +796,9 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
         specialty ? specialty.code : "",
         severity  ? severity.code  : "",
         diagnosis ? diagnosis.code : "",
-        organ     ? organ.code     : ""
+        organ     ? organ.code     : "",
+        organState ? organState.code : "",
+        organSide  ? organSide.code  : ""
       ];
     }
   }
