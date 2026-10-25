@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.11.1 | @updated 13/10/2026 20:36 | @service COLUMN_MAP
+ * @version 2.12.0 | @updated 22/10/2026 20:19 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
@@ -14,6 +14,9 @@
  *          בדיעבד למבנה שכבר קיים בייצור מ-10/09/2026 (task214a/task215a).
  *          [v2.11.1] יומן_מצב_רפואי — 22 עמודות: נוספה Organ_Code (עמודה 22,
  *          writers: S16), Task #219.
+ *          [v2.12.0] יומן_מצב_רפואי — 24 עמודות: נוספו Organ_State_Code (23)
+ *          ו-Organ_Side_Code (24), writers: S13+S16, Task #224. מיפוי_קודים —
+ *          39 עמודות, 8 בלוקים: נוספו מצב_איבר AD-AH ו-צד_איבר AI-AM.
  *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (11), בדיקות_דם (10),
  *          בדיקות_גנטיות (8), הנחיות_רפואיות_ומשימות (8) — 5 גליונות יעד של S09,
  *          נוספו ל-SHEET_CONFIG/SHEETS_MAP עם כותרות באנגלית, יושרו בפועל
@@ -40,6 +43,16 @@
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol, _medDate_normalizeDate
+ * @changes [v2.12.0] Task #224 (שלב 2) — SHEETS_MAP["יומן_מצב_רפואי"]: נוספו
+ *          עמודות 23 = Organ_State_Code (OST0-OST2) ו-24 = Organ_Side_Code
+ *          (LAT0-LAT3), zone: טכני, writers: ["S13","S16"] — מצב וצד איבר אחרי
+ *          ניתוח; מתמלאות רק בשורות ניתוח, ריק = אין מידע. SHEETS_MAP["מיפוי_
+ *          קודים"]: נוספו בלוק מצב_איבר (עמ' 30-34, AD-AH) ובלוק צד_איבר (עמ'
+ *          35-39, AI-AM), באותו מבנה 5 עמודות כמו שאר הבלוקים; Raw_Value = מילות
+ *          מפתח להצעה ב-S16. הבלוקים והכותרות W4:X4 נוספו בגליון החי ע"י עמוס
+ *          (22/10/2026). S13/S16/ViewEngine עוד לא קוראים/כותבים לעמודות — שלבים
+ *          3-5 של המשימה. אומת מול הקוד החי (diff מדויק, node --check, טעינת
+ *          המפה: 24 עמודות ביומן_מצב_רפואי, 39 במיפוי_קודים).
  * @changes [v2.11.1] Task #219 — SHEETS_MAP["יומן_מצב_רפואי"]: נוספה עמודה
  *          22 = Organ_Code (zone: טכני, writers: ["S16"]) — תת-קוד איבר מבלוק
  *          איברים A-D במיפוי_קודים (למשל SYS12A ערמונית), נבחר ב-S16 מתוך
@@ -343,7 +356,7 @@ const SHEETS_MAP = {
   ],
 
     // [Task 184] גליון יעד — מצב רפואי (medical_status) שחולץ ע"י S09 (כותרות אנגלית)
-         "יומן_מצב_רפואי": [
+             "יומן_מצב_רפואי": [
     { col: 1,  name: "Event_Date",           zone: "אירוע", writers: ["S13"],       readers: [], values: "תאריך DD/MM/YYYY", notes: "מהמסמך או תאריך המסמך כברירת מחדל" },
     { col: 2,  name: "Event_Type",           zone: "אירוע", writers: ["S13"],       readers: [], values: "טקסט חופשי",       notes: "" },
     { col: 3,  name: "Primary_Diagnosis",    zone: "תוכן",  writers: ["S13"],       readers: [], values: "טקסט חופשי",       notes: "" },
@@ -365,7 +378,9 @@ const SHEETS_MAP = {
     { col: 19, name: "Specialty_Code",       zone: "טכני",  writers: [],            readers: [], values: "SPEC00-SPEC18",      notes: "[Task #214] ⚠️ מיועד להתמלא ע\"י onEdit — לא פעיל בייצור כרגע (ראה דוח)" },
     { col: 20, name: "Severity_Code",        zone: "טכני",  writers: [],            readers: [], values: "SEV0-SEV4",          notes: "[Task #214] ⚠️ אותו ממצא" },
     { col: 21, name: "Diagnosis_Code",       zone: "טכני",  writers: [],            readers: [], values: "DX00-DX13",          notes: "[Task #214] ⚠️ אותו ממצא" },
-    { col: 22, name: "Organ_Code",           zone: "טכני",  writers: ["S16"],       readers: [], values: "תת-קוד איבר (למשל SYS12A) או ריק", notes: "[Task #219] select סגור ב-S16 מבלוק איברים A-D במיפוי_קודים, מסונן לפי Medical_System; ריק = ללא איבר. נקרא ע\"י runInfographicIconMedicalStatus_LAB (ViewEngine)" }
+    { col: 22, name: "Organ_Code",           zone: "טכני",  writers: ["S16"],       readers: [], values: "תת-קוד איבר (למשל SYS12A) או ריק", notes: "[Task #219] select סגור ב-S16 מבלוק איברים A-D במיפוי_קודים, מסונן לפי Medical_System; ריק = ללא איבר. נקרא ע\"י runInfographicIconMedicalStatus_LAB (ViewEngine)" },
+    { col: 23, name: "Organ_State_Code",     zone: "טכני",  writers: ["S13","S16"], readers: [], values: "OST0-OST2 או ריק", notes: "[Task #224] מצב איבר אחרי ניתוח — select סגור ב-S16 מבלוק מצב_איבר AD-AH במיפוי_קודים. מתמלא רק בשורות ניתוח: S13 מציע, S16 מאשר. ריק = אין מידע (לא \"קיים\")" },
+    { col: 24, name: "Organ_Side_Code",      zone: "טכני",  writers: ["S13","S16"], readers: [], values: "LAT0-LAT3 או ריק", notes: "[Task #224] צד האיבר — select סגור ב-S16 מבלוק צד_איבר AI-AM במיפוי_קודים. סתירת צד בטקסט המקור → ריק + אזהרה ב-S16" }
   ],
   // [Task 184] גליון יעד — בדיקות דם שחולצו ע"י S09 (כותרות אנגלית)
   "בדיקות_דם": [
@@ -515,12 +530,26 @@ const SHEETS_MAP = {
     { col: 23, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
     { col: 24, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL",         notes: "" },
 
-    // בלוק וודאות אבחנה (Y-AC) — אין עמודת קוד נפרדת ביומן (ראה Diagnosis_Certainty).
+       // בלוק וודאות אבחנה (Y-AC) — אין עמודת קוד נפרדת ביומן (ראה Diagnosis_Certainty).
     { col: 25, name: "Certainty_Code",   zone: "מיפוי", writers: ["עמוס"], readers: [], values: "CRT0-CRT3", notes: "[Task #215a] בלוק וודאות Y-AC. משמש כמקור לרשימת הבחירה ב-Diagnosis_Certainty; אין מנגנון onEdit לבלוק הזה" },
     { col: 26, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
     { col: 27, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
     { col: 28, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
-    { col: 29, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL",         notes: "" }
+    { col: 29, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL",         notes: "" },
+
+    // [Task #224] בלוק מצב איבר (AD-AH) — קיים / הוסר חלקית / הוסר.
+    { col: 30, name: "Organ_State_Code", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "OST0-OST2", notes: "[Task #224] בלוק מצב_איבר AD-AH. מקור ל-Organ_State_Code (עמ' 23) ביומן_מצב_רפואי — S13 (הצעה) ו-S16 (select סגור)" },
+    { col: 31, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 32, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 33, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי — מילות מפתח מופרדות בפסיקים", notes: "[Task #224] מקור ההצעה האוטומטית ב-S16" },
+    { col: 34, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "" },
+
+    // [Task #224] בלוק צד איבר (AI-AM) — לא רלוונטי / ימין / שמאל / דו-צדדי.
+    { col: 35, name: "Organ_Side_Code",  zone: "מיפוי", writers: ["עמוס"], readers: [], values: "LAT0-LAT3", notes: "[Task #224] בלוק צד_איבר AI-AM. מקור ל-Organ_Side_Code (עמ' 24) ביומן_מצב_רפואי — S13 (הצעה) ו-S16 (select סגור)" },
+    { col: 36, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 37, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
+    { col: 38, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי — מילות מפתח מופרדות בפסיקים", notes: "[Task #224] מקור ההצעה האוטומטית ב-S16" },
+    { col: 39, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "" }
   ]
 
 };
