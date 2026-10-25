@@ -1,6 +1,6 @@
 <!--
   MedicalPilot — S16_Sidebar.html
-  @version     2.4.0 | @updated 15/10/2026 22:15 | @service S16
+  @version     2.5.0 | @updated 22/10/2026 21:25 | @service S16
   @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_Sidebar.html
   @description ממשק Dialog לאימות כל קודי הסיווג ביומן_מצב_רפואי (21 עמודות):
                קוד מערכת גוף (select סגור), קוד אירוע/התמחות/חומרה/אבחנה
@@ -18,6 +18,8 @@
                שדה המלצה לעריכה בעמודה השמאלית, ותצוגה קומפקטית ללא גלילה.
                [v2.4.0] תגית "🤖 Gemini — לאמת" לקודים שנכתבו ע"י S13 בשורה
                בסטטוס "חדש" (בשורת הכותרת), ו-"+ קוד חדש" גם לוודאות אבחנה.
+               [v2.5.0] שני select זה לצד זה מתחת לאיבר — "מצב האיבר" ו"צד" —
+               רק בשורת ניתוח או כשכבר שמור ערך (payload.organState.show).
   @impacts     כפתורים: אשר, הוסף-קוד (4, אחד לכל שדה קטלוג פתוח), ניווט
                הקודם/הבא. תלוי ב: S16_ValidateMedicalStatus.gs — כל
                הלוגיקה מתבצעת שם.
@@ -27,10 +29,25 @@
                [v2.3.0] s16_approve מקבל פרמטר שישי — המלצה (null אם לא שונתה).
                [v2.4.0] כפתורי הוסף-קוד: 5 (נוספה וודאות — key="certainty").
                אין שינוי בפרמטרים של s16_approve.
+               [v2.5.0] s16_approve מקבל פרמטרים 7-8 — מצב וצד איבר (null אם
+               השדות לא הוצגו בחלון — לא נכתבים בצד השרת).
   @callers     S16_ValidateMedicalStatus.gs (showS16Sidebar)
   @functions   initUI, render, renderCodeFieldHtml, esc, prevRow, nextRow,
                doApprove, doSaveCatalogCode, handleResult, handleError,
-               fillOrganOptions, suggestionHintHtml, toggleNewCode, geminiHintHtml
+               fillOrganOptions, suggestionHintHtml, toggleNewCode, geminiHintHtml,
+               organStateHtml
+  @changes     [v2.5.0] Task #224 (שלב 3) — מצב וצד איבר אחרי ניתוח.
+               organStateHtml (חדשה): שני select סגורים ("— לא צוין —" +
+               אפשרויות הקטלוג) בשורה אחת (flex) מתחת ל-organHint, בתוך מקטע
+               קוד מערכת הגוף — בלי תוספת גלילה. הצעה נבחרת מראש רק כשהשדה ריק
+               (suggestionHintHtml הקיימת); סתירת צד (sideConflict) — אזהרה
+               אדומה "בטקסט מופיעים גם X וגם Y — יש לבדוק במסמך המקור", בלי
+               הצעה. render: קריאה אחת ל-organStateHtml. doApprove: קורא את
+               organStateSelect/organSideSelect אם קיימים (אחרת null) ושולח
+               כפרמטרים 7-8. אומת מול הקוד החי (diff מדויק לכל בלוק, node
+               --check על בלוק הסקריפט), בסימולציה של מקרה סתירת צד, ובבדיקת
+               שטח: שורה 8 — ללא שדות; שורה 12 (ניתוח) — השדות הוצגו, באישור
+               נכתבו OST1/LAT2.
   @changes     [v2.4.0] Task #220 שלב ב — סימון קודים מ-Gemini + קוד חדש לוודאות.
                geminiHintHtml (חדשה): תגית כתומה "🤖 Gemini — לאמת" (span
                בשורת הכותרת, בלי תוספת גובה) לכל שדה שיש בו קוד כשהרשומה
@@ -406,6 +423,33 @@
     return '<span style="color:#e65100; font-weight:bold; font-size:11px; margin-right:8px;">🤖 Gemini — לאמת</span>';
   }
 
+    // ════ [Task #224] מצב וצד איבר — רק בשורת ניתוח או כשכבר שמור ערך ════
+  // שני select סגורים זה לצד זה (שורה אחת — בלי גלילה נוספת). הצעה נבחרת
+  // מראש רק כשהשדה ריק. סתירת צד בטקסט — בלי הצעה, אזהרה אדומה.
+  function organStateHtml(os) {
+    if (!os || !os.show) return '';
+    function selectHtml(id, options, current, sugg) {
+      const pre      = !current && !!sugg;
+      const selected = current || (pre ? sugg.code : '');
+      let h = '<select id="' + id + '"><option value="">— לא צוין —</option>';
+      (options || []).forEach(function(opt) {
+        const sel = (opt.code === selected) ? ' selected' : '';
+        h += '<option value="' + esc(opt.code) + '"' + sel + '>' + esc(opt.code) + ' — ' + esc(opt.name) + '</option>';
+      });
+      return { html: h + '</select>', pre: pre };
+    }
+    const st = selectHtml('organStateSelect', os.stateOptions, os.currentState, os.stateSuggestion);
+    const sd = selectHtml('organSideSelect',  os.sideOptions,  os.currentSide,  os.sideSuggestion);
+    const sideNote = os.sideConflict
+      ? '<div class="hint" style="color:#c62828; font-weight:bold;">⚠️ בטקסט מופיעים גם ' + esc(os.sideConflict.join(' וגם ')) + ' — יש לבדוק במסמך המקור</div>'
+      : suggestionHintHtml(os.sideSuggestion, sd.pre);
+    return '<div style="display:flex; gap:8px;">' +
+        '<div style="flex:1; min-width:0;"><label class="edit-label">מצב האיבר</label>' + st.html +
+          suggestionHintHtml(os.stateSuggestion, st.pre) + '</div>' +
+        '<div style="flex:1; min-width:0;"><label class="edit-label">צד</label>' + sd.html + sideNote + '</div>' +
+      '</div>';
+  }
+
   function render(payload) {
     if (!payload || payload.error) {
       handleError(payload || { msg: "שגיאה בטעינה" });
@@ -450,6 +494,7 @@
         '<label class="edit-label">איבר (אופציונלי)<span id="organGemini"></span></label>' +
         '<select id="organSelect"></select>' +
         '<div id="organHint"></div>' +
+        organStateHtml(payload.organState) + // [Task #224]
       '</div>' +
       codeFieldsHtml +
       // [Task #220 שלב ב] וודאות — "+ קוד חדש" בשורת הכותרת, שורת ההזנה מקופלת (כמו שדות הקטלוג)
@@ -547,7 +592,7 @@
     google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(target);
   }
 
-  function doApprove() {
+    function doApprove() {
     if (!currentPayload) return;
     const sysCode   = document.getElementById('sysCodeSelect').value;
     const certCode  = document.getElementById('certaintySelect').value;
@@ -555,6 +600,11 @@
     // [Task #220] המלצה נשלחת רק אם שונתה בחלון (אחרת null — לא נכתבת)
     const recoValue = document.getElementById('recoInput').value;
     const recoToSend = (recoValue.trim() !== (currentPayload.recommendations || '').trim()) ? recoValue : null;
+    // [Task #224] מצב וצד איבר — נשלחים רק אם השדות הוצגו בחלון (אחרת null — לא נכתבים)
+    const stateSel   = document.getElementById('organStateSelect');
+    const sideSel    = document.getElementById('organSideSelect');
+    const organState = stateSel ? stateSel.value : null;
+    const organSide  = sideSel  ? sideSel.value  : null;
 
     const fieldValues = {};
     ['eventCode', 'specialty', 'severity', 'diagnosis'].forEach(function(key) {
@@ -567,7 +617,7 @@
     });
 
     google.script.run.withSuccessHandler(handleResult).withFailureHandler(handleError)
-      .s16_approve(currentPayload.row, sysCode, certCode, fieldValues, organCode, recoToSend);
+      .s16_approve(currentPayload.row, sysCode, certCode, fieldValues, organCode, recoToSend, organState, organSide);
   }
 
    function doSaveCatalogCode(key) {
