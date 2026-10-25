@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S16_ValidateMedicalStatus.gs
- * @version     2.3.0 | @updated 15/10/2026 22:12 | @service S16
+ * @version     2.4.0 | @updated 22/10/2026 21:25 | @service S16
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_ValidateMedicalStatus.gs
  * @description שער אימות אנושי לכל קודי הסיווג בגליון יומן_מצב_רפואי (21
  *              עמודות, task214a): קוד מערכת גוף (Medical_System) — select
@@ -20,6 +20,9 @@
  *              (Raw_Value) בטקסט הגולמי של השורה, ועדכון המלצה מהחלון.
  *              [v2.3.0] וודאות אבחנה — "+ קוד חדש" מהחלון (בלוק Y-AC), ושם
  *              המערכת (עמודה 10) מתעדכן באישור לפי הקוד שנבחר.
+ *              [v2.4.0] מצב וצד איבר אחרי ניתוח (עמודות 23-24) — שני select
+ *              סגורים מבלוקי מצב_איבר AD-AH וצד_איבר AI-AM, מוצגים רק בשורת
+ *              ניתוח (קוד אירוע A6B / סוג אירוע "ניתוח") או כשכבר שמור ערך.
  * @impacts     יומן_מצב_רפואי: קורא שורה בודדת (21 עמודות), כותב
  *              Medical_System(18), Event_Code(11)+Event_Description(12),
  *              Specialty_Name(9)+Specialty_Code(19),
@@ -44,13 +47,34 @@
  *              תלויות: S16_Sidebar.html, COLUMN_MAP.gs (SHEET_CONFIG),
  *              ViewEngine.gs (MEDICAL_STATUS_SHEET_NAME, CODE_MAP_SHEET_NAME),
  *              S13_ExtractMedical.gs (S13_BODY_SYSTEMS).
+ *              [v2.4.0] קורא עד עמודה 24 וכותב Organ_State_Code(23) +
+ *              Organ_Side_Code(24) באישור — רק אם נשלחו מהחלון (השדות הוצגו) ורק
+ *              אם העמודות קיימות. מיפוי_קודים: בלוקים AD-AH/AI-AM לקריאה בלבד.
  * @callers     ViewEngine.gs (אייקון "[ S16 אימות ]", MEDICAL_STATUS_ICON_MAP —
  *              script: "showS16Sidebar")
  * @functions   showS16Sidebar | _s16_buildPayload | _s16_buildFieldPayload |
  *              _s16_readCatalogBlock | _s16_formatDate | s16_loadRowData |
  *              s16_loadRowByNumber | s16_approve | s16_saveCatalogCode |
  *              _s16_saveCatalogCode | _s16_getCurrentPayload |
- *              _s16_keywordMatches | _s16_findKeywordSuggestion
+ *              _s16_keywordMatches | _s16_findKeywordSuggestion |
+ *              _s16_buildOrganStatePayload
+ * @changes     [v2.4.0] Task #224 (שלב 3) — מצב וצד איבר אחרי ניתוח. קבועים
+ *              חדשים: S16_COL_ORGAN_STATE=23, S16_COL_ORGAN_SIDE=24, בלוקים
+ *              S16_ORGAN_STATE/SIDE_MAP_FIRST_COL=30/35, עמודות טקסט להצעה
+ *              (Event_Type/Primary_Diagnosis/Severity_Status) וזיהוי ניתוח
+ *              (A6B / "ניתוח"). _s16_buildOrganStatePayload (חדשה): show רק
+ *              בשורת ניתוח או כשיש ערך שמור; הצעת מצב לפי מילת המפתח הארוכה
+ *              מ-Raw_Value; הצעת צד רק כשנמצאו מילות מפתח של קוד צד אחד —
+ *              יותר מאחד → sideConflict (אזהרה בחלון, בלי הצעה).
+ *              _s16_buildPayload: רוחב קריאה עד 24 + שדה organState.
+ *              s16_approve: פרמטרים 7-8 organStateCode/organSideCode —
+ *              undefined/null = לא נכתבים (תאימות לאחור). אומת מול הקוד החי
+ *              (diff מדויק לכל בלוק, node --check), בסימולציה של 5 מקרים
+ *              (כולל סתירת צד כמו שורה 244), ובבדיקת שטח: שורה 8 — החלון ללא
+ *              שינוי; שורה 12 (ניתוח מסמך 52, חולץ מאירוע 244) — השדות הוצגו
+ *              ובאישור נכתבו OST1/LAT2, Record_Status=מאומת, שורות 5-11 ללא
+ *              שינוי. ממצא: S13 כתב ב-Primary_Diagnosis את הממצא ולא את הניתוח
+ *              — לכן לא הוצע מצב/צד; יטופל ב-S13 (שלב 4).
  * @changes     [v2.3.0] Task #220 שלב ב — נוסף S16_COL_MEDICAL_SYSTEM_NAME=10;
  *              s16_approve כותב לעמודה 10 את שם המערכת (S13_BODY_SYSTEMS)
  *              לפי הקוד שנבחר — במקום הטקסט החופשי מ-S09 (למשל "אורולוגיה"
@@ -169,6 +193,17 @@ const S16_CODE_FIELDS = [
 const S16_CERTAINTY_SUGGEST_COLS = [S16_COL_SEVERITY_STATUS, S16_COL_PRIMARY_DIAGNOSIS];
 const S16_ORGAN_SUGGEST_COLS     = [S16_COL_EVENT_TYPE, S16_COL_PRIMARY_DIAGNOSIS];
 
+// [Task #224] מצב וצד איבר אחרי ניתוח — עמודות 23-24 ביומן_מצב_רפואי
+// (מבנה 24 עמודות), ובלוקים סגורים במיפוי_קודים: מצב_איבר AD-AH (עמודה 30)
+// וצד_איבר AI-AM (עמודה 35). השדות מוצגים בחלון רק בשורת ניתוח (קוד אירוע
+// שמתחיל ב-A6B או סוג אירוע שמכיל "ניתוח"), או כשכבר שמור בשורה ערך.
+const S16_COL_ORGAN_STATE              = 23;
+const S16_COL_ORGAN_SIDE               = 24;
+const S16_ORGAN_STATE_MAP_FIRST_COL    = 30;
+const S16_ORGAN_SIDE_MAP_FIRST_COL     = 35;
+const S16_ORGAN_STATE_SUGGEST_COLS     = [S16_COL_EVENT_TYPE, S16_COL_PRIMARY_DIAGNOSIS, S16_COL_SEVERITY_STATUS];
+const S16_SURGERY_EVENT_CODE_PREFIX    = "A6B";
+const S16_SURGERY_EVENT_TYPE_KEYWORD   = "ניתוח";
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה — פתיחת חלון אימות
 // ══════════════════════════════════════════════════════════════════
@@ -317,6 +352,71 @@ function _s16_buildFieldPayload(fieldCfg, rowValues) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// [Task #224] Payload למצב וצד איבר — מוצג רק בשורת ניתוח או כשיש ערך שמור.
+// הצעת מצב: מילת המפתח הארוכה ביותר מבלוק מצב_איבר (Raw_Value) בטקסט השורה.
+// הצעת צד: רק כשנמצאו מילות מפתח של קוד צד אחד בלבד. נמצאו של יותר מקוד אחד
+// (למשל "שמאל" וגם "הימנית") — אין הצעה, ומוחזרת סתירה לאזהרה בחלון.
+// ══════════════════════════════════════════════════════════════════
+
+function _s16_buildOrganStatePayload(rowValues) {
+  const eventCode    = (rowValues[S16_COL_EVENT_CODE - 1]  || "").toString().trim();
+  const eventType    = (rowValues[S16_COL_EVENT_TYPE - 1]  || "").toString();
+  const currentState = (rowValues[S16_COL_ORGAN_STATE - 1] || "").toString().trim();
+  const currentSide  = (rowValues[S16_COL_ORGAN_SIDE - 1]  || "").toString().trim();
+
+  const isSurgery = eventCode.indexOf(S16_SURGERY_EVENT_CODE_PREFIX) === 0 ||
+                    eventType.indexOf(S16_SURGERY_EVENT_TYPE_KEYWORD) !== -1;
+  if (!isSurgery && !currentState && !currentSide) return { show: false };
+
+  const stateBlock = _s16_readCatalogBlock(S16_ORGAN_STATE_MAP_FIRST_COL);
+  const sideBlock  = _s16_readCatalogBlock(S16_ORGAN_SIDE_MAP_FIRST_COL);
+
+  function toOptions(block, currentCode) {
+    const opts = block.options.map(function(o) { return { code: o.code, name: o.name }; });
+    if (currentCode && !opts.some(function(o) { return o.code === currentCode; })) {
+      opts.push({ code: currentCode, name: "(לא נמצא בקטלוג)" });
+    }
+    return opts;
+  }
+
+  const texts = S16_ORGAN_STATE_SUGGEST_COLS.map(function(col) { return rowValues[col - 1]; });
+
+  let stateSuggestion = null;
+  let sideSuggestion  = null;
+  let sideConflict    = null;
+
+  if (isSurgery) {
+    stateSuggestion = _s16_findKeywordSuggestion(stateBlock.options, function(o) { return o.raw; }, texts);
+    if (stateSuggestion && stateSuggestion.code === currentState) stateSuggestion = null;
+
+    // כל קודי הצד שלפחות מילת מפתח אחת שלהם נמצאת בטקסט
+    const cleanTexts = texts.map(function(t) { return (t || "").toString(); }).filter(function(t) { return t.trim(); });
+    const sideMatches = sideBlock.options.filter(function(o) {
+      return (o.raw || "").split(",").map(function(k) { return k.trim(); }).filter(Boolean).some(function(k) {
+        return cleanTexts.some(function(t) { return _s16_keywordMatches(k, t); });
+      });
+    });
+    if (sideMatches.length === 1) {
+      if (sideMatches[0].code !== currentSide) sideSuggestion = { code: sideMatches[0].code, name: sideMatches[0].name };
+    } else if (sideMatches.length > 1) {
+      sideConflict = sideMatches.map(function(o) { return o.name; });
+    }
+  }
+
+  return {
+    show:            true,
+    isSurgery:       isSurgery,
+    currentState:    currentState,
+    currentSide:     currentSide,
+    stateOptions:    toOptions(stateBlock, currentState),
+    sideOptions:     toOptions(sideBlock, currentSide),
+    stateSuggestion: stateSuggestion,
+    sideSuggestion:  sideSuggestion,
+    sideConflict:    sideConflict
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════
 // בניית Payload — נתוני שורה מלאים לממשק
 // ══════════════════════════════════════════════════════════════════
 
@@ -328,7 +428,8 @@ function _s16_buildPayload(ss, sheet, row) {
 
     // [Task #219] קריאה עד עמודה 22 (Organ_Code). אם העמודה עוד לא קיימת
     // בגליון — קוראים רק את מה שקיים, וקוד האיבר יחזור ריק.
-    const readWidth = Math.min(S16_COL_ORGAN_CODE, sheet.getMaxColumns());
+    // [Task #224] הורחב לעמודה 24 (מצב וצד איבר) — אותו עיקרון.
+    const readWidth = Math.min(S16_COL_ORGAN_SIDE, sheet.getMaxColumns());
     const rowValues = sheet.getRange(row, 1, 1, readWidth).getValues()[0];
 
     const fileId   = (rowValues[S16_COL_FILE_ID - 1] || "").toString().trim();
@@ -407,6 +508,7 @@ function _s16_buildPayload(ss, sheet, row) {
       currentOrganCode: currentOrganCode,
       organOptions:     organOptions,
       organSuggestion:  organSuggestion,
+      organState:       _s16_buildOrganStatePayload(rowValues), // [Task #224]
       fields:           fields
     };
 
@@ -415,7 +517,6 @@ function _s16_buildPayload(ss, sheet, row) {
     return null;
   }
 }
-
 function _s16_formatDate(rawValue) {
   if (rawValue instanceof Date) {
     return Utilities.formatDate(rawValue, Session.getScriptTimeZone(), "dd/MM/yyyy");
@@ -460,9 +561,11 @@ function s16_loadRowByNumber(row) {
 //                severity:{code,name}, diagnosis:{code,name} }
 // [Task #219] organCode — קוד איבר (עמודה 22), ריק = ללא איבר
 // [Task #220] recommendation — טקסט המלצה (עמודה 5); null = לא שונה בחלון
+// [Task #224] organStateCode / organSideCode — מצב וצד איבר (עמודות 23/24).
+//             undefined/null = השדות לא הוצגו בחלון — העמודות לא נכתבות כלל.
 // ══════════════════════════════════════════════════════════════════
 
-function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, recommendation) {
+function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, recommendation, organStateCode, organSideCode) {
   try {
     if (!systemCode || !S13_BODY_SYSTEMS[systemCode]) {
       return { success: false, msg: "⚠️ קוד מערכת לא תקין: " + systemCode };
@@ -481,6 +584,15 @@ function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, rec
       return { success: false, msg: "⚠️ חסרה עמודה Organ_Code (עמודה 22) בגליון " + MEDICAL_STATUS_SHEET_NAME };
     }
 
+    // [Task #224] מצב וצד איבר — נכתבים רק אם נשלחו מהחלון (השדות הוצגו)
+    const writeOrganState = (organStateCode !== undefined && organStateCode !== null) ||
+                            (organSideCode  !== undefined && organSideCode  !== null);
+    organStateCode = (organStateCode || "").toString().trim();
+    organSideCode  = (organSideCode  || "").toString().trim();
+    if (writeOrganState && (organStateCode || organSideCode) && sheet.getMaxColumns() < S16_COL_ORGAN_SIDE) {
+      return { success: false, msg: "⚠️ חסרות עמודות Organ_State_Code/Organ_Side_Code (עמודות 23-24) בגליון " + MEDICAL_STATUS_SHEET_NAME };
+    }
+
     sheet.getRange(row, S16_COL_MEDICAL_SYSTEM).setValue(systemCode);
     // [Task #220 שלב ב] שם המערכת (עמודה 10) מתעדכן לפי הקוד שנבחר — במקום הטקסט החופשי מ-S09
     sheet.getRange(row, S16_COL_MEDICAL_SYSTEM_NAME).setValue(S13_BODY_SYSTEMS[systemCode].nameHe);
@@ -496,6 +608,12 @@ function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, rec
       sheet.getRange(row, S16_COL_ORGAN_CODE).setValue(organCode);
     }
 
+    // [Task #224] מצב וצד איבר (עמודות 23-24)
+    if (writeOrganState && sheet.getMaxColumns() >= S16_COL_ORGAN_SIDE) {
+      sheet.getRange(row, S16_COL_ORGAN_STATE).setValue(organStateCode);
+      sheet.getRange(row, S16_COL_ORGAN_SIDE).setValue(organSideCode);
+    }
+
     // [Task #220] המלצה — נכתבת רק אם נשלחה (לא null) ושונה מהערך בתא
     let recoUpdated = false;
     if (recommendation !== null && recommendation !== undefined) {
@@ -509,7 +627,9 @@ function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, rec
 
     sheet.getRange(row, S16_COL_RECORD_STATUS).setValue("מאומת");
 
-    Logger.log("[S16] אישור שורה " + row + " — SYS:" + systemCode + " | ORGAN:" + organCode + " | CERT:" + certaintyCode + (recoUpdated ? " | המלצה עודכנה" : ""));
+    Logger.log("[S16] אישור שורה " + row + " — SYS:" + systemCode + " | ORGAN:" + organCode +
+      (writeOrganState ? " | STATE:" + organStateCode + " | SIDE:" + organSideCode : "") +
+      " | CERT:" + certaintyCode + (recoUpdated ? " | המלצה עודכנה" : ""));
     return { success: true, msg: "✅ השורה אושרה" };
 
   } catch (e) {
