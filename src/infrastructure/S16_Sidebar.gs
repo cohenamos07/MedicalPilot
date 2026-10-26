@@ -1,6 +1,6 @@
 <!--
   MedicalPilot — S16_Sidebar.html
-  @version     2.5.0 | @updated 22/10/2026 21:25 | @service S16
+  @version     2.6.0 | @updated 26/10/2026 21:32 | @service S16
   @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_Sidebar.html
   @description ממשק Dialog לאימות כל קודי הסיווג ביומן_מצב_רפואי (21 עמודות):
                קוד מערכת גוף (select סגור), קוד אירוע/התמחות/חומרה/אבחנה
@@ -20,6 +20,10 @@
                בסטטוס "חדש" (בשורת הכותרת), ו-"+ קוד חדש" גם לוודאות אבחנה.
                [v2.5.0] שני select זה לצד זה מתחת לאיבר — "מצב האיבר" ו"צד" —
                רק בשורת ניתוח או כשכבר שמור ערך (payload.organState.show).
+               [v2.6.0] מצב תרופות (payload.mode="medication", מ-S15): אותו
+               חלון מציג שורה מגליון תרופות_קבועות — נתוני המסמך (תצוגה), קוד
+               ATC + נתוני קטלוג (נעולים כשהקוד מאומת), מינון ותדירות, סוג
+               טיפול (חובה) וסיבה; שמאל — מטא-דאטה ותצוגת מסמך מקור.
   @impacts     כפתורים: אשר, הוסף-קוד (4, אחד לכל שדה קטלוג פתוח), ניווט
                הקודם/הבא. תלוי ב: S16_ValidateMedicalStatus.gs — כל
                הלוגיקה מתבצעת שם.
@@ -31,11 +35,28 @@
                אין שינוי בפרמטרים של s16_approve.
                [v2.5.0] s16_approve מקבל פרמטרים 7-8 — מצב וצד איבר (null אם
                השדות לא הוצגו בחלון — לא נכתבים בצד השרת).
+               [v2.6.0] במצב תרופות: ניווט וטעינה מחדש — s15_loadRowByNumber,
+               אישור — s15_approve(row, v) עם 11 שדות (S15_EnrichCatalog.gs).
+               מצב המצב הרפואי — ללא שינוי (s16_loadRowByNumber / s16_approve).
   @callers     S16_ValidateMedicalStatus.gs (showS16Sidebar)
+               S15_EnrichCatalog.gs (s15_showValidation — מצב תרופות)
   @functions   initUI, render, renderCodeFieldHtml, esc, prevRow, nextRow,
                doApprove, doSaveCatalogCode, handleResult, handleError,
                fillOrganOptions, suggestionHintHtml, toggleNewCode, geminiHintHtml,
-               organStateHtml
+               organStateHtml, renderMedication, doApproveMedication
+  @changes     [v2.6.0] Task #256 שלב 4 — מצב תרופות בחלון הקיים (בלי חלון
+               חדש). render: אחרי שמירת currentPayload — מעבר ל-renderMedication
+               כש-payload.mode="medication". renderMedication (חדשה): כותרת
+               "💊 S15 — אימות תרופות", שורה + שם התרופה, תג Enrich_Status;
+               מקור הקוד — מאומת (ירוק, שדות קטלוג נעולים) / הצעת Gemini
+               (כתום) / ללא הצעה; סוג טיפול — הצעה נבחרת מראש רק כשהשדה ריק.
+               doApproveMedication (חדשה): בדיקת סוג טיפול בצד הלקוח ושליחה
+               ל-s15_approve. prevRow/nextRow/handleResult — טעינה דרך S15
+               במצב תרופות; doApprove — מעבר ל-doApproveMedication. אומת מול
+               הקוד החי (diff מדויק, בדיקת תחביר לסקריפט), בהדמיית דפדפן בגובה
+               700 (583/583 — ללא גלילה), ובבדיקת שטח: תרופות_קבועות שורה 5
+               אושרה (D07AC13, "לפי הצורך"), מעבר לשורה 6, ומסך יומן_מצב_רפואי
+               שורה 7 ללא שינוי.
   @changes     [v2.5.0] Task #224 (שלב 3) — מצב וצד איבר אחרי ניתוח.
                organStateHtml (חדשה): שני select סגורים ("— לא צוין —" +
                אפשרויות הקטלוג) בשורה אחת (flex) מתחת ל-organHint, בתוך מקטע
@@ -450,12 +471,14 @@
       '</div>';
   }
 
-  function render(payload) {
+    function render(payload) {
     if (!payload || payload.error) {
       handleError(payload || { msg: "שגיאה בטעינה" });
       return;
     }
     currentPayload = payload;
+    // [Task #256 שלב 4] מצב תרופות — payload מ-S15 (s15_showValidation / s15_loadRowByNumber)
+    if (payload.mode === 'medication') { renderMedication(payload); return; }
 
     document.getElementById('rowMeta').textContent =
       'שורה ' + payload.row + ' מתוך ' + payload.lastRow;
@@ -578,10 +601,15 @@
     document.getElementById('organHint').innerHTML = hint;
   }
 
-  function prevRow() {
+    function prevRow() {
     if (!currentPayload) return;
     const target = currentPayload.row - 1;
     if (target < currentPayload.firstDataRow) return;
+    // [Task #256 שלב 4] מצב תרופות — טעינה דרך S15
+    if (currentPayload.mode === 'medication') {
+      google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_loadRowByNumber(target);
+      return;
+    }
     google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(target);
   }
 
@@ -589,11 +617,18 @@
     if (!currentPayload) return;
     const target = currentPayload.row + 1;
     if (target > currentPayload.lastRow) return;
+    // [Task #256 שלב 4] מצב תרופות — טעינה דרך S15
+    if (currentPayload.mode === 'medication') {
+      google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_loadRowByNumber(target);
+      return;
+    }
     google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(target);
   }
 
     function doApprove() {
     if (!currentPayload) return;
+    // [Task #256 שלב 4] מצב תרופות — אישור דרך S15
+    if (currentPayload.mode === 'medication') { doApproveMedication(); return; }
     const sysCode   = document.getElementById('sysCodeSelect').value;
     const certCode  = document.getElementById('certaintySelect').value;
     const organCode = document.getElementById('organSelect').value;
@@ -640,12 +675,150 @@
       el.className = 'ok';
       el.textContent = result.msg || '✅ בוצע';
       if (currentPayload) {
-        google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(currentPayload.row);
+        // [Task #256 שלב 4] מצב תרופות — טעינה מחדש דרך S15
+        if (currentPayload.mode === 'medication') {
+          google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_loadRowByNumber(currentPayload.row);
+        } else {
+          google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(currentPayload.row);
+        }
       }
     } else {
       el.className = 'error';
       el.textContent = (result && result.msg) || '❌ שגיאה';
     }
+  }
+
+  // ════ [Task #256 שלב 4] מצב תרופות — תצוגת שורה מגליון תרופות_קבועות ════
+  // ימין: נתוני המסמך (תצוגה), קוד ATC + נתוני קטלוג, מינון ותדירות, סוג
+  // טיפול, סיבה. שמאל: מטא-דאטה ותצוגת מסמך מקור. קוד מאומת בקטלוג — שדות
+  // הקטלוג נעולים (בצד השרת נתוני הקטלוג גוברים בכל מקרה).
+  function renderMedication(p) {
+    document.querySelector('.header-title').textContent = '💊 S15 — אימות תרופות';
+    document.getElementById('rowMeta').textContent =
+      'שורה ' + p.row + ' מתוך ' + p.lastRow + ' — ' + p.drugName;
+    document.getElementById('statusBadge').textContent = p.enrichStatus || '—';
+
+    const verified = p.catalogSource === 'verified';
+    const lock     = verified ? ' disabled' : '';
+    let sourceHint;
+    if (verified) {
+      sourceHint = '<div class="hint" style="color:#2e7d32; font-weight:bold;">✅ קוד מאומת בקטלוג — נתוני הקטלוג נעולים</div>';
+    } else if (p.catalogSource === 'suggested') {
+      sourceHint = '<div class="hint" style="color:#e65100; font-weight:bold;">🤖 הצעת Gemini — יש לאמת קוד ונתוני קטלוג</div>';
+    } else {
+      sourceHint = '<div class="hint">אין הצעה בקטלוג — ניתן להזין קוד ידנית או להשאיר ריק</div>';
+    }
+
+    let sysOptionsHtml = '<option value="">— ללא —</option>';
+    (p.bodySystemOptions || []).forEach(function(opt) {
+      const sel = (opt.code === p.catalog.system) ? ' selected' : '';
+      sysOptionsHtml += '<option value="' + esc(opt.code) + '"' + sel + '>' + esc(opt.code) + ' — ' + esc(opt.nameHe) + '</option>';
+    });
+
+    // סוג טיפול — הצעה נבחרת מראש רק כשהשדה ריק
+    const typePre      = !p.treatmentType && !!p.treatmentTypeSuggestion;
+    const typeSelected = p.treatmentType || (typePre ? p.treatmentTypeSuggestion : '');
+    let typeOptionsHtml = '<option value="">— בחר —</option>';
+    (p.treatmentTypes || []).forEach(function(t) {
+      const sel = (t === typeSelected) ? ' selected' : '';
+      typeOptionsHtml += '<option value="' + esc(t) + '"' + sel + '>' + esc(t) + '</option>';
+    });
+    let typeHint = '';
+    if (typePre) {
+      typeHint = '<div class="hint" style="color:#e65100; font-weight:bold;">🤖 הוצע אוטומטית — יש לאמת</div>';
+    } else if (p.treatmentTypeSuggestion && p.treatmentTypeSuggestion !== p.treatmentType) {
+      typeHint = '<div class="hint">הצעה לפי תאריך הסיום והתדירות: ' + esc(p.treatmentTypeSuggestion) + '</div>';
+    }
+
+    function inputHtml(id, label, value, extra) {
+      return '<div style="flex:1; min-width:0;"><label class="edit-label">' + label + '</label>' +
+        '<input type="text" id="' + id + '" value="' + esc(value) + '"' + (extra || '') + '></div>';
+    }
+
+    const dates = (p.startDate ? 'מ-' + p.startDate : '') + (p.endDate ? ' עד ' + p.endDate : '');
+
+    document.getElementById('rightCol').innerHTML =
+      '<div class="section">' +
+        '<div class="section-title">התרופה במסמך (תצוגה בלבד)</div>' +
+        '<div class="field-row"><div class="field-label">שם התרופה</div><div class="field-value">' + esc(p.drugName) + '</div></div>' +
+        '<div class="field-row"><div class="field-label">מינון</div><div class="field-value">' + esc(p.dosageText) + '</div></div>' +
+        '<div class="field-row"><div class="field-label">תדירות</div><div class="field-value">' + esc(p.frequencyText) + '</div></div>' +
+        '<div class="field-row"><div class="field-label">תאריכים</div><div class="field-value">' + esc(dates) + '</div></div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-title">קוד ATC וקטלוג</div>' +
+        '<div style="display:flex; gap:8px;">' +
+          inputHtml('medCode', 'קוד ATC (7 תווים)', p.code, ' maxlength="7" style="text-transform:uppercase;"') +
+          inputHtml('medActive', 'חומר פעיל', p.catalog.name, lock) +
+        '</div>' +
+        sourceHint +
+        '<div style="display:flex; gap:8px; margin-top:4px;">' +
+          inputHtml('medGroup', 'קבוצה טיפולית', p.catalog.desc, lock) +
+          '<div style="flex:1; min-width:0;"><label class="edit-label">מערכת גוף</label>' +
+            '<select id="medSystem"' + lock + '>' + sysOptionsHtml + '</select></div>' +
+        '</div>' +
+        '<div style="margin-top:4px;">' + inputHtml('medTradeNames', 'שמות מסחריים (מופרדים בפסיק)', p.catalog.raw, lock) + '</div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-title">מינון ותדירות</div>' +
+        '<div style="display:flex; gap:8px;">' +
+          inputHtml('medDoseAmount', 'כמות', p.doseAmount) +
+          inputHtml('medDoseUnit', 'יחידה', p.doseUnit) +
+          inputHtml('medTimesPerDay', 'פעמים ביום', p.timesPerDay) +
+          inputHtml('medDaysPerWeek', 'ימים בשבוע', p.daysPerWeek) +
+        '</div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div style="display:flex; gap:8px;">' +
+          '<div style="flex:1; min-width:0;"><label class="edit-label">סוג טיפול (חובה)</label>' +
+            '<select id="medTreatmentType">' + typeOptionsHtml + '</select>' + typeHint + '</div>' +
+          inputHtml('medReason', 'סיבת הטיפול', p.reason) +
+        '</div>' +
+      '</div>';
+
+    const previewUrl = p.sourceUrl ? p.sourceUrl.replace('/view', '/preview') : '';
+    const sourceLink = p.sourceUrl
+      ? '<a class="source-link" href="' + p.sourceUrl + '" target="_blank">פתח בלשונית חדשה ↗</a>'
+      : '';
+
+    document.getElementById('leftCol').innerHTML =
+      '<div class="section">' +
+        '<div class="section-title">מטא-דאטה</div>' +
+        '<div class="field-row"><div class="field-label">מוסד / רופא</div><div class="field-value">' + esc(p.docIssuer) + '</div></div>' +
+        '<div class="field-row"><div class="field-label">תאריך התחלה</div><div class="field-value">' + esc(p.startDate) + '</div></div>' +
+        '<div class="field-row"><div class="field-label">תאריך סיום</div><div class="field-value">' + esc(p.endDate || '—') + '</div></div>' +
+      '</div>' +
+      '<div class="section" style="flex:1; display:flex; flex-direction:column; min-height:0;">' +
+        '<div class="section-title">📄 מסמך מקור</div>' +
+        (previewUrl
+          ? '<iframe class="file-preview" src="' + previewUrl + '" frameborder="0" allowfullscreen></iframe>'
+          : '<div class="hint">אין מסמך מקור לשורה זו</div>') +
+        sourceLink +
+      '</div>';
+  }
+
+  // ════ [Task #256 שלב 4] אישור שורת תרופה — s15_approve (S15_EnrichCatalog.gs) ════
+  function doApproveMedication() {
+    function val(id) { return document.getElementById(id).value.trim(); }
+    const v = {
+      code:             val('medCode').toUpperCase(),
+      activeIngredient: val('medActive'),
+      therapeuticGroup: val('medGroup'),
+      medicalSystem:    document.getElementById('medSystem').value,
+      tradeNames:       val('medTradeNames'),
+      doseAmount:       val('medDoseAmount'),
+      doseUnit:         val('medDoseUnit'),
+      timesPerDay:      val('medTimesPerDay'),
+      daysPerWeek:      val('medDaysPerWeek'),
+      reason:           val('medReason'),
+      treatmentType:    document.getElementById('medTreatmentType').value
+    };
+    if (!v.treatmentType) {
+      handleError({ msg: "❌ יש לבחור סוג טיפול (כרוני / זמני / לפי הצורך)" });
+      return;
+    }
+    google.script.run.withSuccessHandler(handleResult).withFailureHandler(handleError)
+      .s15_approve(currentPayload.row, v);
   }
 
   function handleError(err) {
