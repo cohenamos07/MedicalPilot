@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.10.9 | @updated 25/10/2026 21:20 | @service VIEWENGINE
+ * @version 2.11.0 | @updated 26/10/2026 16:49 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -30,6 +30,8 @@
  *              [v2.10.9] הכרטיס האינפוגרפי מקבל את כל רשומות הגליון — מצב
  *              "אירוע" (השורה הפעילה) ומצב "היסטוריה" (כל האירועים על הדמות,
  *              סינון לפי מערכת גוף או התמחות רופא, ציר זמן).
+ *              [v2.11.0] תמיכה בגליון תרופות_קבועות — 2 איקונים: העשרת
+ *              קטלוג (S15, כללי לכל תחום) ואימות (S16, ימומש בשלב 4).
  * @impacts     ניהול_מיילים: קורא פילטרים — לא כותב ערכים לתאים.
  *              runStatusCheck כותב צבע רקע לשורות שגויות בלבד.
  *              יומן_אירועים_רפואי: setupMedicalEventsIcons — מכניס 4 איקונים אוטומטית.
@@ -46,14 +48,19 @@
  *              [v2.10.9] runInfographicIconMedicalStatus_LAB — קריאה בלבד:
  *              כל שורות הנתונים ביומן_מצב_רפואי (משורה 5), ובנוסף בלוק
  *              ההתמחויות J-N במיפוי_קודים (עמודה 10). לא כותב לשום גליון.
+ *              [v2.11.0] תרופות_קבועות: setupMedicationsIcons — מכניס 2 איקונים
+ *              (שורה 2), תוויות ורקע תכלת בשורה 3, ומגביה את שורה 2 ל-45
+ *              אם היא נמוכה מ-40. runS15EnrichIcon כותב לעמודות M-R בעקיפין,
+ *              דרך runS15Enrich() (S15_EnrichCatalog.gs).
  *              תלויות: S01 (checkSystemMorning) | S02 (checkUserAccess)
  *                      S03 (runEmailIngestion) | S04 (syncDriveFiles)
  *                      S05 (extractMetaData) | S06 (run_MedicalPilot_V2_6_2, nightlyConvertBatch)
  *                      S07 (run_S07_ActiveRow, executeS07Classification)
  *                      S08 (showMainSidebar) | S09 (runS09) | S10 (showS10Sidebar)
- *                      S11 (runQAViewMain) | S14 (runS14)
+ *                      S11 (runQAViewMain) | S14 (runS14) | S15 (runS15Enrich)
  * @callers     אייקוני גליון ניהול_מיילים בלבד — שורה 2
  *              אייקוני גליון יומן_אירועים_רפואי — שורה 2
+ *              אייקוני גליון תרופות_קבועות — שורה 2
  * @functions   switchView | viewEngine_buildCriteria | _doExpand | _removeActiveFilter
  *              runExpandView | runSystemCheckIcon | runAccessCheckIcon
  *              runGmailIcon | runWhatsAppIcon | runDriveIcon
@@ -70,6 +77,20 @@
  *              _labInfographic_blobToDataUri | _labInfographic_findEventIcons
  *              _labInfographic_loadIconMap | runInfographicIconMedicalStatus_LAB
  *              _labInfographic_buildCatalogs | _labInfographic_buildRecord
+ *              runS15EnrichIcon | runS15ValidateIcon | setupMedicationsIcons
+ * @changes     [v2.11.0] Task #256 שלב 2 — גליון תרופות_קבועות: אייקוני העשרה
+ *              ואימות (תוספת בלבד, ללא שינוי בפונקציות קיימות). (1) חדש:
+ *              MEDICATIONS_SHEET_NAME ו-MEDICATIONS_ICON_MAP (אחרי CODE_MAP_ICON_MAP)
+ *              — עמודה A: runS15EnrichIcon, catalog_enrich.png
+ *              (1GitZgGy_JmlNyQIqBq5KyBS6ZEuZjsnj), תווית "[ S15 העשרה ]";
+ *              עמודה B: runS15ValidateIcon, verifyMedicalData.png (זהה ל-S16),
+ *              תווית "[ S16 אימות ]". (2) חדש: runS15EnrichIcon — דיאלוג אישור
+ *              YES/NO, ואז runS15Enrich() עם typeof-guard. (3) חדש:
+ *              runS15ValidateIcon — קורא ל-s15_showValidation אם קיימת, אחרת
+ *              הודעת "טרם מומש" (שלב 4). (4) חדש: setupMedicationsIcons — אותו
+ *              דפוס כמו setupMedicalStatusIcons. אומת מול הקוד החי (diff מדויק
+ *              לשני הבלוקים, node --check) ובבדיקה פונקציונלית בגליון: 2
+ *              אייקונים ותוויות, העשרה של 12 שורות, הודעת "טרם מומש".
  * @changes     [v2.10.9] Task #211 — כרטיס אינפוגרפי עם מצב היסטוריה
  *              (runInfographicIconMedicalStatus_LAB שוכתבה). (1) חדש:
  *              _labInfographic_buildCatalogs — קורא פעם אחת את קטלוגי האיברים,
@@ -393,6 +414,34 @@ const CODE_MAP_ICON_MAP = [
     fileId: "1tI6mulUbssLeMH06jNv4Xs6hE-g_6kry",  // refresh_tasks.png — זהה לשאר אייקוני הרענון
     label:  "[ רענן ]",
     bg:     "#78909C",
+    fg:     "#ffffff"
+  }
+];
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #256 — גליון תרופות_קבועות: אייקוני העשרה (S15) ואימות.
+// האייקונים מוצבים ע"י setupMedicationsIcons (בסוף הקובץ) — שורה 2,
+// תוויות בשורה 3. runS15EnrichIcon כללי (S15 מזהה את התחום לפי הגליון
+// הפעיל) — אותה תמונה תשמש בעתיד גם בבדיקות דם/גנטיות/הנחיות.
+// ══════════════════════════════════════════════════════════════════
+
+const MEDICATIONS_SHEET_NAME = "תרופות_קבועות";
+
+const MEDICATIONS_ICON_MAP = [
+  {
+    col:    1,
+    script: "runS15EnrichIcon",
+    fileId: "1GitZgGy_JmlNyQIqBq5KyBS6ZEuZjsnj",  // catalog_enrich.png — אייקון העשרת קטלוג
+    label:  "[ S15 העשרה ]",
+    bg:     "#FFA000",
+    fg:     "#ffffff"
+  },
+  {
+    col:    2,
+    script: "runS15ValidateIcon",
+    fileId: "1YZcEifvHAsBtstAFdtVtqNTODpxuXCkM",  // verifyMedicalData.png — זהה ל-S16 אימות
+    label:  "[ S16 אימות ]",
+    bg:     "#7E57C2",
     fg:     "#ffffff"
   }
 ];
@@ -2647,6 +2696,140 @@ function setupInfographicIconLab() {
 
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-setupInfographicIconLab: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #256 — runS15EnrichIcon — עמודה A בגליון תרופות_קבועות
+// העשרת קטלוג (S15_EnrichCatalog.gs) — אישור, ואז runS15Enrich().
+// כללי: S15 מזהה את התחום לפי הגליון הפעיל.
+// ══════════════════════════════════════════════════════════════════
+
+function runS15EnrichIcon() {
+  try {
+    const ui      = SpreadsheetApp.getUi();
+    const sheet   = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    const confirm = ui.alert(
+      "S15 — העשרת קטלוג",
+      "גליון: " + sheet.getName() + "\n" +
+      "האם להריץ העשרה לשורות שעמודת הסטטוס שלהן ריקה?\n" +
+      "ייכתבו הצעות בלבד (סטטוס \"הוצע\") — הקטלוג לא משתנה.",
+      ui.ButtonSet.YES_NO
+    );
+    if (confirm === ui.Button.YES) {
+      if (typeof runS15Enrich === "function") {
+        runS15Enrich();
+      } else {
+        ui.alert("שירות S15 לא נמצא (S15_EnrichCatalog.gs).");
+      }
+    }
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runS15EnrichIcon: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #256 — runS15ValidateIcon — עמודה B בגליון תרופות_קבועות
+// פתיחת חלון האימות (S16, מסך תרופות) — ימומש בשלב 4 של המשימה.
+// עד אז: הודעה בלבד.
+// ══════════════════════════════════════════════════════════════════
+
+function runS15ValidateIcon() {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    if (typeof s15_showValidation === "function") {
+      s15_showValidation();
+    } else {
+      ui.alert("חלון אימות התרופות טרם מומש (Task #256, שלב 4).");
+    }
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-runS15ValidateIcon: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [חדש] Task #256 — setupMedicationsIcons — הכנסת 2 איקונים לגליון
+// תרופות_קבועות — שורה 2, תוויות בשורה 3. אותו דפוס כמו
+// setupMedicalStatusIcons. הרצה ידנית חד-פעמית מהעורך.
+// עמודה A = העשרה S15 | עמודה B = אימות S16
+// ══════════════════════════════════════════════════════════════════
+
+function setupMedicationsIcons() {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(MEDICATIONS_SHEET_NAME);
+    const ui    = SpreadsheetApp.getUi();
+
+    if (!sheet) {
+      ui.alert("❌ גליון '" + MEDICATIONS_SHEET_NAME + "' לא נמצא.");
+      return;
+    }
+
+    // מחק איקונים קיימים
+    const existingImages = sheet.getImages();
+    existingImages.forEach(function(img) { img.remove(); });
+    SpreadsheetApp.flush();
+    Logger.log("[ViewEngine] setupMedicationsIcons — נמחקו: " + existingImages.length + " איקונים");
+
+    // שכבת בסיס — שורה 3 בתכלת בהיר לכל רוחב הגליון, כמו ביומן_מצב_רפואי
+    sheet.getRange(3, 1, 1, sheet.getLastColumn()).clearContent().setBackground("#cfe2f3");
+
+    // שורה 2 נמוכה מדי לאייקון — מגביהים לגובה המקובל בשאר הגליונות
+    if (sheet.getRowHeight(2) < 40) {
+      sheet.setRowHeight(2, 45);
+    }
+
+    const rowHeight = sheet.getRowHeight(2);
+    const iconSize  = Math.max(30, rowHeight - 4);
+
+    MEDICATIONS_ICON_MAP.forEach(function(mapping) {
+      try {
+        const file     = DriveApp.getFileById(mapping.fileId);
+        const blob     = file.getBlob();
+        const colWidth = sheet.getColumnWidth(mapping.col);
+        const offsetX  = Math.max(0, Math.floor((colWidth - iconSize) / 2));
+
+        const img = sheet.insertImage(blob, mapping.col, 2);
+        img.setAltTextTitle(mapping.script);
+        img.assignScript(mapping.script);
+        img.setWidth(iconSize);
+        img.setHeight(iconSize);
+        img.setAnchorCell(sheet.getRange(2, mapping.col));
+        img.setAnchorCellXOffset(offsetX);
+        img.setAnchorCellYOffset(2);
+
+        // תווית שורה 3
+        const labelCell = sheet.getRange(3, mapping.col);
+        labelCell.setValue(mapping.label);
+        labelCell.setBackground(mapping.bg);
+        labelCell.setFontColor(mapping.fg);
+        labelCell.setFontWeight("bold");
+        labelCell.setFontSize(9);
+        labelCell.setHorizontalAlignment("center");
+        labelCell.setVerticalAlignment("middle");
+
+        Logger.log("[ViewEngine] setupMedicationsIcons — נוסף: " + mapping.script + " עמודה " + mapping.col);
+
+      } catch (imgErr) {
+        Logger.log("[ViewEngine] setupMedicationsIcons — שגיאה: " + mapping.script + " | " + imgErr.toString());
+      }
+    });
+
+    SpreadsheetApp.flush();
+
+    ui.alert(
+      "✅ איקונים הוכנסו בהצלחה לגליון '" + MEDICATIONS_SHEET_NAME + "'\n\n" +
+      "עמודה A — העשרה S15 (runS15EnrichIcon)\n" +
+      "עמודה B — אימות S16 (runS15ValidateIcon)"
+    );
+
+    Logger.log("[ViewEngine] setupMedicationsIcons הושלם — 2 איקונים");
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-setupMedicationsIcons: " + e.toString());
     SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
   }
 }
