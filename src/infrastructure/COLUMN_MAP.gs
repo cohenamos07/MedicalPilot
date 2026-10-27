@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.12.0 | @updated 22/10/2026 20:19 | @service COLUMN_MAP
+ * @version 2.13.0 | @updated 27/10/2026 20:57 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
@@ -17,6 +17,12 @@
  *          [v2.12.0] יומן_מצב_רפואי — 24 עמודות: נוספו Organ_State_Code (23)
  *          ו-Organ_Side_Code (24), writers: S13+S16, Task #224. מיפוי_קודים —
  *          39 עמודות, 8 בלוקים: נוספו מצב_איבר AD-AH ו-צד_איבר AI-AM.
+ *          [v2.13.0] Task #256 (שלב 5) — תרופות_קבועות: 19 עמודות (היה 12) —
+ *          נוספו M-S (ATC_Code | Dose_Amount | Dose_Unit | Times_Per_Day |
+ *          Days_Per_Week | Enrich_Status | Treatment_Type), writers: S15.
+ *          B, E ו-L — writers: S13+S15 (S15 כותב באישור). מיפוי_קודים — 58
+ *          עמודות, 9 בלוקים: נוספו רזרבה AN-AZ (Reserved_01-13) ובלוק תרופות
+ *          BA-BF (מפתח = קוד ATC), writers: S15+עמוס, readers: S15.
  *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (11), בדיקות_דם (10),
  *          בדיקות_גנטיות (8), הנחיות_רפואיות_ומשימות (8) — 5 גליונות יעד של S09,
  *          נוספו ל-SHEET_CONFIG/SHEETS_MAP עם כותרות באנגלית, יושרו בפועל
@@ -38,11 +44,26 @@
  *          (S11 תפס ותיקן שורות עם פורמט תאריך שגוי בפועל).
  * @callers System_Doc_Builder (buildSheetFromMap, buildMedicalEventsSheet), ViewEngine (restoreHeaders),
  *          כל שירותי ה-Pipeline
+ *          [v2.13.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות תרופות_קבועות M-S ובלוק BA-BF במיפוי_קודים
  * @functions SHEET_CONFIG, SHEETS_MAP, SHEETS_DEFAULT_DATA,
  *            insertEditorGitLinesColumns, printSheetMap, printColumnDetail,
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol, _medDate_normalizeDate
+ * @changes [v2.13.0] Task #256 (שלב 5) — תיעוד מבני בלבד, אין שינוי לוגי.
+ *          SHEETS_MAP["תרופות_קבועות"]: 12→19 עמודות — נוספו 13-19 (M-S),
+ *          writers: ["S15"], כולל ערכי Enrich_Status (הוצע|מאומת) ו-
+ *          Treatment_Type (כרוני|זמני|לפי הצורך) כפי שמוגדרים ב-S15. B, E, L:
+ *          writers הורחב ל-["S13","S15"]; הערת L עודכנה — מבטלת את "תמיד
+ *          SYS00" (Task #188): S13 כותב SYS00 כברירת מחדל, באישור S15 נגזר
+ *          מהקבוצה הטיפולית בקטלוג. נוספו readers: ["S15"] לעמודות ש-S15 קורא.
+ *          SHEETS_MAP["מיפוי_קודים"]: 39→58 עמודות — רזרבה 40-52 (AN-AZ,
+ *          Reserved_01-13) ובלוק תרופות 53-58 (BA-BF: ATC_Code |
+ *          Normalized_Value | Description | Raw_Value | Icon_Link |
+ *          Medical_System). העמודות והכותרות נוספו בגליון החי ע"י עמוס
+ *          (26/10/2026). אומת מול הקוד החי (diff מדויק, node --check, טעינת
+ *          המפה: 19 ו-58 עמודות, מספור רציף, 77 מתוך 77 שמות זהים לשורה 4
+ *          בגליון החי) ובבדיקה פונקציונלית (הדפסת מבנה גיליון — M-S מוצגות).
  * @changes [v2.12.0] Task #224 (שלב 2) — SHEETS_MAP["יומן_מצב_רפואי"]: נוספו
  *          עמודות 23 = Organ_State_Code (OST0-OST2) ו-24 = Organ_Side_Code
  *          (LAT0-LAT3), zone: טכני, writers: ["S13","S16"] — מצב וצד איבר אחרי
@@ -144,7 +165,7 @@
  *                   משורה 2). (3) תוקן באג ידוע ומתועד (ראה @changes [v2.9.1] למטה) —
  *                   restoreHeaders() כתבה תמיד לשורה 1 בקשיחות; כעת קוראת את
  *                   HEADER_ROW בפועל מ-SHEET_CONFIG לפי הגיליון שנבחר. הזזת הנתונים
- *                   הקיימים בגיליון (1→4) והצבת אייקון "אתחול" — פעולה ידנית של עמוס,
+  *                   הקיימים בגיליון (1→4) והצבת אייקון "אתחול" — פעולה ידנית של עמוס,
  *                   לא בקוד.
  * @changes [v2.9.1] Task 129 [שלב 1/8] — הוספת עמודה 27 (AA) "Duplicate_Target_FileID"
  *                   ל-SHEETS_MAP["ניהול_מיילים"] — רפרנס פיזי וגלוי לשורת-התאום בזיהוי
@@ -340,21 +361,30 @@ const SHEETS_MAP = {
   // [Task 184] גליון יעד — תרופות קבועות שחולצו ע"י S09 (כותרות אנגלית)
 
   // [Task 184] גליון יעד — תרופות קבועות שחולצו ע"י S09 (כותרות אנגלית)
-  "תרופות_קבועות": [
-    { col: 1,  name: "Drug_Name",         zone: "אירוע", writers: ["S13"], readers: [], values: "טקסט חופשי",        notes: "שם מסחרי של התרופה" },
-    { col: 2,  name: "Active_Ingredient", zone: "אירוע", writers: ["S13"], readers: [], values: "טקסט חופשי",        notes: "החומר הפעיל, אם צוין במסמך" },
-    { col: 3,  name: "Dosage",            zone: "אירוע", writers: ["S13"], readers: [], values: "טקסט חופשי",        notes: "לדוגמה: 25 mg" },
-    { col: 4,  name: "Frequency",         zone: "אירוע", writers: ["S13"], readers: [], values: "טקסט חופשי",        notes: "לדוגמה: 1 ביום" },
-    { col: 5,  name: "Treatment_Reason",  zone: "אירוע", writers: ["S13"], readers: [], values: "טקסט חופשי",        notes: "האבחנה/הסיבה למרשם" },
+    "תרופות_קבועות": [
+    { col: 1,  name: "Drug_Name",         zone: "אירוע", writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",        notes: "שם מסחרי של התרופה. [Task #256] S15 מחפש לפיו בקטלוג (מיפוי_קודים BA-BF) ומוסיף אותו ל-Raw_Value בקטלוג באישור" },
+    { col: 2,  name: "Active_Ingredient", zone: "אירוע", writers: ["S13","S15"], readers: ["S15"], values: "טקסט חופשי",  notes: "החומר הפעיל, אם צוין במסמך. [Task #256] S15 כותב באישור (s15_approve) את שם החומר מהקטלוג, אם לא ריק" },
+    { col: 3,  name: "Dosage",            zone: "אירוע", writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",        notes: "לדוגמה: 25 mg. [Task #256] מקור הפירוק ל-Dose_Amount / Dose_Unit (עמ' 14-15)" },
+    { col: 4,  name: "Frequency",         zone: "אירוע", writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",        notes: "לדוגמה: 1 ביום. [Task #256] מקור הפירוק ל-Times_Per_Day / Days_Per_Week (עמ' 16-17)" },
+    { col: 5,  name: "Treatment_Reason",  zone: "אירוע", writers: ["S13","S15"], readers: ["S15"], values: "טקסט חופשי",  notes: "האבחנה/הסיבה למרשם. [Task #256] S15 כותב באישור את הערך שאושר בחלון S16" },
     { col: 6,  name: "Start_Date",        zone: "אירוע", writers: ["S13"], readers: [], values: "תאריך DD/MM/YYYY",  notes: "אם צוין במסמך" },
-    { col: 7,  name: "End_Date",          zone: "אירוע", writers: ["S13"], readers: [], values: "תאריך DD/MM/YYYY",  notes: "אם צוין במסמך" },
+    { col: 7,  name: "End_Date",          zone: "אירוע", writers: ["S13"], readers: ["S15"], values: "תאריך DD/MM/YYYY",  notes: "אם צוין במסמך. [Task #256] קיים תאריך סיום → S15 מציע סוג טיפול \"זמני\"" },
     { col: 8,  name: "Status",            zone: "אירוע", writers: ["S13"], readers: [], values: "פעיל|הופסק",        notes: "ברירת מחדל: פעיל" },
     { col: 9,  name: "Doc_Issuer",        zone: "טכני",  writers: ["S13"], readers: [], values: "טקסט חופשי",        notes: "מנפיק המסמך — docIssuer" },
     { col: 10, name: "Source_URL",        zone: "טכני",  writers: ["S13"], readers: [], values: "https://drive.google.com/...", notes: "קישור לקובץ המקור" },
     { col: 11, name: "File_ID",           zone: "טכני",  writers: ["S13"], readers: [], values: "Drive ID",          notes: "מזהה קובץ מקורי — מפתח מקשר חזרה לניהול_מיילים" },
-    { col: 12, name: "Medical_System",    zone: "טכני",  writers: ["S13"], readers: [], values: "SYS00-SYS14",       notes: "[Task #188] קבוע: תמיד SYS00 (כללי) — תרופה לא ממופה למערכת ספציפית לאווטאר" }
-  ],
+    { col: 12, name: "Medical_System",    zone: "טכני",  writers: ["S13","S15"], readers: [], values: "SYS00-SYS14",  notes: "[Task #256] S13 כותב SYS00 (כללי) כברירת מחדל; באישור ב-S15 נגזר מהקבוצה הטיפולית בקטלוג (מיפוי_קודים BF). מבטל את הכלל הקודם \"תמיד SYS00\" (Task #188)" },
 
+    // [Task #256] עמודות העשרה M-S — נכתבות ע"י S15_EnrichCatalog.gs בלבד.
+    // הצעה (runS15Enrich) כותבת M-R עם R="הוצע"; אישור בחלון S16 (s15_approve) כותב M-S עם R="מאומת".
+    { col: 13, name: "ATC_Code",          zone: "טכני",  writers: ["S15"], readers: ["S15"], values: "קוד ATC ברמת חומר פעיל (למשל A10BA02) או ריק", notes: "[Task #256] מפתח לבלוק התרופות במיפוי_קודים (BA). ריק = לא נמצא קוד (למשל פריט שאינו תרופה)" },
+    { col: 14, name: "Dose_Amount",       zone: "טכני",  writers: ["S15"], readers: [], values: "מספר (או טקסט למינון משולב, למשל 5/160)", notes: "[Task #256] כמות למנה — נלקחת משדה המינון בלבד (ריכוז בשם התרופה אינו מנה)" },
+    { col: 15, name: "Dose_Unit",         zone: "טכני",  writers: ["S15"], readers: [], values: "MG|MCG|ML|APPLICATION וכו' או ריק", notes: "[Task #256] יחידת המנה" },
+    { col: 16, name: "Times_Per_Day",     zone: "טכני",  writers: ["S15"], readers: [], values: "מספר או ריק",       notes: "[Task #256] מספר נטילות ביום" },
+    { col: 17, name: "Days_Per_Week",     zone: "טכני",  writers: ["S15"], readers: [], values: "1-7 או ריק",        notes: "[Task #256] ימי נטילה בשבוע. מרווח של שבועות (למשל עירוי כל 3 שבועות) אינו ניתן לייצוג — Task #259" },
+    { col: 18, name: "Enrich_Status",     zone: "טכני",  writers: ["S15"], readers: ["S15"], values: "הוצע|מאומת או ריק", notes: "[Task #256] ריק = ממתין להעשרה; שורה עם ערך לא מעובדת שוב ב-runS15Enrich" },
+    { col: 19, name: "Treatment_Type",    zone: "טכני",  writers: ["S15"], readers: [], values: "כרוני|זמני|לפי הצורך", notes: "[Task #256] נקבע באימות בחלון S16; ההצעה האוטומטית (כללים קבועים, בלי Gemini) היא ברירת מחדל בלבד. מקור לחלוקת לוח התרופות באינפוגרפיקה" }
+  ],
     // [Task 184] גליון יעד — מצב רפואי (medical_status) שחולץ ע"י S09 (כותרות אנגלית)
              "יומן_מצב_רפואי": [
     { col: 1,  name: "Event_Date",           zone: "אירוע", writers: ["S13"],       readers: [], values: "תאריך DD/MM/YYYY", notes: "מהמסמך או תאריך המסמך כברירת מחדל" },
@@ -549,7 +579,31 @@ const SHEETS_MAP = {
     { col: 36, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
     { col: 37, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי", notes: "" },
     { col: 38, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי — מילות מפתח מופרדות בפסיקים", notes: "[Task #224] מקור ההצעה האוטומטית ב-S16" },
-    { col: 39, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "" }
+     { col: 39, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "" },
+
+    // [Task #256] עמודות רזרבה (AN-AZ) — שמורות להרחבה עתידית של בלוקי הקודים. כותרת שורה 3: "שמור_רזרב".
+    { col: 40, name: "Reserved_01",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+    { col: 41, name: "Reserved_02",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+    { col: 42, name: "Reserved_03",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+    { col: 43, name: "Reserved_04",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+    { col: 44, name: "Reserved_05",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+    { col: 45, name: "Reserved_06",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+    { col: 46, name: "Reserved_07",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+    { col: 47, name: "Reserved_08",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+    { col: 48, name: "Reserved_09",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+    { col: 49, name: "Reserved_10",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+    { col: 50, name: "Reserved_11",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+    { col: 51, name: "Reserved_12",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+    { col: 52, name: "Reserved_13",      zone: "מיפוי", writers: [], readers: [], values: "ריק", notes: "[Task #256] רזרבה — לא בשימוש" },
+
+    // [Task #256] בלוק תרופות (BA-BF) — קטלוג מרכזי, שורה לכל חומר פעיל, מפתח = קוד ATC. כותרת שורה 3: "תרופות".
+    // נקרא ע"י S15 (_s15_readCatalog) להעשרה ולאימות; נכתב ע"י S15 באישור בחלון S16 (s15_approve): קוד חדש = שורה חדשה, קוד קיים = הוספת השם המסחרי ל-Raw_Value.
+    { col: 53, name: "ATC_Code",         zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "קוד ATC ברמת חומר פעיל (למשל A10BA02)", notes: "[Task #256] מפתח הבלוק. מקור ל-ATC_Code (עמ' 13) בתרופות_קבועות. סיווג בינלאומי — לא ממציאים קודים" },
+    { col: 54, name: "Normalized_Value", zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "שם החומר הפעיל באנגלית (למשל metformin)", notes: "[Task #256] מקור ל-Active_Ingredient (עמ' 2) באישור; מפתח חיפוש ב-S15" },
+    { col: 55, name: "Description",      zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "טקסט חופשי בעברית — ייעוד התרופה", notes: "[Task #256] למשל \"תרופה לסוכרת\"" },
+    { col: 56, name: "Raw_Value",        zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "שמות מסחריים מופרדים בפסיקים", notes: "[Task #256] מפתח חיפוש ב-S15; באישור קוד קיים — השם המסחרי מתווסף כאן" },
+    { col: 57, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #256] ריק כרגע — לשימוש עתידי באינפוגרפיקה" },
+    { col: 58, name: "Medical_System",   zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "SYS00-SYS14", notes: "[Task #256] מערכת הגוף לפי הקבוצה הטיפולית. מקור ל-Medical_System (עמ' 12) בתרופות_קבועות באישור" }
   ]
 
 };
