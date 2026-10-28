@@ -1,6 +1,6 @@
 <!--
   MedicalPilot — S16_Sidebar.html
-  @version     2.6.0 | @updated 26/10/2026 21:32 | @service S16
+  @version     2.7.0 | @updated 28/10/2026 19:45 | @service S16
   @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_Sidebar.html
   @description ממשק Dialog לאימות כל קודי הסיווג ביומן_מצב_רפואי (21 עמודות):
                קוד מערכת גוף (select סגור), קוד אירוע/התמחות/חומרה/אבחנה
@@ -24,6 +24,11 @@
                חלון מציג שורה מגליון תרופות_קבועות — נתוני המסמך (תצוגה), קוד
                ATC + נתוני קטלוג (נעולים כשהקוד מאומת), מינון ותדירות, סוג
                טיפול (חובה) וסיבה; שמאל — מטא-דאטה ותצוגת מסמך מקור.
+               [v2.7.0] מצב הנחיות (payload.mode="instruction", מ-S15): אותו
+               חלון מציג שורה מגליון הנחיות_רפואיות_ומשימות — ההנחיה במסמך
+               (תצוגה), סוג (רשימה סגורה, בלי "+ קוד חדש"), אופי, קוד יעד
+               (התמחויות / תרופות), מערכת גוף, סטטוס ותאריך יעד; שמאל —
+               מטא-דאטה ותצוגת מסמך מקור.
   @impacts     כפתורים: אשר, הוסף-קוד (4, אחד לכל שדה קטלוג פתוח), ניווט
                הקודם/הבא. תלוי ב: S16_ValidateMedicalStatus.gs — כל
                הלוגיקה מתבצעת שם.
@@ -38,12 +43,28 @@
                [v2.6.0] במצב תרופות: ניווט וטעינה מחדש — s15_loadRowByNumber,
                אישור — s15_approve(row, v) עם 11 שדות (S15_EnrichCatalog.gs).
                מצב המצב הרפואי — ללא שינוי (s16_loadRowByNumber / s16_approve).
+               [v2.7.0] במצב הנחיות: ניווט וטעינה מחדש — s15_instrLoadRowByNumber,
+               אישור — s15_instrApprove(row, v) עם 6 שדות (S15_EnrichCatalog.gs).
+               מצב התרופות ומצב המצב הרפואי — ללא שינוי.
   @callers     S16_ValidateMedicalStatus.gs (showS16Sidebar)
                S15_EnrichCatalog.gs (s15_showValidation — מצב תרופות)
+               S15_EnrichCatalog.gs (s15_showValidation — מצב הנחיות, [v2.7.0])
   @functions   initUI, render, renderCodeFieldHtml, esc, prevRow, nextRow,
                doApprove, doSaveCatalogCode, handleResult, handleError,
                fillOrganOptions, suggestionHintHtml, toggleNewCode, geminiHintHtml,
-               organStateHtml, renderMedication, doApproveMedication
+               organStateHtml, renderMedication, doApproveMedication,
+               renderInstruction, updateInstrKindHint, doApproveInstruction
+  @changes     [v2.7.0] Task #261 שלב 4 — מצב הנחיות בחלון הקיים (בלי חלון
+               חדש). render: מעבר ל-renderInstruction כש-payload.mode=
+               "instruction". renderInstruction (חדשה): כותרת "📋 S15 — אימות
+               הנחיות", שורה + תיאור, תג Enrich_Status, רמז כתום "הוצע בהעשרה —
+               יש לאמת", קוד יעד בקבוצות (optgroup). updateInstrKindHint (חדשה):
+               ברירת המחדל של האופי לפי הסוג. doApproveInstruction (חדשה): בדיקת
+               שדות חובה ושליחה ל-s15_instrApprove. prevRow/nextRow/handleResult —
+               טעינה דרך s15_instrLoadRowByNumber; doApprove — מעבר
+               ל-doApproveInstruction. אומת מול הקוד החי (diff, בדיקת תחביר
+               לסקריפט), בהדמיה, ובבדיקת שטח: שורות 6 ו-8 אושרו, תאריך שגוי
+               נדחה, חלונות התרופות והמצב הרפואי ללא שינוי.
   @changes     [v2.6.0] Task #256 שלב 4 — מצב תרופות בחלון הקיים (בלי חלון
                חדש). render: אחרי שמירת currentPayload — מעבר ל-renderMedication
                כש-payload.mode="medication". renderMedication (חדשה): כותרת
@@ -471,7 +492,7 @@
       '</div>';
   }
 
-    function render(payload) {
+        function render(payload) {
     if (!payload || payload.error) {
       handleError(payload || { msg: "שגיאה בטעינה" });
       return;
@@ -479,6 +500,8 @@
     currentPayload = payload;
     // [Task #256 שלב 4] מצב תרופות — payload מ-S15 (s15_showValidation / s15_loadRowByNumber)
     if (payload.mode === 'medication') { renderMedication(payload); return; }
+    // [Task #261 שלב 4] מצב הנחיות — payload מ-S15 (s15_showValidation / s15_instrLoadRowByNumber)
+    if (payload.mode === 'instruction') { renderInstruction(payload); return; }
 
     document.getElementById('rowMeta').textContent =
       'שורה ' + payload.row + ' מתוך ' + payload.lastRow;
@@ -601,13 +624,18 @@
     document.getElementById('organHint').innerHTML = hint;
   }
 
-    function prevRow() {
+        function prevRow() {
     if (!currentPayload) return;
     const target = currentPayload.row - 1;
     if (target < currentPayload.firstDataRow) return;
     // [Task #256 שלב 4] מצב תרופות — טעינה דרך S15
     if (currentPayload.mode === 'medication') {
       google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_loadRowByNumber(target);
+      return;
+    }
+    // [Task #261 שלב 4] מצב הנחיות — טעינה דרך S15
+    if (currentPayload.mode === 'instruction') {
+      google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_instrLoadRowByNumber(target);
       return;
     }
     google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(target);
@@ -622,6 +650,11 @@
       google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_loadRowByNumber(target);
       return;
     }
+    // [Task #261 שלב 4] מצב הנחיות — טעינה דרך S15
+    if (currentPayload.mode === 'instruction') {
+      google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_instrLoadRowByNumber(target);
+      return;
+    }
     google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(target);
   }
 
@@ -629,6 +662,8 @@
     if (!currentPayload) return;
     // [Task #256 שלב 4] מצב תרופות — אישור דרך S15
     if (currentPayload.mode === 'medication') { doApproveMedication(); return; }
+    // [Task #261 שלב 4] מצב הנחיות — אישור דרך S15
+    if (currentPayload.mode === 'instruction') { doApproveInstruction(); return; }
     const sysCode   = document.getElementById('sysCodeSelect').value;
     const certCode  = document.getElementById('certaintySelect').value;
     const organCode = document.getElementById('organSelect').value;
@@ -678,6 +713,9 @@
         // [Task #256 שלב 4] מצב תרופות — טעינה מחדש דרך S15
         if (currentPayload.mode === 'medication') {
           google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_loadRowByNumber(currentPayload.row);
+        } else if (currentPayload.mode === 'instruction') {
+          // [Task #261 שלב 4] מצב הנחיות — טעינה מחדש דרך S15
+          google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_instrLoadRowByNumber(currentPayload.row);
         } else {
           google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(currentPayload.row);
         }
@@ -819,6 +857,143 @@
     }
     google.script.run.withSuccessHandler(handleResult).withFailureHandler(handleError)
       .s15_approve(currentPayload.row, v);
+  }
+
+    // ════ [Task #261 שלב 4] מצב הנחיות — תצוגת שורה מגליון הנחיות_רפואיות_ומשימות ════
+  // ימין: ההנחיה במסמך (תצוגה), סוג (רשימה סגורה), אופי, קוד יעד, מערכת גוף,
+  // סטטוס ותאריך יעד. שמאל: מטא-דאטה ותצוגת מסמך מקור. אין "+ קוד חדש".
+  function renderInstruction(p) {
+    document.querySelector('.header-title').textContent = '📋 S15 — אימות הנחיות';
+    document.getElementById('rowMeta').textContent =
+      'שורה ' + p.row + ' מתוך ' + p.lastRow + ' — ' + p.text;
+    document.getElementById('statusBadge').textContent = p.enrichStatus || '—';
+
+    const suggested  = p.enrichStatus === 'הוצע';
+    const suggHint   = suggested
+      ? '<div class="hint" style="color:#e65100; font-weight:bold;">🤖 הוצע בהעשרה — יש לאמת</div>'
+      : '';
+
+    let typeOptionsHtml = '<option value="">— בחר —</option>';
+    (p.typeOptions || []).forEach(function(opt) {
+      const sel = (opt.code === p.code) ? ' selected' : '';
+      typeOptionsHtml += '<option value="' + esc(opt.code) + '" data-kind="' + esc(opt.defaultKind) + '"' + sel + '>' +
+        esc(opt.code) + ' — ' + esc(opt.name) + '</option>';
+    });
+
+    let kindOptionsHtml = '<option value="">— בחר —</option>';
+    (p.kinds || []).forEach(function(k) {
+      const sel = (k === p.kind) ? ' selected' : '';
+      kindOptionsHtml += '<option value="' + esc(k) + '"' + sel + '>' + esc(k) + '</option>';
+    });
+
+    let targetOptionsHtml = '<option value="">— ללא יעד —</option>';
+    (p.targetGroups || []).forEach(function(g) {
+      targetOptionsHtml += '<optgroup label="' + esc(g.label) + '">';
+      g.options.forEach(function(opt) {
+        const sel = (opt.code === p.target) ? ' selected' : '';
+        targetOptionsHtml += '<option value="' + esc(opt.code) + '"' + sel + '>' + esc(opt.code) + ' — ' + esc(opt.name) + '</option>';
+      });
+      targetOptionsHtml += '</optgroup>';
+    });
+
+    let sysOptionsHtml = '<option value="">— ללא —</option>';
+    (p.bodySystemOptions || []).forEach(function(opt) {
+      const sel = (opt.code === p.medicalSystem) ? ' selected' : '';
+      sysOptionsHtml += '<option value="' + esc(opt.code) + '"' + sel + '>' + esc(opt.code) + ' — ' + esc(opt.nameHe) + '</option>';
+    });
+
+    let statusOptionsHtml = '<option value="">— בחר —</option>';
+    (p.statuses || []).forEach(function(s) {
+      const sel = (s === p.status) ? ' selected' : '';
+      statusOptionsHtml += '<option value="' + esc(s) + '"' + sel + '>' + esc(s) + '</option>';
+    });
+
+    function selectBox(id, label, optionsHtml, extra) {
+      return '<div style="flex:1; min-width:0;"><label class="edit-label">' + label + '</label>' +
+        '<select id="' + id + '"' + (extra || '') + '>' + optionsHtml + '</select></div>';
+    }
+
+    document.getElementById('rightCol').innerHTML =
+      '<div class="section">' +
+        '<div class="section-title">ההנחיה במסמך (תצוגה בלבד)</div>' +
+        '<div class="field-row"><div class="field-label">תיאור</div><div class="field-value">' + esc(p.text) + '</div></div>' +
+        '<div class="field-row"><div class="field-label">סוג מהחילוץ</div><div class="field-value">' + esc(p.rawType) + '</div></div>' +
+        '<div class="field-row"><div class="field-label">תאריך ההנחיה</div><div class="field-value">' + esc(p.instructionDate) + '</div></div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-title">סיווג ההנחיה</div>' +
+        '<div style="display:flex; gap:8px;">' +
+          selectBox('instrCode', 'סוג ההנחיה (רשימה סגורה)', typeOptionsHtml, ' onchange="updateInstrKindHint()"') +
+          selectBox('instrKind', 'אופי', kindOptionsHtml, ' onchange="updateInstrKindHint()"') +
+        '</div>' +
+        '<div id="instrKindHint"></div>' +
+        suggHint +
+        '<div style="display:flex; gap:8px; margin-top:4px;">' +
+          selectBox('instrTarget', 'קוד יעד (אופציונלי)', targetOptionsHtml) +
+          selectBox('instrSystem', 'מערכת גוף', sysOptionsHtml) +
+        '</div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-title">מחזור חיים</div>' +
+        '<div style="display:flex; gap:8px;">' +
+          selectBox('instrStatus', 'סטטוס (חובה)', statusOptionsHtml) +
+          '<div style="flex:1; min-width:0;"><label class="edit-label">תאריך יעד (DD/MM/YYYY או ריק)</label>' +
+            '<input type="text" id="instrDue" value="' + esc(p.dueDate) + '" placeholder="DD/MM/YYYY"></div>' +
+        '</div>' +
+      '</div>';
+
+    updateInstrKindHint();
+
+    const previewUrl = p.sourceUrl ? p.sourceUrl.replace('/view', '/preview') : '';
+    const sourceLink = p.sourceUrl
+      ? '<a class="source-link" href="' + p.sourceUrl + '" target="_blank">פתח בלשונית חדשה ↗</a>'
+      : '';
+
+    document.getElementById('leftCol').innerHTML =
+      '<div class="section">' +
+        '<div class="section-title">מטא-דאטה</div>' +
+        '<div class="field-row"><div class="field-label">מוסד / רופא</div><div class="field-value">' + esc(p.docIssuer) + '</div></div>' +
+        '<div class="field-row"><div class="field-label">תאריך ההנחיה</div><div class="field-value">' + esc(p.instructionDate) + '</div></div>' +
+        '<div class="field-row"><div class="field-label">תאריך יעד</div><div class="field-value">' + esc(p.dueDate || '—') + '</div></div>' +
+      '</div>' +
+      '<div class="section" style="flex:1; display:flex; flex-direction:column; min-height:0;">' +
+        '<div class="section-title">📄 מסמך מקור</div>' +
+        (previewUrl
+          ? '<iframe class="file-preview" src="' + previewUrl + '" frameborder="0" allowfullscreen></iframe>'
+          : '<div class="hint">אין מסמך מקור לשורה זו</div>') +
+        sourceLink +
+      '</div>';
+  }
+
+  // ════ [Task #261 שלב 4] רמז ברירת המחדל של האופי לפי הסוג שנבחר ════
+  function updateInstrKindHint() {
+    const codeSel = document.getElementById('instrCode');
+    const kindSel = document.getElementById('instrKind');
+    const hintEl  = document.getElementById('instrKindHint');
+    if (!codeSel || !kindSel || !hintEl) return;
+    const opt = codeSel.options[codeSel.selectedIndex];
+    const def = (opt && opt.getAttribute('data-kind')) || '';
+    if (!def) { hintEl.innerHTML = ''; return; }
+    hintEl.innerHTML = (kindSel.value && kindSel.value !== def)
+      ? '<div class="hint">ברירת המחדל לסוג זה: ' + esc(def) + '</div>'
+      : '';
+  }
+
+  // ════ [Task #261 שלב 4] אישור שורת הנחיה — s15_instrApprove (S15_EnrichCatalog.gs) ════
+  function doApproveInstruction() {
+    const v = {
+      code:          document.getElementById('instrCode').value,
+      kind:          document.getElementById('instrKind').value,
+      target:        document.getElementById('instrTarget').value,
+      medicalSystem: document.getElementById('instrSystem').value,
+      status:        document.getElementById('instrStatus').value,
+      dueDate:       document.getElementById('instrDue').value.trim()
+    };
+    if (!v.code)   { handleError({ msg: "❌ יש לבחור סוג הנחיה" }); return; }
+    if (!v.kind)   { handleError({ msg: "❌ יש לבחור אופי (מתמשכת / משימה)" }); return; }
+    if (!v.status) { handleError({ msg: "❌ יש לבחור סטטוס (פתוח / בוצע / בוטל)" }); return; }
+    google.script.run.withSuccessHandler(handleResult).withFailureHandler(handleError)
+      .s15_instrApprove(currentPayload.row, v);
   }
 
   function handleError(err) {
