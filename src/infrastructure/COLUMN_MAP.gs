@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.13.0 | @updated 27/10/2026 20:57 | @service COLUMN_MAP
+ * @version 2.14.0 | @updated 28/10/2026 20:50 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
@@ -23,6 +23,12 @@
  *          B, E ו-L — writers: S13+S15 (S15 כותב באישור). מיפוי_קודים — 58
  *          עמודות, 9 בלוקים: נוספו רזרבה AN-AZ (Reserved_01-13) ובלוק תרופות
  *          BA-BF (מפתח = קוד ATC), writers: S15+עמוס, readers: S15.
+ *          [v2.14.0] Task #261 (שלב 5) — הנחיות_רפואיות_ומשימות: 13 עמודות (היה 9)
+ *          — נוספו J-M (Instruction_Code | Instruction_Kind | Target_Code |
+ *          Enrich_Status), writers: S15. E, F ו-I — writers: S13+S15 (S15 כותב
+ *          באישור); F — ערכים פתוח|בוצע|בוטל. מיפוי_קודים — 63 עמודות: נוסף בלוק
+ *          סוגי_הנחיות BX-CB (76-80, מפתח = INS00-INS09, רשימה סגורה), writers:
+ *          עמוס, readers: S15. BG-BW (59-75) שמורות ל-Task #263/#264 — לא נרשמו.
  *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (11), בדיקות_דם (10),
  *          בדיקות_גנטיות (8), הנחיות_רפואיות_ומשימות (8) — 5 גליונות יעד של S09,
  *          נוספו ל-SHEET_CONFIG/SHEETS_MAP עם כותרות באנגלית, יושרו בפועל
@@ -45,11 +51,26 @@
  * @callers System_Doc_Builder (buildSheetFromMap, buildMedicalEventsSheet), ViewEngine (restoreHeaders),
  *          כל שירותי ה-Pipeline
  *          [v2.13.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות תרופות_קבועות M-S ובלוק BA-BF במיפוי_קודים
+ *          [v2.14.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות הנחיות_רפואיות_ומשימות J-M ובלוק BX-CB במיפוי_קודים
  * @functions SHEET_CONFIG, SHEETS_MAP, SHEETS_DEFAULT_DATA,
  *            insertEditorGitLinesColumns, printSheetMap, printColumnDetail,
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol, _medDate_normalizeDate
+ * @changes [v2.14.0] Task #261 (שלב 5) — תיעוד מבני בלבד, אין שינוי לוגי.
+ *          SHEETS_MAP["הנחיות_רפואיות_ומשימות"]: 9→13 עמודות — נוספו 10-13 (J-M),
+ *          writers: ["S15"], כולל ערכי Instruction_Kind (מתמשכת|משימה),
+ *          Target_Code (התמחות / ATC / ריק) ו-Enrich_Status (הוצע|מאומת) כפי
+ *          שמוגדרים ב-S15. E, F, I: writers הורחב ל-["S13","S15"]; F — נוסף
+ *          הערך "בוטל". נוספו readers: ["S15"] לעמודות ש-S15 קורא (A-G, I-M).
+ *          SHEETS_MAP["מיפוי_קודים"]: 58→63 עמודות — בלוק סוגי_הנחיות 76-80
+ *          (BX-CB: Instruction_Code | Normalized_Value | Description |
+ *          Raw_Value | Icon_Link); בלוק התמחות J-N — readers: ["S15"] ב-10, 11,
+ *          13 (קודי יעד להנחיות). עמודות 59-75 לא נרשמו (חלופה א, החלטת עמוס
+ *          28/10/2026) — יירשמו עם בלוקי #263/#264. אומת מול הקוד החי (diff,
+ *          node --check, טעינת המפה: 13 ו-63 עמודות, 76 מתוך 76 שמות זהים לשורה
+ *          4 בגליון החי) ובבדיקה פונקציונלית (הדפסת מבנה גיליון — J-M ו-BX-CB
+ *          מוצגות).
  * @changes [v2.13.0] Task #256 (שלב 5) — תיעוד מבני בלבד, אין שינוי לוגי.
  *          SHEETS_MAP["תרופות_קבועות"]: 12→19 עמודות — נוספו 13-19 (M-S),
  *          writers: ["S15"], כולל ערכי Enrich_Status (הוצע|מאומת) ו-
@@ -440,17 +461,24 @@ const SHEETS_MAP = {
     { col: 9, name: "Medical_System",         zone: "טכני",  writers: ["S13"], readers: [], values: "SYS00-SYS14",       notes: "[Task #188] קבוע: תמיד SYS14 (גנים) — כל בדיקה גנטית מקוטלגת אוטומטית" }
   ],
 
-  // [Task 184] גליון יעד — הנחיות ומשימות שחולצו ע"י S09 (כותרות אנגלית)
+    // [Task 184] גליון יעד — הנחיות ומשימות שחולצו ע"י S09 (כותרות אנגלית)
   "הנחיות_רפואיות_ומשימות": [
-    { col: 1, name: "Instruction_Date",  zone: "אירוע", writers: ["S13"], readers: [], values: "תאריך DD/MM/YYYY", notes: "" },
-    { col: 2, name: "Doc_Issuer",        zone: "אירוע", writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "מנפיק — docIssuer" },
-    { col: 3, name: "Task_Description",  zone: "תוכן",  writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 4, name: "Task_Type",         zone: "תוכן",  writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 5, name: "Due_Date",          zone: "תוכן",  writers: ["S13"], readers: [], values: "תאריך DD/MM/YYYY", notes: "" },
-    { col: 6, name: "Status",            zone: "תוכן",  writers: ["S13"], readers: [], values: "פתוח|בוצע",        notes: "" },
-    { col: 7, name: "Source_URL",        zone: "טכני",  writers: ["S13"], readers: [], values: "https://drive.google.com/...", notes: "" },
+    { col: 1, name: "Instruction_Date",  zone: "אירוע", writers: ["S13"], readers: ["S15"], values: "תאריך DD/MM/YYYY", notes: "[Task #261] מוצג בחלון האימות (S15)" },
+    { col: 2, name: "Doc_Issuer",        zone: "אירוע", writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",       notes: "מנפיק — docIssuer. [Task #261] הקשר לפרומפט ההעשרה ומוצג בחלון האימות" },
+    { col: 3, name: "Task_Description",  zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",       notes: "[Task #261] עמודת השם של תחום ההנחיות ב-S15 — הטקסט שמסווג בהעשרה" },
+    { col: 4, name: "Task_Type",         zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",       notes: "[Task #261] סוג גולמי מהחילוץ — הקשר לפרומפט ההעשרה; מוצג בחלון האימות (לא נכתב)" },
+    { col: 5, name: "Due_Date",          zone: "תוכן",  writers: ["S13","S15"], readers: ["S15"], values: "תאריך DD/MM/YYYY", notes: "[Task #261] ניתן לעריכה בחלון האימות; S15 כותב באישור (s15_instrApprove) לפי אזור הזמן של הגליון. בסיס לחישוב \"באיחור\" בתצוגה" },
+    { col: 6, name: "Status",            zone: "תוכן",  writers: ["S13","S15"], readers: ["S15"], values: "פתוח|בוצע|בוטל",   notes: "[Task #261] מחזור חיים — נקבע באישור בחלון האימות (פתוח / בוצע / בוטל)" },
+    { col: 7, name: "Source_URL",        zone: "טכני",  writers: ["S13"], readers: ["S15"], values: "https://drive.google.com/...", notes: "[Task #261] תצוגת מסמך המקור בחלון האימות" },
     { col: 8, name: "File_ID",           zone: "טכני",  writers: ["S13"], readers: [], values: "Drive ID",          notes: "" },
-    { col: 9, name: "Medical_System",    zone: "טכני",  writers: ["S13"], readers: [], values: "SYS00-SYS14",       notes: "[Task #188] דינמי — Gemini קובע לפי תוכן ההנחיה (יכולה לגעת בכל מערכת)" }
+    { col: 9, name: "Medical_System",    zone: "טכני",  writers: ["S13","S15"], readers: ["S15"], values: "SYS00-SYS14",       notes: "[Task #188] דינמי — Gemini קובע לפי תוכן ההנחיה (יכולה לגעת בכל מערכת). [Task #261] ההעשרה לא נוגעת בו; מתוקן באישור בחלון האימות (S15)" },
+
+    // [Task #261] עמודות העשרה J-M — נכתבות ע"י S15_EnrichCatalog.gs בלבד.
+    // הצעה (runS15Enrich, מטפל ההנחיות) כותבת J-M עם M="הוצע"; אישור בחלון S16 (s15_instrApprove) כותב J-M עם M="מאומת".
+    { col: 10, name: "Instruction_Code", zone: "טכני",  writers: ["S15"], readers: ["S15"], values: "INS00-INS09",       notes: "[Task #261] סוג ההנחיה — רשימה סגורה מבלוק סוגי_הנחיות במיפוי_קודים (BX). קוד מחוץ לרשימה → INS00; לא מוצעים קודים חדשים" },
+    { col: 11, name: "Instruction_Kind", zone: "טכני",  writers: ["S15"], readers: ["S15"], values: "מתמשכת|משימה",      notes: "[Task #261] אופי ההנחיה. ברירת המחדל — מתיאור הקוד בקטלוג (\"ברירת מחדל: ...\")" },
+    { col: 12, name: "Target_Code",      zone: "טכני",  writers: ["S15"], readers: ["S15"], values: "SPEC00-SPEC18 / קוד ATC / ריק", notes: "[Task #261] יעד ההנחיה — רק קוד שקיים בקטלוג: התמחות (מיפוי_קודים J) או תרופה (BA). בעתיד גם פאנל/מאפיין מעבדה (Task #263). ריק = אין התאמה בטוחה" },
+    { col: 13, name: "Enrich_Status",    zone: "טכני",  writers: ["S15"], readers: ["S15"], values: "הוצע|מאומת או ריק", notes: "[Task #261] ריק = ממתין להעשרה; שורה עם ערך לא מעובדת שוב ב-runS15Enrich" }
   ],
 
   "דוגמאות_למידה": [
@@ -540,10 +568,10 @@ const SHEETS_MAP = {
     { col: 9, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL",               notes: "" },
 
     // בלוק התמחות (J-N).
-    { col: 10, name: "Specialty_Code",   zone: "מיפוי", writers: ["עמוס"], readers: [], values: "SPEC00-SPEC18", notes: "[Task #215a] בלוק התמחות J-N. onEdit (_labJournal_autoFillClassificationCode, QA_Tests.gs) קורא מכאן — פעיל רק בגליון הניסוי (ראה ממצא בדוח)" },
-    { col: 11, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",     notes: "" },
+    { col: 10, name: "Specialty_Code",   zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "SPEC00-SPEC18", notes: "[Task #215a] בלוק התמחות J-N. onEdit (_labJournal_autoFillClassificationCode, QA_Tests.gs) קורא מכאן — פעיל רק בגליון הניסוי (ראה ממצא בדוח). [Task #261] S15 קורא כרשימת קודי יעד להנחיות (Target_Code)" },
+    { col: 11, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "טקסט חופשי",     notes: "[Task #261] שם ההתמחות — בפרומפט ההעשרה ובחלון האימות של ההנחיות" },
     { col: 12, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",     notes: "" },
-    { col: 13, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",     notes: "" },
+    { col: 13, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "טקסט חופשי",     notes: "[Task #261] ניסוחים נלווים — בפרומפט ההעשרה של ההנחיות" },
     { col: 14, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL",             notes: "" },
 
     // בלוק חומרה (O-S).
@@ -603,7 +631,16 @@ const SHEETS_MAP = {
     { col: 55, name: "Description",      zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "טקסט חופשי בעברית — ייעוד התרופה", notes: "[Task #256] למשל \"תרופה לסוכרת\"" },
     { col: 56, name: "Raw_Value",        zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "שמות מסחריים מופרדים בפסיקים", notes: "[Task #256] מפתח חיפוש ב-S15; באישור קוד קיים — השם המסחרי מתווסף כאן" },
     { col: 57, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #256] ריק כרגע — לשימוש עתידי באינפוגרפיקה" },
-    { col: 58, name: "Medical_System",   zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "SYS00-SYS14", notes: "[Task #256] מערכת הגוף לפי הקבוצה הטיפולית. מקור ל-Medical_System (עמ' 12) בתרופות_קבועות באישור" }
+    { col: 58, name: "Medical_System",   zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "SYS00-SYS14", notes: "[Task #256] מערכת הגוף לפי הקבוצה הטיפולית. מקור ל-Medical_System (עמ' 12) בתרופות_קבועות באישור" },
+
+    // [Task #261] בלוק סוגי_הנחיות (BX-CB) — רשימה סגורה, INS00-INS09. כותרת שורה 3: "סוגי_הנחיות".
+    // עמודות BG-BW (59-75) שמורות לבלוקי מעבדה/גנים/פאנלים (Task #263, #264) — יירשמו כשייבנו.
+    // נקרא ע"י S15 (_s15_readCatalog) להעשרה ולאימות; לא נכתב בקוד — מנוהל ידנית ע"י עמוס בלבד.
+    { col: 76, name: "Instruction_Code", zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "INS00-INS09", notes: "[Task #261] מפתח הבלוק. מקור ל-Instruction_Code (עמ' 10) בהנחיות_רפואיות_ומשימות. רשימה סגורה — S15 לא מציע קודים חדשים" },
+    { col: 77, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "שם הסוג בעברית (למשל מעקב / ביקורת)", notes: "[Task #261] מוצג בפרומפט ובחלון האימות" },
+    { col: 78, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "טקסט חופשי + \"ברירת מחדל: מתמשכת|משימה\"", notes: "[Task #261] S15 גוזר מכאן את ברירת המחדל של Instruction_Kind" },
+    { col: 79, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "ניסוחים גולמיים מופרדים בפסיקים", notes: "[Task #261] ניסוחים מהיומן — בפרומפט ההעשרה" },
+    { col: 80, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #261] ריק כרגע — לשימוש עתידי באינפוגרפיקה" }
   ]
 
 };
