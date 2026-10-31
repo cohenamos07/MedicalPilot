@@ -1,6 +1,6 @@
 /**
  * @file        System_Doc_Builder.gs
- * @version     2.0.0 | @updated 15/06/2026 12:07 | @service INFRA
+ * @version     2.1.0 | @updated 31/10/2026 21:21 | @service INFRA
  * @git         src/infrastructure/System_Doc_Builder.gs
  * @description בניית גיליונות תיעוד מערכת וניהול משימות פיתוח.
  *              כולל: גיליון תיעוד AI, גיליון קשרי שירות, גיליון ניהול_משימות.
@@ -9,6 +9,8 @@
  * @impacts     גיליון ניהול_משימות:
  *              A=Task_ID | B=Open_Date | C=Closed_Date | D=Status
  *              E=Module  | F=Description | G=Priority   | H=Notes
+ *              [v2.1.0] ניהול_משימות: שורה 5 (TASK_DATA_START) נשמרת ריקה למשימה חדשה;
+ *              task_RefreshList כותב את הנתונים משורה 6, ממוינים לפי Task_ID.
  *              גיליון תיעוד מערכת AI — כותרות + שורות שירות.
  *              גיליון תיעוד_פונקציות — רשימת פונקציות מהעורך.
  *              גיליון יומן_אירועים_רפואי — עיצוב 4 שורות עליונות + כותרות אנגלית.
@@ -22,6 +24,14 @@
  *              task_RefreshList | task_EndOfDay | task_DocFunctions
  *              task_AddFromDialog | task_SyncToday
  *              buildMedicalEventsSheet
+ * @changes     [v2.1.0] Task #267 — task_RefreshList: מיון חדש — פתוחות (כולל
+ *              בביצוע) ואחריהן סגורות, בכל קבוצה לפי מספר משימה עולה (במקום מודול
+ *              + עדיפות, Task #54; טבלת העדיפויות הוסרה). שורה 5 נשארת ריקה —
+ *              הנתונים נכתבים משורה 6, ומשימה שהודבקה בשורה 5 ממוינת למקומה ברענון
+ *              הבא. פונקציות עזר פנימיות isEmptyRow / taskNum; דוח הסיכום לא סופר את
+ *              השורה השמורה ומציין שהיא פנויה. אומת מול הקוד החי (diff מדויק, node
+ *              --check), בהדמיה (שני סבבים) ובגליון החי: שורה 5 ריקה, 42 פתוחות
+ *              (195-267) ו-210 סגורות (1-263), כל קבוצה בסדר עולה.
  * @changes     [v2.0.0] הוספת buildMedicalEventsSheet — עיצוב גליון יומן_אירועים_רפואי:
  *                       הכנסת 3 שורות ריקות, כותרות אנגלית בשורה 4, עיצוב סטנדרט ניהול_מיילים
  *              [v1.9.0] שדרוג task_SessionStart — קריאה אוטומטית ל-task_RefreshList
@@ -609,14 +619,25 @@ function task_RefreshList() {
     const data     = sheet.getRange(TASK_DATA_START, 1, rowCount, 8).getValues();
 
     // ── שלב 2: סינון שורות ריקות ─────────────────────────────────
+    function isEmptyRow(row) {
+      return row[COL_MODULE - 1] === "" && row[COL_DESC - 1] === "";
+    }
     const validRows = data.filter(function(row) {
-      return row[COL_MODULE - 1] !== "" || row[COL_DESC - 1] !== "";
+      return !isEmptyRow(row);
     });
 
     if (validRows.length === 0) { ui.alert("אין משימות תקינות בגיליון."); return; }
 
-    // ── שלב 3: מיון — פתוח לפי עדיפות+מודול, סגור בסוף ──────────
-    const priorityOrder = { "🔥 גבוה": 1, "🔵 רגיל": 2, "⚪ נמוך": 3 };
+    // [Task #267] השורה השמורה (TASK_DATA_START) לא נספרת כשורה ריקה שהוסרה
+    const blankRemoved = data.filter(isEmptyRow).length - (isEmptyRow(data[0]) ? 1 : 0);
+
+    // ── שלב 3: מיון — פתוחות (כולל בביצוע) ואחריהן סגורות ────────
+    // [Task #267] בתוך כל קבוצה — לפי מספר משימה עולה (במקום מודול + עדיפות, Task #54)
+    function taskNum(row) {
+      const raw = String(row[COL_TASK_ID - 1]).trim();
+      const n   = Number(raw);
+      return (raw === "" || isNaN(n)) ? Infinity : n;   // מזהה חסר או לא מספרי — בסוף הקבוצה
+    }
 
     validRows.sort(function(a, b) {
       const statusA  = String(a[COL_STATUS   - 1]).trim();
@@ -627,19 +648,17 @@ function task_RefreshList() {
       // סגורות תמיד בסוף
       if (closedA !== closedB) return closedA - closedB;
 
-      // מיון לפי מודול
-      const moduleA = String(a[COL_MODULE - 1]).trim();
-      const moduleB = String(b[COL_MODULE - 1]).trim();
-      if (moduleA < moduleB) return -1;
-      if (moduleA > moduleB) return  1;
-
-      // מיון לפי עדיפות בתוך אותו מודול
-      const prioA = priorityOrder[String(a[COL_PRIORITY - 1]).trim()] || 9;
-      const prioB = priorityOrder[String(b[COL_PRIORITY - 1]).trim()] || 9;
-      return prioA - prioB;
+      // מיון לפי מספר משימה עולה
+      const numA = taskNum(a);
+      const numB = taskNum(b);
+      if (numA === numB) return 0;
+      return numA < numB ? -1 : 1;
     });
 
-    // ── שלב 4: מספור מחדש + כתיבה חזרה לגיליון ─────────────────
+    // ── שלב 4: כתיבה חזרה לגיליון ───────────────────────────────
+    // [Task #267] שורה TASK_DATA_START נשארת ריקה — מקום קבוע להדבקת משימה חדשה;
+    // הנתונים נכתבים מהשורה שאחריה, ומשימה שהודבקה בשורה הריקה ממוינת למקומה ברענון הבא.
+    const firstWriteRow = TASK_DATA_START + 1;
     const now = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
 
     // ניקוי אזור הנתונים הישן
@@ -647,7 +666,7 @@ function task_RefreshList() {
     sheet.getRange(TASK_DATA_START, 1, rowCount, 8).setBackground(TASK_COLOR_WHITE);
 
     validRows.forEach(function(row, i) {
-      const newRow    = TASK_DATA_START + i;
+      const newRow    = firstWriteRow + i;
       const status    = String(row[COL_STATUS - 1]).trim();
 
       // כתיבה לגיליון
@@ -679,11 +698,12 @@ function task_RefreshList() {
       "✅ סגור:   " + closed  + "\n" +
       "─────────────────\n" +
       "סה\"כ: " + validRows.length + " משימות\n" +
-      "שורות ריקות שהוסרו: " + (rowCount - validRows.length)
+      "שורות ריקות שהוסרו: " + blankRemoved + "\n" +
+      "שורה " + TASK_DATA_START + " פנויה למשימה חדשה"
     );
 
     Logger.log("[task_RefreshList] הושלם — " + validRows.length + " משימות, " +
-               (rowCount - validRows.length) + " שורות ריקות הוסרו");
+               blankRemoved + " שורות ריקות הוסרו");
 
   } catch (e) {
     Logger.log("[task_RefreshList] שגיאה: " + e.message);
