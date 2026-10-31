@@ -1,6 +1,6 @@
 <!--
   MedicalPilot — S16_Sidebar.html
-  @version     2.7.0 | @updated 28/10/2026 19:45 | @service S16
+  @version     2.9.0 | @updated 31/10/2026 19:04 | @service S16
   @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_Sidebar.html
   @description ממשק Dialog לאימות כל קודי הסיווג ביומן_מצב_רפואי (21 עמודות):
                קוד מערכת גוף (select סגור), קוד אירוע/התמחות/חומרה/אבחנה
@@ -29,6 +29,14 @@
                (תצוגה), סוג (רשימה סגורה, בלי "+ קוד חדש"), אופי, קוד יעד
                (התמחויות / תרופות), מערכת גוף, סטטוס ותאריך יעד; שמאל —
                מטא-דאטה ותצוגת מסמך מקור.
+               [v2.8.0] אזור "⚠️ רגישות / אלרגיה" אחרי אזור המערכת והאיבר —
+               חומר גורם (select סגור מקטלוג התרופות, קוד ATC) ותגובה (טקסט), רק
+               בשורת רגישות (קוד A7) או כשכבר שמור ערך (payload.allergy.show).
+               [v2.9.0] מצב מעבדה (payload.mode="lab", מ-S15): אותו חלון מציג
+               שורה מגליון בדיקות_דם — הבדיקה במסמך (תצוגה), קוד LOINC ונתוני
+               קטלוג (שם, תיאור, מערכת גוף, שמות במסמכים), פאנל (חובה, רשימה
+               סגורה), ערך מספרי, יחידה וגבולות טווח; שמאל — מטא-דאטה ותצוגת
+               מסמך מקור. התראה אדומה, לא חוסמת, כשהקוד כבר משויך לבדיקה אחרת.
   @impacts     כפתורים: אשר, הוסף-קוד (4, אחד לכל שדה קטלוג פתוח), ניווט
                הקודם/הבא. תלוי ב: S16_ValidateMedicalStatus.gs — כל
                הלוגיקה מתבצעת שם.
@@ -46,14 +54,45 @@
                [v2.7.0] במצב הנחיות: ניווט וטעינה מחדש — s15_instrLoadRowByNumber,
                אישור — s15_instrApprove(row, v) עם 6 שדות (S15_EnrichCatalog.gs).
                מצב התרופות ומצב המצב הרפואי — ללא שינוי.
+               [v2.8.0] s16_approve מקבל פרמטרים 9-10 — חומר גורם ותגובה (null אם
+               השדות לא הוצגו בחלון — לא נכתבים בצד השרת).
+               [v2.9.0] במצב מעבדה: ניווט וטעינה מחדש — s15_labLoadRowByNumber,
+               אישור — s15_labApprove(row, v) (S15_EnrichCatalog.gs). מצבי
+               התרופות, ההנחיות והמצב הרפואי — ללא שינוי.
   @callers     S16_ValidateMedicalStatus.gs (showS16Sidebar)
                S15_EnrichCatalog.gs (s15_showValidation — מצב תרופות)
                S15_EnrichCatalog.gs (s15_showValidation — מצב הנחיות, [v2.7.0])
+               S15_EnrichCatalog.gs (s15_showValidation — מצב מעבדה, [v2.9.0])
   @functions   initUI, render, renderCodeFieldHtml, esc, prevRow, nextRow,
                doApprove, doSaveCatalogCode, handleResult, handleError,
                fillOrganOptions, suggestionHintHtml, toggleNewCode, geminiHintHtml,
                organStateHtml, renderMedication, doApproveMedication,
-               renderInstruction, updateInstrKindHint, doApproveInstruction
+               renderInstruction, updateInstrKindHint, doApproveInstruction, allergyHtml,
+               renderLab, renderLabLeftCol, updateLabCodeHint, doApproveLab
+  @changes     [v2.9.0] Task #263 שלב 5 — מצב מעבדה בחלון הקיים (בלי חלון
+               חדש, תוספת בלבד). render: מעבר ל-renderLab כש-payload.mode=
+               "lab". renderLab (חדשה): כותרת "🧪 S15 — אימות מעבדה ומדדים",
+               שורה + שם הבדיקה, תג Enrich_Status; הבדיקה במסמך (תצוגה, סוג
+               דגימה — תצוגה בלבד); קוד LOINC — מאומת בקטלוג / הצעת Gemini
+               (כתום) / ללא הצעה; פאנל (חובה) ומערכת גוף; ערך, יחידה וגבולות
+               ניתנים לעריכה. renderLabLeftCol (חדשה): מטא-דאטה ותצוגת מסמך
+               מקור. updateLabCodeHint (חדשה): התראה אדומה, לא חוסמת, כשהקוד
+               כבר משויך לבדיקה אחרת בקטלוג. doApproveLab (חדשה): בדיקת פאנל
+               בצד הלקוח ושליחה ל-s15_labApprove. prevRow/nextRow/handleResult —
+               טעינה דרך s15_labLoadRowByNumber; doApprove — מעבר ל-doApproveLab.
+               אומת מול הקוד החי (diff, בדיקת תחביר לסקריפט) ובבדיקת שטח: ניווט
+               שורות 5↔6, התראת קוד כפול (777-3 → NEUT%, PLT), פאנל ריק נחסם
+               ("❌ יש לבחור פאנל מהרשימה"), שורות 5 ו-6 אושרו; חלונות התרופות
+               וההנחיות ללא שינוי.
+  @changes     [v2.8.0] Task #262 — רגישות/אלרגיה במצב המצב הרפואי. allergyHtml
+               (חדשה): אזור "⚠️ רגישות / אלרגיה" עם select סגור של חומר גורם
+               (קטלוג התרופות, הצעה נבחרת מראש רק כשהשדה ריק), תיבת תגובה ותגית
+               Gemini, באותה תבנית של organStateHtml. render: האזור מוצג אחרי אזור
+               המערכת והאיבר. doApprove: קורא allergenSelect/reactionInput אם קיימים
+               (אחרת null) ושולח כפרמטרים 9-10 ל-s16_approve. מצבי התרופות
+               וההנחיות ללא שינוי. אומת מול הקוד החי (diff, בדיקת תחביר לסקריפט)
+               ובבדיקת שטח: שורות 13 ו-5 ללא אזור רגישות; שורה 28 הציגה C10AA01
+               ו"כאבי שרירים" ואושרה.
   @changes     [v2.7.0] Task #261 שלב 4 — מצב הנחיות בחלון הקיים (בלי חלון
                חדש). render: מעבר ל-renderInstruction כש-payload.mode=
                "instruction". renderInstruction (חדשה): כותרת "📋 S15 — אימות
@@ -468,7 +507,7 @@
     // ════ [Task #224] מצב וצד איבר — רק בשורת ניתוח או כשכבר שמור ערך ════
   // שני select סגורים זה לצד זה (שורה אחת — בלי גלילה נוספת). הצעה נבחרת
   // מראש רק כשהשדה ריק. סתירת צד בטקסט — בלי הצעה, אזהרה אדומה.
-  function organStateHtml(os) {
+    function organStateHtml(os) {
     if (!os || !os.show) return '';
     function selectHtml(id, options, current, sugg) {
       const pre      = !current && !!sugg;
@@ -492,6 +531,29 @@
       '</div>';
   }
 
+  // ════ [Task #262] רגישות / אלרגיה — רק בשורת רגישות (A7) או כשכבר שמור ערך ════
+  // select סגור של חומר גורם מבלוק התרופות (קוד ATC) ותיבת טקסט לתגובה.
+  // הצעת חומר נבחרת מראש רק כשהשדה ריק. חומר שאינו בקטלוג — להשאיר ריק
+  // (שמו נשאר באבחנה העיקרית) או להוסיף קודם שורה לבלוק התרופות במיפוי_קודים.
+  function allergyHtml(al) {
+    if (!al || !al.show) return '';
+    const pre      = !al.currentAllergen && !!al.allergenSuggestion;
+    const selected = al.currentAllergen || (pre ? al.allergenSuggestion.code : '');
+    let opts = '<option value="">— לא בקטלוג / לא צוין —</option>';
+    (al.allergenOptions || []).forEach(function(opt) {
+      const sel = (opt.code === selected) ? ' selected' : '';
+      opts += '<option value="' + esc(opt.code) + '"' + sel + '>' + esc(opt.code) + ' — ' + esc(opt.name) + '</option>';
+    });
+    return '<div class="section">' +
+        '<div class="section-title">⚠️ רגישות / אלרגיה' + geminiHintHtml(!!al.currentAllergen || !!al.currentReaction) + '</div>' +
+        '<label class="edit-label">חומר גורם (קטלוג התרופות)</label>' +
+        '<select id="allergenSelect">' + opts + '</select>' +
+        suggestionHintHtml(al.allergenSuggestion, pre) +
+        '<label class="edit-label">תגובה</label>' +
+        '<input type="text" id="reactionInput" value="' + esc(al.currentReaction) + '">' +
+      '</div>';
+  }
+
         function render(payload) {
     if (!payload || payload.error) {
       handleError(payload || { msg: "שגיאה בטעינה" });
@@ -502,6 +564,9 @@
     if (payload.mode === 'medication') { renderMedication(payload); return; }
     // [Task #261 שלב 4] מצב הנחיות — payload מ-S15 (s15_showValidation / s15_instrLoadRowByNumber)
     if (payload.mode === 'instruction') { renderInstruction(payload); return; }
+
+    // [Task #263 שלב 5] מצב מעבדה — payload מ-S15 (s15_showValidation / s15_labLoadRowByNumber)
+    if (payload.mode === 'lab') { renderLab(payload); return; }
 
     document.getElementById('rowMeta').textContent =
       'שורה ' + payload.row + ' מתוך ' + payload.lastRow;
@@ -542,6 +607,7 @@
         '<div id="organHint"></div>' +
         organStateHtml(payload.organState) + // [Task #224]
       '</div>' +
+      allergyHtml(payload.allergy) + // [Task #262]
       codeFieldsHtml +
       // [Task #220 שלב ב] וודאות — "+ קוד חדש" בשורת הכותרת, שורת ההזנה מקופלת (כמו שדות הקטלוג)
       '<div class="section" data-field-key="certainty">' +
@@ -624,7 +690,7 @@
     document.getElementById('organHint').innerHTML = hint;
   }
 
-        function prevRow() {
+  function prevRow() {
     if (!currentPayload) return;
     const target = currentPayload.row - 1;
     if (target < currentPayload.firstDataRow) return;
@@ -636,6 +702,11 @@
     // [Task #261 שלב 4] מצב הנחיות — טעינה דרך S15
     if (currentPayload.mode === 'instruction') {
       google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_instrLoadRowByNumber(target);
+      return;
+    }
+    // [Task #263 שלב 5] מצב מעבדה — טעינה דרך S15
+    if (currentPayload.mode === 'lab') {
+      google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_labLoadRowByNumber(target);
       return;
     }
     google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(target);
@@ -655,15 +726,22 @@
       google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_instrLoadRowByNumber(target);
       return;
     }
+    // [Task #263 שלב 5] מצב מעבדה — טעינה דרך S15
+    if (currentPayload.mode === 'lab') {
+      google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_labLoadRowByNumber(target);
+      return;
+    }
     google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(target);
   }
 
-    function doApprove() {
+  function doApprove() {
     if (!currentPayload) return;
     // [Task #256 שלב 4] מצב תרופות — אישור דרך S15
     if (currentPayload.mode === 'medication') { doApproveMedication(); return; }
     // [Task #261 שלב 4] מצב הנחיות — אישור דרך S15
     if (currentPayload.mode === 'instruction') { doApproveInstruction(); return; }
+    // [Task #263 שלב 5] מצב מעבדה — אישור דרך S15
+    if (currentPayload.mode === 'lab') { doApproveLab(); return; }
     const sysCode   = document.getElementById('sysCodeSelect').value;
     const certCode  = document.getElementById('certaintySelect').value;
     const organCode = document.getElementById('organSelect').value;
@@ -675,6 +753,11 @@
     const sideSel    = document.getElementById('organSideSelect');
     const organState = stateSel ? stateSel.value : null;
     const organSide  = sideSel  ? sideSel.value  : null;
+    // [Task #262] חומר גורם ותגובה — נשלחים רק אם השדות הוצגו בחלון (אחרת null — לא נכתבים)
+    const allergenSel = document.getElementById('allergenSelect');
+    const reactionInp = document.getElementById('reactionInput');
+    const allergen    = allergenSel ? allergenSel.value : null;
+    const reaction    = reactionInp ? reactionInp.value : null;
 
     const fieldValues = {};
     ['eventCode', 'specialty', 'severity', 'diagnosis'].forEach(function(key) {
@@ -687,7 +770,7 @@
     });
 
     google.script.run.withSuccessHandler(handleResult).withFailureHandler(handleError)
-      .s16_approve(currentPayload.row, sysCode, certCode, fieldValues, organCode, recoToSend, organState, organSide);
+      .s16_approve(currentPayload.row, sysCode, certCode, fieldValues, organCode, recoToSend, organState, organSide, allergen, reaction);
   }
 
    function doSaveCatalogCode(key) {
@@ -716,6 +799,9 @@
         } else if (currentPayload.mode === 'instruction') {
           // [Task #261 שלב 4] מצב הנחיות — טעינה מחדש דרך S15
           google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_instrLoadRowByNumber(currentPayload.row);
+        } else if (currentPayload.mode === 'lab') {
+          // [Task #263 שלב 5] מצב מעבדה — טעינה מחדש דרך S15
+          google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_labLoadRowByNumber(currentPayload.row);
         } else {
           google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(currentPayload.row);
         }
@@ -725,7 +811,6 @@
       el.textContent = (result && result.msg) || '❌ שגיאה';
     }
   }
-
   // ════ [Task #256 שלב 4] מצב תרופות — תצוגת שורה מגליון תרופות_קבועות ════
   // ימין: נתוני המסמך (תצוגה), קוד ATC + נתוני קטלוג, מינון ותדירות, סוג
   // טיפול, סיבה. שמאל: מטא-דאטה ותצוגת מסמך מקור. קוד מאומת בקטלוג — שדות
@@ -996,6 +1081,144 @@
       .s15_instrApprove(currentPayload.row, v);
   }
 
+  // ════ [Task #263 שלב 5] מצב מעבדה — תצוגת שורה מגליון בדיקות_דם ════
+  // ימין: הבדיקה במסמך (תצוגה), קוד LOINC ונתוני קטלוג, מערכת גוף, פאנל
+  // (רשימה סגורה), ערך מספרי, יחידה וטווח (O-R, ניתנים לעריכה). שמאל:
+  // מטא-דאטה ותצוגת מסמך מקור. קוד מאומת — שדות הקטלוג נעולים.
+  function renderLab(p) {
+    document.querySelector('.header-title').textContent = '🧪 S15 — אימות מעבדה ומדדים';
+    document.getElementById('rowMeta').textContent =
+      'שורה ' + p.row + ' מתוך ' + p.lastRow + ' — ' + p.testName;
+    document.getElementById('statusBadge').textContent = p.enrichStatus || '—';
+
+    const verified = p.catalogSource === 'verified';
+    const lock     = verified ? ' disabled' : '';
+    let sourceHint;
+    if (verified) {
+      sourceHint = '<div class="hint" style="color:#2e7d32; font-weight:bold;">✅ קוד מאומת בקטלוג — נתוני הקטלוג נעולים</div>';
+    } else if (p.catalogSource === 'suggested') {
+      sourceHint = '<div class="hint" style="color:#e65100; font-weight:bold;">🤖 הצעת Gemini — יש לאמת קוד ונתוני קטלוג</div>';
+    } else {
+      sourceHint = '<div class="hint">אין הצעה בקטלוג — ניתן להזין קוד ידנית או להשאיר ריק</div>';
+    }
+
+    let sysOptionsHtml = '<option value="">— ללא —</option>';
+    (p.bodySystemOptions || []).forEach(function(opt) {
+      const sel = (opt.code === p.catalog.system) ? ' selected' : '';
+      sysOptionsHtml += '<option value="' + esc(opt.code) + '"' + sel + '>' + esc(opt.code) + ' — ' + esc(opt.nameHe) + '</option>';
+    });
+
+    let panelOptionsHtml = '<option value="">— בחר —</option>';
+    (p.panelOptions || []).forEach(function(opt) {
+      const sel = (opt.code === p.panel) ? ' selected' : '';
+      panelOptionsHtml += '<option value="' + esc(opt.code) + '"' + sel + '>' + esc(opt.code) + ' — ' + esc(opt.name) + '</option>';
+    });
+
+    function inputHtml(id, label, value, extra) {
+      return '<div style="flex:1; min-width:0;"><label class="edit-label">' + label + '</label>' +
+        '<input type="text" id="' + id + '" value="' + esc(value) + '"' + (extra || '') + '></div>';
+    }
+    function rowHtml(label, value) {
+      return '<div class="field-row"><div class="field-label">' + label + '</div><div class="field-value">' + esc(value) + '</div></div>';
+    }
+
+    document.getElementById('rightCol').innerHTML =
+      '<div class="section">' +
+        '<div class="section-title">הבדיקה במסמך (תצוגה בלבד)</div>' +
+        rowHtml('שם הבדיקה', p.testName) + rowHtml('קבוצה', p.category) +
+        rowHtml('ערך', p.valueText) + rowHtml('טווח נורמה', p.normalRange) +
+        rowHtml('סטטוס', p.labStatus) + rowHtml('סוג דגימה', p.specimen) +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-title">קוד LOINC וקטלוג</div>' +
+        '<div style="display:flex; gap:8px;">' +
+          inputHtml('labCode', 'קוד LOINC (למשל 718-7)', p.code, ' oninput="updateLabCodeHint()"') +
+          inputHtml('labComponent', 'שם המאפיין (אנגלית)', p.catalog.name, lock) +
+        '</div>' +
+        sourceHint + '<div id="labCodeHint"></div>' +
+        '<div style="display:flex; gap:8px; margin-top:4px;">' +
+          inputHtml('labDesc', 'תיאור (עברית)', p.catalog.desc, lock) +
+          '<div style="flex:1; min-width:0;"><label class="edit-label">מערכת גוף</label>' +
+            '<select id="labSystem"' + lock + '>' + sysOptionsHtml + '</select></div>' +
+        '</div>' +
+        '<div style="margin-top:4px;">' + inputHtml('labRawNames', 'שמות במסמכים (מופרדים בפסיק)', p.catalog.raw, lock) + '</div>' +
+        '<div style="margin-top:4px;"><label class="edit-label">פאנל (חובה, רשימה סגורה)</label>' +
+          '<select id="labPanel">' + panelOptionsHtml + '</select></div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-title">ערך, יחידה וטווח</div>' +
+        '<div style="display:flex; gap:8px;">' +
+          inputHtml('labValueNum', 'ערך מספרי', p.valueNum) +
+          inputHtml('labUnit', 'יחידה', p.unit) +
+          inputHtml('labRefLow', 'גבול תחתון', p.refLow) +
+          inputHtml('labRefHigh', 'גבול עליון', p.refHigh) +
+        '</div>' +
+      '</div>';
+
+    updateLabCodeHint();
+    renderLabLeftCol(p);
+  }
+
+    // ════ [Task #263 שלב 5] מצב מעבדה — עמודה שמאלית: מטא-דאטה ומסמך מקור ════
+  function renderLabLeftCol(p) {
+    const previewUrl = p.sourceUrl ? p.sourceUrl.replace('/view', '/preview') : '';
+    const sourceLink = p.sourceUrl
+      ? '<a class="source-link" href="' + p.sourceUrl + '" target="_blank">פתח בלשונית חדשה ↗</a>'
+      : '';
+
+    document.getElementById('leftCol').innerHTML =
+      '<div class="section">' +
+        '<div class="section-title">מטא-דאטה</div>' +
+        '<div class="field-row"><div class="field-label">מוסד / רופא</div><div class="field-value">' + esc(p.docIssuer) + '</div></div>' +
+        '<div class="field-row"><div class="field-label">תאריך הבדיקה</div><div class="field-value">' + esc(p.testDate) + '</div></div>' +
+        '<div class="field-row"><div class="field-label">הערת רופא</div><div class="field-value">' + esc(p.doctorNote || '—') + '</div></div>' +
+      '</div>' +
+      '<div class="section" style="flex:1; display:flex; flex-direction:column; min-height:0;">' +
+        '<div class="section-title">📄 מסמך מקור</div>' +
+        (previewUrl
+          ? '<iframe class="file-preview" src="' + previewUrl + '" frameborder="0" allowfullscreen></iframe>'
+          : '<div class="hint">אין מסמך מקור לשורה זו</div>') +
+        sourceLink +
+      '</div>';
+  }
+
+  // ════ [Task #263 שלב 5] התראת קוד כפול (לא חוסמת) — לפי knownCodes מהשרת ════
+  function updateLabCodeHint() {
+    const el = document.getElementById('labCodeHint');
+    if (!el || !currentPayload) return;
+    const code = document.getElementById('labCode').value.trim().toUpperCase();
+    function norm(t) { return String(t || '').toUpperCase().replace(/[^A-Z0-9\u0590-\u05FF]/g, ''); }
+    if (!code) { el.innerHTML = '<div class="hint">ללא קוד — הקטלוג לא ישתנה באישור</div>'; return; }
+    const known = (currentPayload.knownCodes || {})[code];
+    if (!known) { el.innerHTML = '<div class="hint">קוד חדש — ייווסף לקטלוג באישור</div>'; return; }
+    const me     = norm(currentPayload.testName);
+    const others = (known.raw || []).filter(function(n) { return norm(n) !== me; });
+    const label  = (known.source === 'verified' ? 'מאומת' : 'מוצע') + (known.name ? ': ' + known.name : '');
+    el.innerHTML = others.length
+      ? '<div class="hint" style="color:#c62828; font-weight:bold;">⚠️ הקוד כבר משויך ל: ' + esc(others.join(', ')) +
+        ' (' + esc(label) + ') — יש לוודא; האישור מותר</div>'
+      : '<div class="hint">קוד ' + esc(label) + '</div>';
+  }
+
+  // ════ [Task #263 שלב 5] אישור שורת מעבדה — s15_labApprove (S15_EnrichCatalog.gs) ════
+  function doApproveLab() {
+    function val(id) { return document.getElementById(id).value.trim(); }
+    const v = {
+      code:          val('labCode').toUpperCase(),
+      componentName: val('labComponent'),
+      description:   val('labDesc'),
+      rawNames:      val('labRawNames'),
+      medicalSystem: document.getElementById('labSystem').value,
+      panel:         document.getElementById('labPanel').value,
+      valueNum:      val('labValueNum'),
+      unit:          val('labUnit'),
+      refLow:        val('labRefLow'),
+      refHigh:       val('labRefHigh')
+    };
+    if (!v.panel) { handleError({ msg: "❌ יש לבחור פאנל מהרשימה" }); return; }
+    google.script.run.withSuccessHandler(handleResult).withFailureHandler(handleError)
+      .s15_labApprove(currentPayload.row, v);
+  }
   function handleError(err) {
     const el = document.getElementById('statusMsg');
     el.className = 'error';
