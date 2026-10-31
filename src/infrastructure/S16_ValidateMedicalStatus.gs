@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S16_ValidateMedicalStatus.gs
- * @version     2.4.0 | @updated 22/10/2026 21:25 | @service S16
+ * @version     2.5.0 | @updated 29/10/2026 18:47 | @service S16
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_ValidateMedicalStatus.gs
  * @description שער אימות אנושי לכל קודי הסיווג בגליון יומן_מצב_רפואי (21
  *              עמודות, task214a): קוד מערכת גוף (Medical_System) — select
@@ -23,6 +23,9 @@
  *              [v2.4.0] מצב וצד איבר אחרי ניתוח (עמודות 23-24) — שני select
  *              סגורים מבלוקי מצב_איבר AD-AH וצד_איבר AI-AM, מוצגים רק בשורת
  *              ניתוח (קוד אירוע A6B / סוג אירוע "ניתוח") או כשכבר שמור ערך.
+ *              [v2.5.0] רגישות/אלרגיה (עמודות 25-26) — חומר גורם (select סגור
+ *              מבלוק התרופות BA-BF, קוד ATC) ותגובה (טקסט חופשי), מוצגים רק בשורת
+ *              רגישות (קוד אירוע A7 / סוג אירוע "רגישות"/"אלרגי") או כשכבר שמור ערך.
  * @impacts     יומן_מצב_רפואי: קורא שורה בודדת (21 עמודות), כותב
  *              Medical_System(18), Event_Code(11)+Event_Description(12),
  *              Specialty_Name(9)+Specialty_Code(19),
@@ -50,6 +53,9 @@
  *              [v2.4.0] קורא עד עמודה 24 וכותב Organ_State_Code(23) +
  *              Organ_Side_Code(24) באישור — רק אם נשלחו מהחלון (השדות הוצגו) ורק
  *              אם העמודות קיימות. מיפוי_קודים: בלוקים AD-AH/AI-AM לקריאה בלבד.
+ *              [v2.5.0] קורא עד עמודה 26 וכותב Allergen_Code(25) + Reaction(26)
+ *              באישור — רק אם נשלחו מהחלון (השדות הוצגו), רק אם העמודות קיימות,
+ *              ורק קוד חומר שקיים בבלוק התרופות. מיפוי_קודים: בלוק BA-BF לקריאה בלבד.
  * @callers     ViewEngine.gs (אייקון "[ S16 אימות ]", MEDICAL_STATUS_ICON_MAP —
  *              script: "showS16Sidebar")
  * @functions   showS16Sidebar | _s16_buildPayload | _s16_buildFieldPayload |
@@ -57,7 +63,20 @@
  *              s16_loadRowByNumber | s16_approve | s16_saveCatalogCode |
  *              _s16_saveCatalogCode | _s16_getCurrentPayload |
  *              _s16_keywordMatches | _s16_findKeywordSuggestion |
- *              _s16_buildOrganStatePayload
+ *              _s16_buildOrganStatePayload | _s16_buildAllergyPayload
+ * @changes     [v2.5.0] Task #262 — רגישות/אלרגיה בשורות קוד אירוע A7. קבועים
+ *              חדשים: S16_COL_ALLERGEN=25, S16_COL_REACTION=26, S16_ALLERGEN_MAP_
+ *              FIRST_COL=53 (בלוק התרופות BA), S16_ALLERGEN_SUGGEST_COLS (אבחנה
+ *              וחומרה), S16_ALLERGY_EVENT_CODE_PREFIX="A7", S16_ALLERGY_EVENT_TYPE_
+ *              KEYWORDS. פונקציה חדשה _s16_buildAllergyPayload — אפשרויות חומר
+ *              מהקטלוג והצעה לפי שם החומר הפעיל/השם המסחרי בטקסט, באותה תבנית של
+ *              _s16_buildOrganStatePayload. _s16_buildPayload — רוחב קריאה 26
+ *              ושדה allergy בנתונים. s16_approve — פרמטרים 9-10 (allergenCode,
+ *              reaction), נכתבים רק אם נשלחו, עם בדיקת עמודות וקוד חומר מול
+ *              הקטלוג. אומת מול הקוד החי (diff מדויק לכל בלוק, node --check)
+ *              ובבדיקת שטח: שורות 13 (ניתוח) ו-5 (מחלת רקע) ללא שינוי; שורה 28
+ *              (רגישות לסימבסטטין) — אזור הרגישות הוצג עם C10AA01 ו"כאבי שרירים",
+ *              ואושרה עם A7C.
  * @changes     [v2.4.0] Task #224 (שלב 3) — מצב וצד איבר אחרי ניתוח. קבועים
  *              חדשים: S16_COL_ORGAN_STATE=23, S16_COL_ORGAN_SIDE=24, בלוקים
  *              S16_ORGAN_STATE/SIDE_MAP_FIRST_COL=30/35, עמודות טקסט להצעה
@@ -204,6 +223,17 @@ const S16_ORGAN_SIDE_MAP_FIRST_COL     = 35;
 const S16_ORGAN_STATE_SUGGEST_COLS     = [S16_COL_EVENT_TYPE, S16_COL_PRIMARY_DIAGNOSIS, S16_COL_SEVERITY_STATUS];
 const S16_SURGERY_EVENT_CODE_PREFIX    = "A6B";
 const S16_SURGERY_EVENT_TYPE_KEYWORD   = "ניתוח";
+
+// [Task #262] רגישויות ואלרגיות — עמודות 25-26 ביומן_מצב_רפואי (מבנה 26
+// עמודות): החומר הגורם (קוד ATC, select סגור מבלוק התרופות BA-BF במיפוי_קודים,
+// עמודה 53) והתגובה (טקסט חופשי). השדות מוצגים בחלון רק בשורת רגישות (קוד
+// אירוע שמתחיל ב-A7, או סוג אירוע שמכיל "רגישות"/"אלרגי"), או כשכבר שמור ערך.
+const S16_COL_ALLERGEN                 = 25;
+const S16_COL_REACTION                 = 26;
+const S16_ALLERGEN_MAP_FIRST_COL       = 53;
+const S16_ALLERGEN_SUGGEST_COLS        = [S16_COL_PRIMARY_DIAGNOSIS, S16_COL_SEVERITY_STATUS];
+const S16_ALLERGY_EVENT_CODE_PREFIX    = "A7";
+const S16_ALLERGY_EVENT_TYPE_KEYWORDS  = ["רגישות", "אלרגי"];
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה — פתיחת חלון אימות
 // ══════════════════════════════════════════════════════════════════
@@ -417,6 +447,47 @@ function _s16_buildOrganStatePayload(rowValues) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// [Task #262] שדות רגישות — חומר גורם (select סגור מבלוק התרופות) ותגובה.
+// מוצגים רק בשורת רגישות (קוד A7 או סוג אירוע עם "רגישות"/"אלרגי"), או
+// כשכבר שמור בשורה ערך. הצעת חומר — לפי שם החומר הפעיל (Normalized_Value)
+// והשם המסחרי (Raw_Value) מהקטלוג, בטקסט האבחנה והחומרה.
+// ══════════════════════════════════════════════════════════════════
+
+function _s16_buildAllergyPayload(rowValues) {
+  const eventCode       = (rowValues[S16_COL_EVENT_CODE - 1] || "").toString().trim();
+  const eventType       = (rowValues[S16_COL_EVENT_TYPE - 1] || "").toString();
+  const currentAllergen = (rowValues[S16_COL_ALLERGEN - 1]   || "").toString().trim();
+  const currentReaction = (rowValues[S16_COL_REACTION - 1]   || "").toString().trim();
+
+  const isAllergy = eventCode.indexOf(S16_ALLERGY_EVENT_CODE_PREFIX) === 0 ||
+                    S16_ALLERGY_EVENT_TYPE_KEYWORDS.some(function(k) { return eventType.indexOf(k) !== -1; });
+  if (!isAllergy && !currentAllergen && !currentReaction) return { show: false };
+
+  const allergenBlock   = _s16_readCatalogBlock(S16_ALLERGEN_MAP_FIRST_COL);
+  const allergenOptions = allergenBlock.options.map(function(o) { return { code: o.code, name: o.name }; });
+  if (currentAllergen && !allergenOptions.some(function(o) { return o.code === currentAllergen; })) {
+    allergenOptions.push({ code: currentAllergen, name: "(לא נמצא בקטלוג)" });
+  }
+
+  let allergenSuggestion = null;
+  if (isAllergy) {
+    allergenSuggestion = _s16_findKeywordSuggestion(allergenBlock.options, function(o) {
+      return [o.name, o.raw].join(",");
+    }, S16_ALLERGEN_SUGGEST_COLS.map(function(col) { return rowValues[col - 1]; }));
+    if (allergenSuggestion && allergenSuggestion.code === currentAllergen) allergenSuggestion = null;
+  }
+
+  return {
+    show:               true,
+    isAllergy:          isAllergy,
+    currentAllergen:    currentAllergen,
+    currentReaction:    currentReaction,
+    allergenOptions:    allergenOptions,
+    allergenSuggestion: allergenSuggestion
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════
 // בניית Payload — נתוני שורה מלאים לממשק
 // ══════════════════════════════════════════════════════════════════
 
@@ -429,7 +500,8 @@ function _s16_buildPayload(ss, sheet, row) {
     // [Task #219] קריאה עד עמודה 22 (Organ_Code). אם העמודה עוד לא קיימת
     // בגליון — קוראים רק את מה שקיים, וקוד האיבר יחזור ריק.
     // [Task #224] הורחב לעמודה 24 (מצב וצד איבר) — אותו עיקרון.
-    const readWidth = Math.min(S16_COL_ORGAN_SIDE, sheet.getMaxColumns());
+    // [Task #262] הורחב לעמודה 26 (חומר גורם ותגובה) — אותו עיקרון.
+    const readWidth = Math.min(S16_COL_REACTION, sheet.getMaxColumns());
     const rowValues = sheet.getRange(row, 1, 1, readWidth).getValues()[0];
 
     const fileId   = (rowValues[S16_COL_FILE_ID - 1] || "").toString().trim();
@@ -509,6 +581,7 @@ function _s16_buildPayload(ss, sheet, row) {
       organOptions:     organOptions,
       organSuggestion:  organSuggestion,
       organState:       _s16_buildOrganStatePayload(rowValues), // [Task #224]
+      allergy:          _s16_buildAllergyPayload(rowValues),    // [Task #262]
       fields:           fields
     };
 
@@ -563,9 +636,11 @@ function s16_loadRowByNumber(row) {
 // [Task #220] recommendation — טקסט המלצה (עמודה 5); null = לא שונה בחלון
 // [Task #224] organStateCode / organSideCode — מצב וצד איבר (עמודות 23/24).
 //             undefined/null = השדות לא הוצגו בחלון — העמודות לא נכתבות כלל.
+// [Task #262] allergenCode / reaction — חומר גורם ותגובה (עמודות 25/26).
+//             undefined/null = השדות לא הוצגו בחלון — העמודות לא נכתבות כלל.
 // ══════════════════════════════════════════════════════════════════
 
-function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, recommendation, organStateCode, organSideCode) {
+function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, recommendation, organStateCode, organSideCode, allergenCode, reaction) {
   try {
     if (!systemCode || !S13_BODY_SYSTEMS[systemCode]) {
       return { success: false, msg: "⚠️ קוד מערכת לא תקין: " + systemCode };
@@ -593,6 +668,20 @@ function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, rec
       return { success: false, msg: "⚠️ חסרות עמודות Organ_State_Code/Organ_Side_Code (עמודות 23-24) בגליון " + MEDICAL_STATUS_SHEET_NAME };
     }
 
+    // [Task #262] חומר גורם ותגובה — נכתבים רק אם נשלחו מהחלון (השדות הוצגו).
+    // קוד חומר חייב להיות קוד ATC קיים בבלוק התרופות במיפוי_קודים.
+    const writeAllergy = (allergenCode !== undefined && allergenCode !== null) ||
+                         (reaction     !== undefined && reaction     !== null);
+    allergenCode = (allergenCode || "").toString().trim();
+    reaction     = (reaction     || "").toString().trim();
+    if (writeAllergy && sheet.getMaxColumns() < S16_COL_REACTION) {
+      return { success: false, msg: "⚠️ חסרות עמודות Allergen_Code/Reaction (עמודות 25-26) בגליון " + MEDICAL_STATUS_SHEET_NAME };
+    }
+    if (writeAllergy && allergenCode &&
+        !_s16_readCatalogBlock(S16_ALLERGEN_MAP_FIRST_COL).options.some(function(o) { return o.code === allergenCode; })) {
+      return { success: false, msg: "⚠️ קוד החומר " + allergenCode + " לא נמצא בבלוק התרופות במיפוי_קודים" };
+    }
+
     sheet.getRange(row, S16_COL_MEDICAL_SYSTEM).setValue(systemCode);
     // [Task #220 שלב ב] שם המערכת (עמודה 10) מתעדכן לפי הקוד שנבחר — במקום הטקסט החופשי מ-S09
     sheet.getRange(row, S16_COL_MEDICAL_SYSTEM_NAME).setValue(S13_BODY_SYSTEMS[systemCode].nameHe);
@@ -614,6 +703,12 @@ function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, rec
       sheet.getRange(row, S16_COL_ORGAN_SIDE).setValue(organSideCode);
     }
 
+    // [Task #262] חומר גורם ותגובה (עמודות 25-26)
+    if (writeAllergy) {
+      sheet.getRange(row, S16_COL_ALLERGEN).setValue(allergenCode);
+      sheet.getRange(row, S16_COL_REACTION).setValue(reaction);
+    }
+
     // [Task #220] המלצה — נכתבת רק אם נשלחה (לא null) ושונה מהערך בתא
     let recoUpdated = false;
     if (recommendation !== null && recommendation !== undefined) {
@@ -629,6 +724,7 @@ function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, rec
 
     Logger.log("[S16] אישור שורה " + row + " — SYS:" + systemCode + " | ORGAN:" + organCode +
       (writeOrganState ? " | STATE:" + organStateCode + " | SIDE:" + organSideCode : "") +
+      (writeAllergy ? " | ALLERGEN:" + allergenCode + " | REACTION:" + reaction : "") +
       " | CERT:" + certaintyCode + (recoUpdated ? " | המלצה עודכנה" : ""));
     return { success: true, msg: "✅ השורה אושרה" };
 
