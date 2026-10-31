@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.14.0 | @updated 28/10/2026 20:50 | @service COLUMN_MAP
+ * @version 2.16.0 | @updated 31/10/2026 19:48 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
@@ -29,6 +29,16 @@
  *          באישור); F — ערכים פתוח|בוצע|בוטל. מיפוי_קודים — 63 עמודות: נוסף בלוק
  *          סוגי_הנחיות BX-CB (76-80, מפתח = INS00-INS09, רשימה סגורה), writers:
  *          עמוס, readers: S15. BG-BW (59-75) שמורות ל-Task #263/#264 — לא נרשמו.
+ *          [v2.15.0] Task #262 — יומן_מצב_רפואי: 26 עמודות (היה 24) — נוספו
+ *          Allergen_Code (25, קוד ATC מבלוק התרופות BA) ו-Reaction (26), writers:
+ *          S13+S16, רק בשורות קוד אירוע A7. מיפוי_קודים — בלוק אירועים E-I מתועד
+ *          כ-A0-A7 (נוספה משפחת A7 רגישויות ואלרגיות: A7A/A7B/A7C).
+ *          [v2.16.0] Task #263 (שלב 6) — בדיקות_דם: 19 עמודות (היה 11) — נוספו
+ *          L-S (LOINC_Code | Panel_Code | Specimen | Value_Num | Unit | Ref_Low |
+ *          Ref_High | Enrich_Status), שורה לכל תוצאה; K — בוטל "תמיד SYS06" (S15
+ *          כותב מהקטלוג). מיפוי_קודים — 74 עמודות: נוספו בלוק מאפייני_מעבדה BG-BL
+ *          (59-64, מפתח = קוד LOINC, writers: S15+עמוס) ובלוק פאנלים BS-BW (71-75,
+ *          PNL-L00-PNL-L16, רשימה סגורה, writers: עמוס). BM-BR (65-70) שמורות ל-#264.
  *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (11), בדיקות_דם (10),
  *          בדיקות_גנטיות (8), הנחיות_רפואיות_ומשימות (8) — 5 גליונות יעד של S09,
  *          נוספו ל-SHEET_CONFIG/SHEETS_MAP עם כותרות באנגלית, יושרו בפועל
@@ -52,11 +62,34 @@
  *          כל שירותי ה-Pipeline
  *          [v2.13.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות תרופות_קבועות M-S ובלוק BA-BF במיפוי_קודים
  *          [v2.14.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות הנחיות_רפואיות_ומשימות J-M ובלוק BX-CB במיפוי_קודים
+ *          [v2.16.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות בדיקות_דם K-S ובלוקים BG-BL ו-BS-BW במיפוי_קודים
  * @functions SHEET_CONFIG, SHEETS_MAP, SHEETS_DEFAULT_DATA,
  *            insertEditorGitLinesColumns, printSheetMap, printColumnDetail,
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol, _medDate_normalizeDate
+ * @changes [v2.16.0] Task #263 (שלב 6) — תיעוד מבני בלבד, אין שינוי לוגי.
+ *          SHEETS_MAP["בדיקות_דם"]: 11→19 עמודות — נוספו 12-19 (L-S): LOINC_Code,
+ *          Panel_Code, Specimen (דם|שתן|צואה|מדידה|אחר), Value_Num, Unit, Ref_Low,
+ *          Ref_High, Enrich_Status (הוצע|מאומת), כפי שנכתבים ב-S13 v1.8.0 וב-S15
+ *          v1.5.0. K (Medical_System): writers הורחב ל-["S13","S15"], ההערה "תמיד
+ *          SYS06" (Task #188) סומנה כמבוטלת — נשארה לתיעוד. נוספו readers: ["S15"]
+ *          לכל העמודות ש-S15 קורא (A-H, J-S). SHEETS_MAP["מיפוי_קודים"]: 63→74
+ *          עמודות — בלוק מאפייני_מעבדה 59-64 (BG-BL: LOINC_Code | Normalized_Value |
+ *          Description | Raw_Value | Icon_Link | Medical_System) ובלוק פאנלים 71-75
+ *          (BS-BW: Panel_Code | Normalized_Value | Description | Raw_Value |
+ *          Icon_Link); הערת העמודות השמורות עודכנה — רק BM-BR (65-70) ל-#264.
+ *          אומת מול הקוד החי (diff מדויק, טעינת המפה בהדמיה: 19 ו-74 עמודות) ומול
+ *          הגליון החי: 19 מתוך 19 שמות בבדיקות_דם ו-11 מתוך 11 בבלוקים החדשים זהים
+ *          לשורה 4.
+ * @changes [v2.15.0] Task #262 — תיעוד מבני בלבד, אין שינוי לוגי.
+ *          SHEETS_MAP["יומן_מצב_רפואי"]: 24→26 עמודות — נוספו 25 Allergen_Code
+ *          (קוד ATC מבלוק התרופות BA במיפוי_קודים או ריק) ו-26 Reaction (טקסט
+ *          חופשי), writers: ["S13","S16"], מתמלאות רק בשורות קוד אירוע A7.
+ *          SHEETS_MAP["מיפוי_קודים"] עמודה 5 (Event_Code): הערה וטווח ערכים
+ *          עודכנו מ-A0-A4 ל-A0-A7. אומת מול הקוד החי (diff, node --check) ובבדיקת
+ *          שטח: שורה 28 ביומן_מצב_רפואי נכתבה ע"י S13 ואושרה ב-S16 עם C10AA01 /
+ *          "כאבי שרירים" בעמודות Y-Z.
  * @changes [v2.14.0] Task #261 (שלב 5) — תיעוד מבני בלבד, אין שינוי לוגי.
  *          SHEETS_MAP["הנחיות_רפואיות_ומשימות"]: 9→13 עמודות — נוספו 10-13 (J-M),
  *          writers: ["S15"], כולל ערכי Instruction_Kind (מתמשכת|משימה),
@@ -431,21 +464,35 @@ const SHEETS_MAP = {
     { col: 21, name: "Diagnosis_Code",       zone: "טכני",  writers: [],            readers: [], values: "DX00-DX13",          notes: "[Task #214] ⚠️ אותו ממצא" },
     { col: 22, name: "Organ_Code",           zone: "טכני",  writers: ["S16"],       readers: [], values: "תת-קוד איבר (למשל SYS12A) או ריק", notes: "[Task #219] select סגור ב-S16 מבלוק איברים A-D במיפוי_קודים, מסונן לפי Medical_System; ריק = ללא איבר. נקרא ע\"י runInfographicIconMedicalStatus_LAB (ViewEngine)" },
     { col: 23, name: "Organ_State_Code",     zone: "טכני",  writers: ["S13","S16"], readers: [], values: "OST0-OST2 או ריק", notes: "[Task #224] מצב איבר אחרי ניתוח — select סגור ב-S16 מבלוק מצב_איבר AD-AH במיפוי_קודים. מתמלא רק בשורות ניתוח: S13 מציע, S16 מאשר. ריק = אין מידע (לא \"קיים\")" },
-    { col: 24, name: "Organ_Side_Code",      zone: "טכני",  writers: ["S13","S16"], readers: [], values: "LAT0-LAT3 או ריק", notes: "[Task #224] צד האיבר — select סגור ב-S16 מבלוק צד_איבר AI-AM במיפוי_קודים. סתירת צד בטקסט המקור → ריק + אזהרה ב-S16" }
+    { col: 24, name: "Organ_Side_Code",      zone: "טכני",  writers: ["S13","S16"], readers: [], values: "LAT0-LAT3 או ריק", notes: "[Task #224] צד האיבר — select סגור ב-S16 מבלוק צד_איבר AI-AM במיפוי_קודים. סתירת צד בטקסט המקור → ריק + אזהרה ב-S16" },
+    { col: 25, name: "Allergen_Code",        zone: "טכני",  writers: ["S13","S16"], readers: [], values: "קוד ATC מבלוק התרופות במיפוי_קודים (BA) או ריק", notes: "[Task #262] החומר הגורם לרגישות — רק בשורות קוד אירוע A7 (A7A אלרגיה / A7B רגישות / A7C תופעת לוואי). S13 כותב רק קוד שקיים בקטלוג, S16 מאשר (select סגור). חומר שאינו בקטלוג → ריק, ושמו נשאר ב-Primary_Diagnosis" },
+    { col: 26, name: "Reaction",             zone: "תוכן",  writers: ["S13","S16"], readers: [], values: "טקסט חופשי או ריק", notes: "[Task #262] התגובה לחומר (למשל כאבי שרירים) — רק בשורות קוד אירוע A7. S13 מציע, S16 מאשר/עורך" }
   ],
   // [Task 184] גליון יעד — בדיקות דם שחולצו ע"י S09 (כותרות אנגלית)
   "בדיקות_דם": [
-    { col: 1,  name: "Test_Date",     zone: "אירוע", writers: ["S13"], readers: [], values: "תאריך DD/MM/YYYY", notes: "" },
-    { col: 2,  name: "Test_Name",     zone: "אירוע", writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "לדוגמה: WBC, HB" },
-    { col: 3,  name: "Category",      zone: "אירוע", writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "לדוגמה: המטולוגיה" },
-    { col: 4,  name: "Value",         zone: "תוכן",  writers: ["S13"], readers: [], values: "מספר/טקסט",        notes: "" },
-    { col: 5,  name: "Normal_Range",  zone: "תוכן",  writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 6,  name: "Status",        zone: "תוכן",  writers: ["S13"], readers: [], values: "תקין|גבוה|נמוך|לא תקין", notes: "" },
-    { col: 7,  name: "Doctor_Note",   zone: "תוכן",  writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 8,  name: "Source_URL",    zone: "טכני",  writers: ["S13"], readers: [], values: "https://drive.google.com/...", notes: "" },
+    { col: 1,  name: "Test_Date",     zone: "אירוע", writers: ["S13"], readers: ["S15"], values: "תאריך DD/MM/YYYY", notes: "[Task #263] מוצג בחלון האימות (S15)" },
+    { col: 2,  name: "Test_Name",     zone: "אירוע", writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",       notes: "לדוגמה: WBC, HB. [Task #263] עמודת השם של תחום המעבדה ב-S15 — מפתח חיפוש בקטלוג מאפייני_מעבדה; באישור קוד קיים — נוסף ל-Raw_Value בקטלוג" },
+    { col: 3,  name: "Category",      zone: "אירוע", writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",       notes: "לדוגמה: המטולוגיה. [Task #263] הקשר לפרומפט ההעשרה" },
+    { col: 4,  name: "Value",         zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "מספר/טקסט",        notes: "[Task #263] הערך כפי שבמסמך — הקשר לפרומפט ההעשרה ותצוגה בחלון האימות" },
+    { col: 5,  name: "Normal_Range",  zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",       notes: "[Task #263] מוצג בחלון האימות. ⚠️ בתדפיסי כללית און-ליין הגבול התחתון עלול להיות שגוי (Task #265)" },
+    { col: 6,  name: "Status",        zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "תקין|גבוה|נמוך|לא תקין", notes: "[Task #263] מוצג בחלון האימות" },
+    { col: 7,  name: "Doctor_Note",   zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",       notes: "[Task #263] מוצג בחלון האימות" },
+    { col: 8,  name: "Source_URL",    zone: "טכני",  writers: ["S13"], readers: ["S15"], values: "https://drive.google.com/...", notes: "[Task #263] תצוגת מסמך המקור בחלון האימות" },
     { col: 9,  name: "File_ID",       zone: "טכני",  writers: ["S13"], readers: [], values: "Drive ID",          notes: "" },
-    { col: 10, name: "Doc_Issuer",    zone: "טכני",  writers: ["S13"], readers: [], values: "טקסט חופשי",        notes: "docIssuer — [Task 184] תוקן: הייתה חסרת כותרת בגליון החי" },
-    { col: 11, name: "Medical_System", zone: "טכני", writers: ["S13"], readers: [], values: "SYS00-SYS14",       notes: "[Task #188] קבוע: תמיד SYS06 (דם וכלי דם) — כל בדיקת דם מקוטלגת אוטומטית" }
+    { col: 10, name: "Doc_Issuer",    zone: "טכני",  writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",        notes: "docIssuer — [Task 184] תוקן: הייתה חסרת כותרת בגליון החי. [Task #263] מוצג בחלון האימות" },
+    { col: 11, name: "Medical_System", zone: "טכני", writers: ["S13","S15"], readers: ["S15"], values: "SYS00-SYS14",       notes: "[Task #188] קבוע: תמיד SYS06 (דם וכלי דם) — כל בדיקת דם מקוטלגת אוטומטית. [Task #263] בוטל: S13 כותב ריק; S15 מציע בהעשרה וכותב באישור את מערכת היעד של המאפיין מהקטלוג (מיפוי_קודים BL) — הקטלוג גובר" },
+
+    // [Task #263] עמודות L-S — שורה לכל תוצאה (S13 v1.8.0 מפצל אירוע מעבדה לתוצאות בודדות).
+    // S13 כותב N-R וריק ב-K-M ו-S; העשרה (runS15Enrich, _s15_labHandler) כותבת K-M ו-S="הוצע";
+    // אישור בחלון S16 (s15_labApprove) כותב K-M ו-O-S עם S="מאומת". K-M נכתבים בעיצוב טקסט.
+    { col: 12, name: "LOINC_Code",    zone: "טכני",  writers: ["S13","S15"], readers: ["S15"], values: "קוד LOINC (למשל 718-7) או ריק", notes: "[Task #263] מפתח לבלוק מאפייני_מעבדה במיפוי_קודים (BG). קוד ריק מותר באישור. נכתב בעיצוב טקסט — קוד כמו 3016-3 מתפרש אחרת כתאריך" },
+    { col: 13, name: "Panel_Code",    zone: "טכני",  writers: ["S13","S15"], readers: ["S15"], values: "PNL-L00-PNL-L16",   notes: "[Task #263] מבלוק פאנלים במיפוי_קודים (BS). בהעשרה — פאנל מחוץ לרשימה → PNL-L00; באישור — חובה לבחור מהרשימה" },
+    { col: 14, name: "Specimen",      zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "דם|שתן|צואה|מדידה|אחר", notes: "[Task #263] סוג הדגימה — חלק ראשון בשיוך הכפול (מדידה = מדד חיוני). ערך מחוץ לרשימה → אחר. בחלון האימות — תצוגה בלבד" },
+    { col: 15, name: "Value_Num",     zone: "תוכן",  writers: ["S13","S15"], readers: ["S15"], values: "מספר או ריק",       notes: "[Task #263] הערך כמספר בלבד; ניתן לעריכה באישור" },
+    { col: 16, name: "Unit",          zone: "תוכן",  writers: ["S13","S15"], readers: ["S15"], values: "טקסט חופשי או ריק", notes: "[Task #263] יחידת המידה; הקשר לפרומפט ההעשרה; ניתנת לעריכה באישור" },
+    { col: 17, name: "Ref_Low",       zone: "תוכן",  writers: ["S13","S15"], readers: ["S15"], values: "מספר או ריק",       notes: "[Task #263] גבול תחתון של הטווח התקין; באישור — גבול תחתון ≤ עליון" },
+    { col: 18, name: "Ref_High",      zone: "תוכן",  writers: ["S13","S15"], readers: ["S15"], values: "מספר או ריק",       notes: "[Task #263] גבול עליון של הטווח התקין" },
+    { col: 19, name: "Enrich_Status", zone: "טכני",  writers: ["S13","S15"], readers: ["S15"], values: "הוצע|מאומת או ריק", notes: "[Task #263] S13 כותב ריק = ממתין להעשרה; שורה עם ערך לא מעובדת שוב ב-runS15Enrich" }
   ],
 
   // [Task 184] גליון יעד — בדיקות גנטיות שחולצו ע"י S09 (כותרות אנגלית)
@@ -560,8 +607,8 @@ const SHEETS_MAP = {
     { col: 3, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",       notes: "לא בשימוש בפועל ברוב השורות" },
     { col: 4, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL",               notes: "מאוכלס רק לחלק מהשורות" },
 
-    // בלוק אירועים (E-I) — 5 קטגוריות (A0-A4) + קוד עצמאי A5.
-    { col: 5, name: "Event_Code",       zone: "מיפוי", writers: ["עמוס"], readers: [], values: "A0-A4 (קטגוריה) / A0A וכו' (תת-קוד) / A5", notes: "[Task #215a] בלוק אירועים E-I. _s10_saveEventCodeToMap (S10_Validate.gs) מיועדת לכתוב לכאן — כרגע כותבת בטעות ל-A-D (ראה משימה #214)" },
+    // בלוק אירועים (E-I) — 8 קטגוריות (A0-A7), כולל A5 עצמאי. [Task #262] A7 = רגישויות ואלרגיות.
+    { col: 5, name: "Event_Code",       zone: "מיפוי", writers: ["עמוס"], readers: [], values: "A0-A7 (קטגוריה) / A0A וכו' (תת-קוד) / A5", notes: "[Task #215a] בלוק אירועים E-I. _s10_saveEventCodeToMap (S10_Validate.gs) מיועדת לכתוב לכאן — כרגע כותבת בטעות ל-A-D (ראה משימה #214)" },
     { col: 6, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",       notes: "" },
     { col: 7, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",       notes: "" },
     { col: 8, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי",       notes: "מפתח חיפוש לשורות תת-קוד; ריק בשורות הקטגוריה (A0-A4)" },
@@ -633,8 +680,25 @@ const SHEETS_MAP = {
     { col: 57, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #256] ריק כרגע — לשימוש עתידי באינפוגרפיקה" },
     { col: 58, name: "Medical_System",   zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "SYS00-SYS14", notes: "[Task #256] מערכת הגוף לפי הקבוצה הטיפולית. מקור ל-Medical_System (עמ' 12) בתרופות_קבועות באישור" },
 
+    // [Task #263] בלוק מאפייני_מעבדה (BG-BL) — קטלוג פתוח, שורה לכל מאפיין, מפתח = קוד LOINC. כותרת שורה 3: "מאפייני_מעבדה".
+    // נקרא ע"י S15 (_s15_readCatalog) להעשרה ולאימות; נכתב ע"י S15 באישור בחלון S16 (s15_labApprove → _s15_labWriteCatalog): קוד חדש = שורה חדשה בעיצוב טקסט, קוד קיים = הוספת שם הבדיקה ל-Raw_Value.
+    { col: 59, name: "LOINC_Code",       zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "קוד LOINC (למשל 718-7)", notes: "[Task #263] מפתח הבלוק. מקור ל-LOINC_Code (עמ' 12) בבדיקות_דם. סיווג בינלאומי — לא ממציאים קודים. נכתב בעיצוב טקסט — קוד כמו 3016-3 מתפרש אחרת כתאריך" },
+    { col: 60, name: "Normalized_Value", zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "שם המאפיין באנגלית (למשל Hemoglobin)", notes: "[Task #263] מוצג בחלון האימות; מפתח חיפוש ב-S15" },
+    { col: 61, name: "Description",      zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "טקסט חופשי בעברית", notes: "[Task #263] למשל \"המוגלובין בדם\"" },
+    { col: 62, name: "Raw_Value",        zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "שמות הבדיקה במסמכים מופרדים בפסיקים", notes: "[Task #263] מפתח חיפוש ב-S15; באישור קוד קיים — שם הבדיקה מתווסף כאן" },
+    { col: 63, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #263] ריק כרגע — לשימוש עתידי באינפוגרפיקה" },
+    { col: 64, name: "Medical_System",   zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "SYS00-SYS14", notes: "[Task #263] מערכת היעד של המאפיין (שיוך כפול: סוג הדגימה בעמ' 14 בבדיקות_דם + המערכת כאן). מקור ל-Medical_System (עמ' 11) בבדיקות_דם — הקטלוג גובר" },
+
+    // [Task #263] בלוק פאנלים (BS-BW) — רשימה סגורה משותפת: מעבדה PNL-L00-PNL-L16, ובהמשך גנטיקה PNL-G.. (Task #264). כותרת שורה 3: "פאנלים".
+    // נקרא ע"י S15 (_s15_readCatalog עם S15_LAB_PANEL_FIRST_COL) — בפרומפט ההעשרה וברשימת הפאנלים בחלון האימות; לא נכתב בקוד — מנוהל ידנית ע"י עמוס בלבד.
+    { col: 71, name: "Panel_Code",       zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "PNL-L00-PNL-L16 (מעבדה); בהמשך PNL-G.. (גנטיקה)", notes: "[Task #263] מפתח הבלוק. מקור ל-Panel_Code (עמ' 13) בבדיקות_דם. רשימה סגורה — בהעשרה פאנל מחוץ לרשימה → PNL-L00; באישור חובה לבחור מהרשימה" },
+    { col: 72, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "שם הפאנל בעברית (למשל ספירת דם)", notes: "[Task #263] מוצג בפרומפט ובחלון האימות" },
+    { col: 73, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "טקסט חופשי — מה כולל הפאנל", notes: "[Task #263] הקשר לפרומפט ההעשרה" },
+    { col: 74, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "ניסוחים וקיצורים מופרדים בפסיקים", notes: "[Task #263] רמזים לשיוך בפרומפט ההעשרה" },
+    { col: 75, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #263] ריק כרגע — לשימוש עתידי באינפוגרפיקה" },
+
     // [Task #261] בלוק סוגי_הנחיות (BX-CB) — רשימה סגורה, INS00-INS09. כותרת שורה 3: "סוגי_הנחיות".
-    // עמודות BG-BW (59-75) שמורות לבלוקי מעבדה/גנים/פאנלים (Task #263, #264) — יירשמו כשייבנו.
+    // עמודות BM-BR (65-70) שמורות לבלוק הגנים (Task #264) — יירשמו כשייבנה. [Task #263] BG-BL ו-BS-BW נרשמו למעלה.
     // נקרא ע"י S15 (_s15_readCatalog) להעשרה ולאימות; לא נכתב בקוד — מנוהל ידנית ע"י עמוס בלבד.
     { col: 76, name: "Instruction_Code", zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "INS00-INS09", notes: "[Task #261] מפתח הבלוק. מקור ל-Instruction_Code (עמ' 10) בהנחיות_רפואיות_ומשימות. רשימה סגורה — S15 לא מציע קודים חדשים" },
     { col: 77, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "שם הסוג בעברית (למשל מעקב / ביקורת)", notes: "[Task #261] מוצג בפרומפט ובחלון האימות" },
