@@ -1,6 +1,6 @@
 /**
  * @file        S13_ExtractMedical.gs
- * @version     1.6.0 | @updated 22/10/2026 22:13 | @service S13
+ * @version     1.8.0 | @updated 29/10/2026 19:49 | @service S13
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S13_ExtractMedical.gs
  * @description שירות חילוץ עמוק — קורא שורות מאומתות (Validation_Status="מאומת",
  *              Extraction_Status ריק) מיומן_אירועים_רפואי, מקבץ לפי File_ID
@@ -19,6 +19,11 @@
  *              וודאות CRT4 ("רקע ידוע") נאכפות בקוד, ללא תלות בתשובת Gemini.
  *              [v1.6.0] שורת ניתוח — Gemini מחזיר גם מצב וצד האיבר שנותח (קטלוג
  *              מצב_איבר/צד_איבר), ו-Primary_Diagnosis = שם הניתוח (לא ממצא).
+ *              [v1.7.0] שורת רגישות/אלרגיה (קוד אירוע A7) — Gemini מחזיר גם את
+ *              החומר הגורם (קוד ATC מבלוק התרופות) ואת התגובה.
+ *              [v1.8.0] בדיקת דם (מעבדה ומדדים) — Gemini מחזיר רשימת תוצאות, ונכתבת
+ *              שורה לכל תוצאה (ערך מספרי, יחידה, טווח, סוג דגימה); מערכת הגוף כבר
+ *              לא SYS06 קבוע — נשארת ריקה להעשרה ב-S15.
  * @impacts     יומן_אירועים_רפואי: קורא בלבד (A-L, [v1.3.1] עודכן מ-A-I, Task
  *              #205 — File_ID עבר לעמודה L), כותב Extraction_Status (I).
  *              בדיקות_דם/בדיקות_גנטיות/תרופות_קבועות/הנחיות_רפואיות_ומשימות/
@@ -33,12 +38,46 @@
  *              Organ_Side_Code (24), מתמלאות רק בשורת ניתוח (אחרת ריקות).
  *              מיפוי_קודים: בלוקים AD-AH/AI-AM, קריאה בלבד (תלות ב-S16 v2.4.0
  *              — S16_ORGAN_STATE/SIDE_MAP_FIRST_COL, עם בדיקת typeof).
+ *              [v1.7.0] יומן_מצב_רפואי: 26 עמודות — Allergen_Code (25) ו-Reaction
+ *              (26), מתמלאות רק בשורת רגישות A7 (אחרת ריקות). מיפוי_קודים: בלוק
+ *              התרופות BA-BF (עמודה 53) נקרא כקטלוג החומרים הגורמים, קריאה בלבד.
+ *              [v1.8.0] בדיקות_דם: 19 עמודות (A-S) — שורה לכל תוצאה, בכתיבה מרוכזת
+ *              (setValues). Medical_System (K), LOINC_Code (L), Panel_Code (M) ו-
+ *              Enrich_Status (S) נכתבים ריקים — S15 ימלא מהקטלוג.
  * @callers     runS13ViewIconEvents (ViewEngine.gs, עמודה F ביומן_אירועים_רפואי)
  * @functions   runS13 | _s13_checkRow | _s13_getEligibleGroups | _s13_processSingleRow |
  *              _s13_processBatch | _s13_getSchemaBlock | _s13_fetchTxtUrlByFileId |
  *              _s13_fetchTxtContent | _s13_buildPrompt | _s13_normalizeDate |
  *              _s13_callGemini | _s13_buildRowValues | _s13_writeExtractedRow |
- *              _s13_processGroup | _s13_loadCatalog | _s13_validateCode
+ *              _s13_processGroup | _s13_loadCatalog | _s13_validateCode | _s13_toNumber
+ * @changes     [v1.8.0] Task #263 (שלב 3) — מעבדה ומדדים: פיצול לשורה לכל תוצאה.
+ *              _s13_getSchemaBlock — סכימת "בדיקת דם" היא רשימת Results (Test_Name,
+ *              Category, Value, Value_Num, Unit, Ref_Low, Ref_High, Normal_Range,
+ *              Status, Specimen, Doctor_Note). _s13_buildPrompt — כלל (8), רק כשבמסמך
+ *              יש שורת מעבדה: פריט לכל מאפיין, ערך מספרי וגבולות טווח, סוג דגימה
+ *              (דם|שתן|צואה|מדידה|אחר), לחץ דם כשני פריטים, בלי סיכום כללי בלי ערך.
+ *              _s13_buildRowValues — ענף בדיקת דם: 19 ערכים, מערכת/LOINC/פאנל/העשרה
+ *              ריקים, סוג דגימה מחוץ לרשימה → "אחר". חדש: S13_LAB_SPECIMENS,
+ *              _s13_toNumber (פסיק עשרוני, ערך לא מספרי → ריק). _s13_writeExtractedRow
+ *              — ענף בדיקת דם: שורה לכל פריט לא ריק, setValues אחד; אין תוצאות →
+ *              false (האירוע לא מסומן "חולץ"). אומת מול הקוד החי (diff לכל בלוק,
+ *              node --check, הדמיה) ובבדיקת שטח: אירוע 6 (TSH) → בדיקות_דם שורה 5;
+ *              אירוע 10 (ספירת דם) → 22 שורות (6-27). ממצא: טווחים שגויים בסיכום
+ *              האירוע (גבול תחתון = הערך) — מקורם בהמרה, לא ב-S13 (Task #265).
+ * @changes     [v1.7.0] Task #262 — רגישויות ואלרגיות ביומן_מצב_רפואי.
+ *              קבועים חדשים S13_ALLERGEN_MAP_FIRST_COL (53 = BA, בלוק התרופות)
+ *              ו-S13_ALLERGY_EVENT_CODE_PREFIX ("A7"). _s13_getSchemaBlock — בסכימת
+ *              מצב רפואי/כללי נוספו Allergen_Code ו-Reaction. _s13_loadCatalog —
+ *              טוען גם allergen (בלוק התרופות דרך _s16_readCatalogBlock).
+ *              _s13_buildPrompt — כלל (7): שורת רגישות מקבלת קוד מסדרת A7 (A7A
+ *              אלרגיה / A7B רגישות / A7C תופעת לוואי), Primary_Diagnosis = "רגישות
+ *              ל-" + שם החומר, Allergen_Code רק מהקטלוג, Reaction בעברית; נוספה
+ *              רשימת קטלוג Allergen_Code. _s13_buildRowValues — 26 ערכים; חומר
+ *              ותגובה נכתבים רק כשקוד האירוע המאומת מתחיל ב-A7, וקוד החומר רק אם
+ *              קיים בקטלוג (אחרת ריק — שם החומר נשאר באבחנה). אומת מול הקוד החי
+ *              (diff מדויק לכל בלוק, node --check) ובבדיקת שטח: אירוע 133
+ *              (רגישות לסימבסטטין) → יומן_מצב_רפואי שורה 28: A7B, C10AA01, "כאבי
+ *              שרירים" (קוד האירוע תוקן ל-A7C באימות ב-S16).
  * @changes     [v1.6.0] Task #224 (שלב 4) — מצב וצד איבר בשורות ניתוח.
  *              _s13_getSchemaBlock — ענף נפרד ל-"ניתוח/פעולה רפואית" עם
  *              Organ_State_Code + Organ_Side_Code (שאר הקטגוריות ללא שינוי).
@@ -343,8 +382,11 @@ const S13_GEMINI_MODEL = "gemini-2.5-flash";
 function _s13_getSchemaBlock(routingCategory) {
   switch (routingCategory) {
 
+    // [Task #263] מעבדה ומדדים — רשימת תוצאות (פריט לכל מאפיין שנמדד)
     case "בדיקת דם":
-      return '{"Test_Name":"","Category":"","Value":"","Normal_Range":"","Status":"תקין|גבוה|נמוך|לא תקין","Doctor_Note":""}';
+      return '{"Results":[{"Test_Name":"","Category":"","Value":"","Value_Num":"מספר או ריק","Unit":"",' +
+        '"Ref_Low":"מספר או ריק","Ref_High":"מספר או ריק","Normal_Range":"","Status":"תקין|גבוה|נמוך|לא תקין",' +
+        '"Specimen":"דם|שתן|צואה|מדידה|אחר","Doctor_Note":""}]}';
 
     case "בדיקה גנטית":
       return '{"Panel_Name":"","Gene_Variant":"","Finding":"","Clinical_Significance":"","Recommendation":""}';
@@ -367,10 +409,12 @@ function _s13_getSchemaBlock(routingCategory) {
     case "כללי":
     default:
       // [Task #220 שלב ב] נוספו 6 שדות קוד מתוך קטלוג מיפוי_קודים
+      // [Task #262] + Allergen_Code ו-Reaction — רק לשורת רגישות (קוד אירוע A7)
       return '{"Medical_System":"קוד SYS00-SYS14 בלבד","Organ_Code":"קוד איבר מהקטלוג או ריק",' +
         '"Event_Code":"קוד מהקטלוג או ריק","Specialty_Code":"קוד מהקטלוג או ריק",' +
         '"Severity_Code":"קוד מהקטלוג או ריק","Diagnosis_Code":"קוד מהקטלוג או ריק",' +
-        '"Certainty_Code":"קוד מהקטלוג או ריק","Primary_Diagnosis":"","Severity_Status":"","Recommendations":""}';
+        '"Certainty_Code":"קוד מהקטלוג או ריק","Allergen_Code":"קוד ATC מהקטלוג או ריק",' +
+        '"Reaction":"","Primary_Diagnosis":"","Severity_Status":"","Recommendations":""}';
   }
 }
 
@@ -382,7 +426,13 @@ function _s13_getSchemaBlock(routingCategory) {
 // מחזיר: { eventCode, specialty, severity, diagnosis, certainty, organ }
 // — כל אחד מערך options [{code, name, raw, desc, row}].
 // [Task #224] + organState, organSide (בלוקים AD-AH / AI-AM; ריקים אם S16 ישן).
+// [Task #262] + allergen — בלוק התרופות (BA-BF) כקטלוג החומרים הגורמים לרגישות.
 // ══════════════════════════════════════════════════════════════════
+
+// [Task #262] רגישויות ואלרגיות — בלוק התרופות במיפוי_קודים (BA, עמודה 53)
+// משמש כקטלוג החומרים הגורמים; שורת רגישות מזוהה לפי קוד אירוע מסדרת A7.
+const S13_ALLERGEN_MAP_FIRST_COL     = 53;
+const S13_ALLERGY_EVENT_CODE_PREFIX  = "A7";
 
 function _s13_loadCatalog() {
   if (typeof _s16_readCatalogBlock !== "function" || typeof S16_CODE_FIELDS === "undefined" ||
@@ -405,6 +455,8 @@ function _s13_loadCatalog() {
       ? _s16_readCatalogBlock(S16_ORGAN_STATE_MAP_FIRST_COL).options : [];
     catalog.organSide  = (typeof S16_ORGAN_SIDE_MAP_FIRST_COL !== "undefined")
       ? _s16_readCatalogBlock(S16_ORGAN_SIDE_MAP_FIRST_COL).options : [];
+    // [Task #262] קטלוג החומרים הגורמים — קודי ATC מבלוק התרופות
+    catalog.allergen   = _s16_readCatalogBlock(S13_ALLERGEN_MAP_FIRST_COL).options;
     return catalog;
   } catch (e) {
     Logger.log("[S13] שגיאת קריאת קטלוג מיפוי_קודים: " + e.message + " — חילוץ ללא קודי קטלוג");
@@ -533,7 +585,14 @@ function _s13_buildPrompt(group, fallbackTxt, catalog) {
       "מקטלוג הצד, לפי הכותרת, האבחנה ושם הניתוח. אם הטקסט סותר את עצמו לגבי הצד (למשל \"אונה " +
       "שמאל\" בכותרת ו\"האונה הימנית\" בגוף) — השאר Organ_Side_Code ריק. LAT0 רק לאיבר ללא צדדים שנותח " +
       "כולו (למשל קיבה, ערמונית). איבר עם אונות/צדדים (תריס, ריאה, כבד, כליה) — הצד של מה שנותח (למשל " +
-      "כריתת אונה שמאל של התריס → LAT2). אם הצד לא מופיע בשום מקום — השאר ריק, לא LAT0.\n" +     
+      "כריתת אונה שמאל של התריס → LAT2). אם הצד לא מופיע בשום מקום — השאר ריק, לא LAT0.\n" +
+      // [Task #262] שורות רגישות/אלרגיה — קוד אירוע A7, חומר גורם ותגובה
+      "(7) שורה שמתארת רגישות, אלרגיה או תופעת לוואי לחומר או לתרופה: Event_Code מסדרת A7 בלבד " +
+      "(A7A = אלרגיה — תגובה חיסונית כמו פריחה, נפיחות, קוצר נשימה; A7B = רגישות או אי-סבילות; " +
+      "A7C = תופעת לוואי לתרופה במינון טיפולי). Primary_Diagnosis = \"רגישות ל-\" + שם החומר כפי שמופיע " +
+      "במסמך. Allergen_Code = קוד ה-ATC של החומר מקטלוג Allergen_Code בלבד — אם החומר אינו ברשימה, השאר " +
+      "ריק. Reaction = התגובה כפי שמתוארת במסמך, בעברית (למשל \"כאבי שרירים\"); אם לא מצוינת — ריק. " +
+      "בכל שורה אחרת Allergen_Code ו-Reaction נשארים ריקים.\n" +
        "\n--- קטלוג Organ_Code (קוד=איבר) ---\n" + listOf(catalog.organ, function(o) { return o.desc; }) +
       "\n--- קטלוג Event_Code (קוד=סוג אירוע) ---\n" + listOf(catalog.eventCode, function(o) { return o.desc; }) +
       "\n--- קטלוג Specialty_Code ---\n" + listOf(catalog.specialty, function(o) { return o.raw; }) +
@@ -542,7 +601,24 @@ function _s13_buildPrompt(group, fallbackTxt, catalog) {
       "\n--- קטלוג Certainty_Code ---\n" + listOf(catalog.certainty, function(o) { return o.raw; }) +
       "\n--- קטלוג Organ_State_Code (מצב איבר — לשורות ניתוח בלבד) ---\n" + listOf(catalog.organState, function(o) { return o.desc; }) +
       "\n--- קטלוג Organ_Side_Code (צד איבר — לשורות ניתוח בלבד) ---\n" + listOf(catalog.organSide, function(o) { return o.desc; }) +
+      "\n--- קטלוג Allergen_Code (קוד ATC=חומר — לשורות רגישות בלבד) ---\n" + listOf(catalog.allergen, function(o) { return o.raw; }) +
       "\n";
+  }
+
+  // [Task #263] שורות מעבדה ומדדים — פיצול לפריט נפרד לכל מאפיין שנמדד
+  const hasLab = group.rows.some(function(r) { return r.routingCategory === "בדיקת דם"; });
+  if (hasLab) {
+    prompt +=
+      "(8) שורה עם Routing_Category \"בדיקת דם\" (מעבדה ומדדים): החזר ב-Results פריט נפרד לכל מאפיין " +
+      "שנמדד (למשל WBC, HB, GLUCOSE — כל אחד פריט). Test_Name = שם המאפיין כפי שמופיע במסמך. Category = " +
+      "שם הקבוצה כפי שמופיע (למשל ביוכימיה, ספירת דם) או ריק. Value = הערך כפי שמופיע, כולל ערך טקסטואלי " +
+      "(למשל \"שלילי\"). Value_Num = הערך כמספר בלבד (נקודה עשרונית), או ריק אם אינו מספרי. Unit = יחידת " +
+      "המידה או ריק. Ref_Low / Ref_High = גבולות הטווח התקין כמספרים (גבול שחסר — ריק); Normal_Range = הטווח " +
+      "כפי שמופיע. Status = תקין|גבוה|נמוך|לא תקין לפי הערך מול הטווח או לפי המסמך; אם אין טווח ואין " +
+      "הערכה — ריק. Specimen = דם|שתן|צואה|מדידה|אחר (מדידה = מדד חיוני שנמדד בבדיקה: לחץ דם, דופק, " +
+      "משקל, גובה, BMI, חום, סטורציה). לחץ דם = שני פריטים: \"לחץ דם סיסטולי\" ו\"לחץ דם דיאסטולי\", " +
+      "יחידה mmHg. אל תמציא מאפיין שאינו בטקסט, ואל תחזיר פריט לסיכום כללי בלי ערך (למשל \"ביוכימיה: " +
+      "לא תקינה\").\n";
   }
 
   prompt += rowsBlock;
@@ -677,8 +753,15 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
 
   switch (routingCategory) {
 
-    case "בדיקת דם":
-      // Test_Date | Test_Name | Category | Value | Normal_Range | Status | Doctor_Note | Source_URL | File_ID | Doc_Issuer
+    case "בדיקת דם": {
+      // [Task #263] שורה אחת לכל תוצאה (fields = פריט בודד מ-Results), 19 עמודות:
+      // Test_Date | Test_Name | Category | Value | Normal_Range | Status | Doctor_Note |
+      // Source_URL | File_ID | Doc_Issuer | Medical_System | LOINC_Code | Panel_Code |
+      // Specimen | Value_Num | Unit | Ref_Low | Ref_High | Enrich_Status.
+      // Medical_System, LOINC_Code, Panel_Code ו-Enrich_Status נשארים ריקים — S15
+      // ממלא אותם מהקטלוג (בוטל "דם תמיד SYS06"). Specimen מחוץ לרשימה → "אחר".
+      const specimenRaw = (fields.Specimen || "").toString().trim();
+      const specimen    = S13_LAB_SPECIMENS.indexOf(specimenRaw) !== -1 ? specimenRaw : "אחר";
       return [
         _s13_normalizeDate(ctx.eventDate),
         fields.Test_Name || "",
@@ -690,8 +773,17 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
         sourceUrl,
         ctx.fileId,
         ctx.issuer || "",
-        "SYS06"
+        "",
+        "",
+        "",
+        specimen,
+        _s13_toNumber(fields.Value_Num),
+        fields.Unit || "",
+        _s13_toNumber(fields.Ref_Low),
+        _s13_toNumber(fields.Ref_High),
+        ""
       ];
+    }
 
     case "בדיקה גנטית":
       // Test_Date | Panel_Name | Gene_Variant | Finding | Clinical_Significance | Recommendation | Source_URL | File_ID
@@ -756,7 +848,8 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
       // Specialty_Name | Medical_System_Name | Event_Code | Event_Description |
       // Severity_Name | Diagnosis_Name | Diagnosis_Certainty | Source_URL |
       // File_ID | Medical_System | Specialty_Code | Severity_Code | Diagnosis_Code | Organ_Code |
-      // Organ_State_Code | Organ_Side_Code ([Task #224] — רק בשורת ניתוח, אחרת ריקים).
+      // Organ_State_Code | Organ_Side_Code ([Task #224] — רק בשורת ניתוח, אחרת ריקים) |
+      // Allergen_Code | Reaction ([Task #262] — רק בשורת רגישות A7, אחרת ריקים).
       // S_Row מחושב ע"י VIEWENGINE (refreshMedicalStatusRows) — נשאר ריק כאן.
       // Medical_System_Name נגזר מקוד המערכת הסופי (לא מהטקסט החופשי של S09).
       const cat       = ctx.catalog || {};
@@ -774,6 +867,11 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
       const isSurgery  = routingCategory === "ניתוח/פעולה רפואית";
       const organState = isSurgery ? _s13_validateCode(cat.organState, fields.Organ_State_Code) : null;
       const organSide  = isSurgery ? _s13_validateCode(cat.organSide,  fields.Organ_Side_Code)  : null;
+      // [Task #262] חומר גורם ותגובה — רק בשורת רגישות (קוד אירוע A7 מאומת מול הקטלוג),
+      // וקוד החומר רק אם קיים בקטלוג התרופות (אחרת ריק — שם החומר נשאר ב-Primary_Diagnosis)
+      const isAllergy = !!eventCode && eventCode.code.indexOf(S13_ALLERGY_EVENT_CODE_PREFIX) === 0;
+      const allergen  = isAllergy ? _s13_validateCode(cat.allergen, fields.Allergen_Code) : null;
+      const reaction  = isAllergy ? (fields.Reaction || "").toString().trim() : "";
       return [
         _s13_normalizeDate(ctx.eventDate),
         ctx.eventType || "",
@@ -798,14 +896,32 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
         diagnosis ? diagnosis.code : "",
         organ     ? organ.code     : "",
         organState ? organState.code : "",
-        organSide  ? organSide.code  : ""
+        organSide  ? organSide.code  : "",
+        allergen   ? allergen.code   : "",
+        reaction
       ];
     }
   }
 }
 
 // ══════════════════════════════════════════════════════════════════
+// [Task #263] מעבדה ומדדים — סוגי דגימה מותרים, והמרת ערך למספר
+// (מחרוזת עם פסיק עשרוני או רווחים → מספר; ערך לא מספרי → ריק)
+// ══════════════════════════════════════════════════════════════════
+
+const S13_LAB_SPECIMENS = ["דם", "שתן", "צואה", "מדידה", "אחר"];
+
+function _s13_toNumber(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "number") return isFinite(value) ? value : "";
+  const s = value.toString().trim().replace(",", ".");
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return "";
+  return parseFloat(s);
+}
+
+// ══════════════════════════════════════════════════════════════════
 // כתיבת שורה בודדת לגליון היעד המתאים, לפי S13_TARGET_SHEETS
+// [Task #263] בדיקת דם — שורה לכל פריט ב-Results, בכתיבה מרוכזת אחת
 // ══════════════════════════════════════════════════════════════════
 
 function _s13_writeExtractedRow(ss, routingCategory, fields, ctx) {
@@ -815,6 +931,22 @@ function _s13_writeExtractedRow(ss, routingCategory, fields, ctx) {
   if (!sheet) {
     Logger.log("[S13] גליון יעד לא נמצא: " + targetSheetName + " (routingCategory: " + routingCategory + ")");
     return false;
+  }
+
+  if (routingCategory === "בדיקת דם") {
+    const items = Array.isArray(fields.Results) ? fields.Results : [fields];
+    const labRows = items.filter(function(it) {
+      return it && ((it.Test_Name || "").toString().trim() || (it.Value || "").toString().trim());
+    }).map(function(it) {
+      return _s13_buildRowValues(routingCategory, it, ctx);
+    });
+    if (labRows.length === 0) {
+      Logger.log("[S13] אין תוצאות מעבדה לכתיבה | File_ID: " + ctx.fileId);
+      return false;
+    }
+    sheet.getRange(sheet.getLastRow() + 1, 1, labRows.length, labRows[0].length).setValues(labRows);
+    Logger.log("[S13] נכתבו " + labRows.length + " תוצאות ל-" + targetSheetName + " | File_ID: " + ctx.fileId);
+    return true;
   }
 
   const rowValues = _s13_buildRowValues(routingCategory, fields, ctx);
