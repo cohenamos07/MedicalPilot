@@ -1,6 +1,6 @@
 /**
  * @file        S15_EnrichCatalog.gs
- * @version     1.3.0 | @updated 28/10/2026 19:45 | @service S15
+ * @version     1.5.0 | @updated 31/10/2026 19:04 | @service S15
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S15_EnrichCatalog.gs
  * @description שירות העשרת קטלוגים — מנוע כללי שמוגדר לפי תחום (S15_DOMAINS).
  *              לכל גליון יעד: סורק שורות שעמודת הסטטוס שלהן ריקה, מחפש כל
@@ -27,6 +27,17 @@
  *              ניווט (s15_instrLoadRowByNumber) ואישור (s15_instrApprove). רשימה
  *              סגורה — סוג, אופי, קוד יעד (התמחות/ATC מהקטלוג), מערכת גוף, סטטוס
  *              (פתוח / בוצע / בוטל) ותאריך יעד; הקטלוג לא נכתב.
+ *              [v1.4.0] תחום שלישי: בדיקות_דם (מעבדה ומדדים; בלוק מאפייני_מעבדה,
+ *              BG-BL, מפתח = קוד LOINC). מטפל ייעודי (_s15_labHandler): קטלוג
+ *              פתוח — קוד LOINC תקין שאינו בקטלוג נשמר כהצעה ב-S15_PENDING_CATALOG;
+ *              פאנל מרשימה סגורה (בלוק פאנלים, BS-BW), ברירת מחדל PNL-L00;
+ *              מערכת גוף SYSnn מהרשימה. התאמה בקטלוג גוברת על הצעת Gemini.
+ *              [v1.5.0] אימות מעבדה בחלון S16_Sidebar.html במצב "lab":
+ *              s15_showValidation מעביר את גליון בדיקות_דם ל-_s15_labShowValidation;
+ *              ניווט (s15_labLoadRowByNumber) ואישור (s15_labApprove). קוד LOINC,
+ *              פאנל (חובה, רשימה סגורה), מערכת גוף, ערך מספרי, יחידה וגבולות
+ *              טווח; קוד חדש נכתב כשורה בבלוק BG-BL. קודי LOINC נכתבים בעיצוב
+ *              טקסט, כדי שגוגל שיטס לא יפרש אותם כתאריך.
  * @impacts     תרופות_קבועות: קורא A-E (שם, חומר פעיל, מינון, תדירות, סיבה),
  *              כותב M-R בלבד (ATC_Code | Dose_Amount | Dose_Unit |
  *              Times_Per_Day | Days_Per_Week | Enrich_Status="הוצע").
@@ -53,6 +64,18 @@
  *              כותב E-F (Due_Date לפי אזור הזמן של הגליון, Status), I (מערכת גוף)
  *              ו-J-M (M = "מאומת"); A-D ו-G-H לא נכתבים. מיפוי_קודים: קורא בלבד
  *              (BX-CB, J-N, BA-BF). Script Properties: S16_CURRENT_PAYLOAD.
+ *              [v1.4.0] בדיקות_דם: קורא B-D, N ו-P (שם הבדיקה, קטגוריה, ערך,
+ *              סוג דגימה, יחידה), כותב K-M (Medical_System | LOINC_Code |
+ *              Panel_Code) ו-S (Lab_Status="הוצע") בלבד; A-J ו-N-R לא נכתבים.
+ *              מיפוי_קודים: קורא בלבד — BG-BL (מאפייני מעבדה) ו-BS-BW (פאנלים).
+ *              Script Properties: S15_PENDING_CATALOG (הצעות LOINC חדשות).
+ *              [v1.5.0] אימות מעבדה (s15_labApprove): בדיקות_דם — כותב K-M
+ *              (מערכת, LOINC, פאנל) ו-O-S (ערך מספרי, יחידה, גבול תחתון, גבול
+ *              עליון, S = "מאומת"); A-J ו-N לא נכתבים. K-M נכתבים בעיצוב טקסט
+ *              (גם בהעשרה, _s15_labHandler). מיפוי_קודים — שורה חדשה בבלוק
+ *              BG-BL בעיצוב טקסט (קוד חדש) או עדכון Raw_Value (BJ) בקוד קיים;
+ *              קורא BS-BW (פאנלים). Script Properties: S16_CURRENT_PAYLOAD
+ *              ומחיקת הצעה מ-S15_PENDING_CATALOG. LockService באישור.
  * @callers     runS15EnrichIcon (ViewEngine.gs, אייקון "[ S15 העשרה ]")
  *              runS15ValidateIcon (ViewEngine.gs, אייקון "[ S16 אימות ]") →
  *              s15_showValidation; S16_Sidebar.html → s15_loadRowByNumber,
@@ -62,6 +85,11 @@
  *              [v1.3.0] runS15ValidateIcon גם מאייקון בגליון הנחיות_רפואיות_ומשימות
  *              (B2, הוצב ידנית) → s15_showValidation; S16_Sidebar.html →
  *              s15_instrLoadRowByNumber, s15_instrApprove
+ *              [v1.4.0] runS15EnrichIcon גם מאייקון בגליון בדיקות_דם (A2, הוצב
+ *              ידנית)
+ *              [v1.5.0] runS15ValidateIcon גם מאייקון בגליון בדיקות_דם (B2, הוצב
+ *              ידנית) → s15_showValidation; S16_Sidebar.html →
+ *              s15_labLoadRowByNumber, s15_labApprove
  * @functions   runS15Enrich | _s15_getDomain | _s15_readCatalog | _s15_normalizeName |
  *              _s15_findInCatalog | _s15_collectPendingRows | _s15_buildPrompt |
  *              _s15_callGemini | _s15_cleanCode | _s15_cleanNumber |
@@ -72,7 +100,40 @@
  *              _s15_instrHandler | _s15_instrBuildPrompt | _s15_instrBuildRow |
  *              _s15_instrShowValidation | _s15_instrReadOptions |
  *              _s15_instrBuildValidationPayload | s15_instrLoadRowByNumber |
- *              _s15_parseDueDate | s15_instrApprove
+ *              _s15_parseDueDate | s15_instrApprove | _s15_labHandler |
+ *              _s15_labBuildPrompt | _s15_labBuildRow |
+ *              _s15_labCodeText | _s15_labShowValidation |
+ *              _s15_labBuildValidationPayload | s15_labLoadRowByNumber |
+ *              _s15_labParseNumber | _s15_labReadOptions | _s15_labWriteCatalog |
+ *              s15_labApprove
+ * @changes     [v1.5.0] Task #263 שלב 5 — אימות מעבדה בחלון S16 הקיים (תוספת
+ *              בלבד; מסלולי התרופות וההנחיות ללא שינוי). ענף ב-s15_showValidation
+ *              לגליון בדיקות_דם; בסוף הקובץ: S15_LAB_SHEET, S15_LAB_COLS (A-S)
+ *              ושבע פונקציות. אישור תחת נעילה, עם בדיקת תבנית LOINC, קוד מערכת
+ *              SYSnn, פאנל מהרשימה (חובה), מספרים או ריק וגבול תחתון ≤ עליון.
+ *              קוד קיים בקטלוג — נתוני הקטלוג גוברים ושם הבדיקה נוסף ל-Raw_Value
+ *              (עם אזהרה בהודעה); קוד חדש — שורה חדשה ב-BG-BL וההצעה הממתינה
+ *              נמחקת; קוד ריק מותר. התראת קוד כפול — בחלון בלבד (S16_Sidebar).
+ *              תיקון בבדיקה: גוגל שיטס פירש קוד LOINC כמו 3016-3 כתאריך (הבאג
+ *              היה גם בהעשרה, שלב 4) — setNumberFormat("@") לפני כתיבה
+ *              ב-s15_labApprove (K-M), ב-_s15_labWriteCatalog (שורה חדשה BG-BL)
+ *              וב-_s15_labHandler (K-M); _s15_labCodeText (חדשה) משחזרת קוד מתא
+ *              שכבר נשמר כתאריך, בשימוש ב-_s15_labBuildValidationPayload.
+ *              אומת מול הקוד החי (diff מדויק, node --check) ובבדיקת שטח: ניווט
+ *              שורות 5↔6; ערך לא מספרי וגבולות הפוכים נדחו; פאנל ריק נחסם (שורה
+ *              7 ללא שינוי); שורה 6 (HB, 718-7) ושורה 5 (TSH, תוקן ל-3016-3)
+ *              אושרו ונכתבו לקטלוג, L5 נשמר כטקסט; נסיגה — חלונות התרופות
+ *              וההנחיות ללא שינוי (שורות 5-6, תאריך היעד מוצג).
+ * @changes     [v1.4.0] Task #263 שלב 4 — הרחבת המנוע לתחום המעבדה (תוספת
+ *              בלבד). רשומה חדשה ב-S15_DOMAINS (בדיקות_דם, handler "lab");
+ *              ב-runS15Enrich — buildRow יכול להחזיר {values, isNew}, ו-handler
+ *              עם writeRow כותב בעצמו (K-M ו-S, לא רצף); _s15_getHandler מחזיר
+ *              את מטפל המעבדה. בסוף הקובץ: S15_LAB_PANEL_FIRST_COL /
+ *              S15_LAB_PANEL_WIDTH / S15_LAB_DEFAULT_PANEL ושלוש פונקציות.
+ *              אומת מול הקוד החי (diff מדויק, node --check), בהרצה מדומה
+ *              ובבדיקת שטח: 23 שורות הועשרו (שורות 5-27, K-M ו-S בלבד, N-R
+ *              ללא שינוי), 23 הצעות LOINC חדשות, קטלוג מיפוי_קודים ללא
+ *              שינוי; נסיגה בתרופות ובהנחיות — "אין שורות ממתינות".
  * @changes     [v1.3.0] Task #261 שלב 4 — אימות הנחיות בחלון S16 הקיים (חלופה א,
  *              תוספת בלבד). ענף בתחילת s15_showValidation לגליון ההנחיות; בסוף
  *              הקובץ: S15_INSTR_SHEET, S15_INSTR_STATUSES, S15_INSTR_COLS ושש
@@ -154,6 +215,20 @@ const S15_DOMAINS = {
     catalogWidth:     5,   // BX-CB: Code | Normalized_Value | Description | Raw_Value | Icon_Link
     codePattern:      /^INS\d{2}$/,
     handler:          "instructions"
+   },
+  // [Task #263 שלב 4] תחום מעבדה ומדדים — מטפל ייעודי, קטלוג פתוח (כמו
+  // התרופות): מאפיין חדש מקבל הצעת LOINC שנשמרת עד האימות. כותב K-M ו-S
+  // בלבד (N-R נכתבו ע"י S13 ולא נוגעים בהם).
+  "בדיקות_דם": {
+    label:            "מעבדה ומדדים",
+    nameCol:          2,   // B = Test_Name
+    contextCols:      { category: 3, value: 4, specimen: 14, unit: 16 }, // C, D, N, P
+    firstTargetCol:   11,  // K = Medical_System (K-M: Medical_System | LOINC_Code | Panel_Code)
+    statusCol:        19,  // S = Enrich_Status
+    catalogFirstCol:  59,  // BG = LOINC_Code בבלוק מאפייני_מעבדה במיפוי_קודים
+    catalogWidth:     6,   // BG-BL: Code | Normalized_Value | Description | Raw_Value | Icon_Link | Medical_System
+    codePattern:      /^\d{1,7}-\d$/, // קוד LOINC (למשל 718-7)
+    handler:          "lab"
   }
 };
 
@@ -223,20 +298,28 @@ function runS15Enrich() {
         return;
       }
 
-      // [Task #261] נקודת הסתעפות 2 — המטפל מחזיר את ערכי השורה (רשימה סגורה,
+            // [Task #261] נקודת הסתעפות 2 — המטפל מחזיר את ערכי השורה (רשימה סגורה,
       // בלי הצעות קטלוג). null = התשובה לשורה לא תקינה, השורה נשארת ממתינה.
+      // [Task #263] המטפל מקבל גם את רשימת ההצעות (קטלוג פתוח), יכול להחזיר
+      // {values, isNew} במקום מערך, ויכול לכתוב את השורה בעצמו (writeRow) —
+      // למשל כתיבה לשני טווחים לא רציפים. מטפל ההנחיות — ללא שינוי בהתנהגות.
       if (handler) {
-        const handlerValues = handler.buildRow(item, result);
+        const handlerOut    = handler.buildRow(item, result, suggestions);
+        const handlerValues = Array.isArray(handlerOut) ? handlerOut : (handlerOut && handlerOut.values);
         if (!handlerValues) {
           failed++;
           return;
         }
-        sheet.getRange(item.row, domain.firstTargetCol, 1, handlerValues.length).setValues([handlerValues]);
-        if (handlerValues[0]) fromCatalog++;
+        if (handler.writeRow) {
+          handler.writeRow(sheet, item, handlerValues);
+        } else {
+          sheet.getRange(item.row, domain.firstTargetCol, 1, handlerValues.length).setValues([handlerValues]);
+        }
+        if (handlerOut.isNew) newSuggested++;
+        else if (handlerValues[0]) fromCatalog++;
         written++;
         return;
       }
-
       let code = _s15_cleanCode(result.atcCode, domain.codePattern);
       if (item.catalogMatch) {
         code = item.catalogMatch.code; // הקטלוג המאומת גובר על הצעת Gemini
@@ -604,9 +687,14 @@ function s15_showValidation() {
   const ui    = SpreadsheetApp.getUi();
 
   // [Task #261 שלב 4] גליון ההנחיות — חלון האימות במצב "instruction".
+  // [Task #263 שלב 5] גליון בדיקות_דם — חלון האימות במצב "lab".
   // כל גליון אחר — המסלול הקיים של התרופות, ללא שינוי.
   if (sheet.getName() === S15_INSTR_SHEET) {
     _s15_instrShowValidation(ss, sheet, ui);
+    return;
+  }
+  if (sheet.getName() === S15_LAB_SHEET) {
+    _s15_labShowValidation(ss, sheet, ui);
     return;
   }
 
@@ -903,9 +991,9 @@ const S15_SPECIALTY_WIDTH      = 5;  // J-N: Code | Normalized_Value | Descripti
 
 function _s15_getHandler(domain) {
   if (domain && domain.handler === "instructions") return _s15_instrHandler();
+  if (domain && domain.handler === "lab")          return _s15_labHandler(); // [Task #263]
   return null;
 }
-
 // ══════════════════════════════════════════════════════════════════
 // מטפל ההנחיות — מחזיק את הרשימות הסגורות שנקראו לבניית הפרומפט,
 // כדי שהפענוח יבדוק מולן בדיוק את אותם קודים.
@@ -1238,6 +1326,442 @@ function s15_instrApprove(row, v) {
 
   } catch (e) {
     Logger.log("[S15] s15_instrApprove שגיאה: " + e.message);
+    return { success: false, msg: "❌ שגיאה: " + e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task #263 שלב 4] מטפל מעבדה ומדדים — קטלוג פתוח של מאפיינים (LOINC,
+// בלוק BG-BL), פאנל מרשימה סגורה (בלוק BS-BW), מערכת גוף לפי האיבר הנבדק.
+// מאפיין שנמצא בקטלוג המאומת — הקוד והמערכת מהקטלוג. מאפיין חדש — הצעת
+// LOINC נשמרת ב-S15_PENDING_CATALOG עד האימות (מיפוי_קודים לא נכתב כאן).
+// ══════════════════════════════════════════════════════════════════
+
+const S15_LAB_PANEL_FIRST_COL = 71;        // BS = Panel_Code בבלוק פאנלים במיפוי_קודים
+const S15_LAB_PANEL_WIDTH     = 5;         // BS-BW: Code | Normalized_Value | Description | Raw_Value | Icon_Link
+const S15_LAB_DEFAULT_PANEL   = "PNL-L00";
+
+// ══════════════════════════════════════════════════════════════════
+// עזר — קוד LOINC מתא: תא שגוגל שיטס פירש כתאריך (למשל 3016-3 → מרץ 3016)
+// משוחזר לפורמט "שנה-חודש"; אחרת — המחרוזת כמו שהיא.
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_labCodeText(value, timeZone) {
+  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, timeZone || Session.getScriptTimeZone(), "yyyy-M");
+  }
+  return String(value === null || value === undefined ? "" : value).trim();
+}
+
+function _s15_labHandler() {
+  const state = { panels: {}, systems: {} };
+  return {
+    buildPrompt: function(ss, domain, pending, catalog) {
+      return _s15_labBuildPrompt(ss, domain, pending, catalog, state);
+    },
+    buildRow: function(item, result, suggestions) {
+      return _s15_labBuildRow(item, result, state, suggestions);
+    },
+    writeRow: function(sheet, item, values) {
+      // K-M (מערכת, LOINC, פאנל) ו-S (סטטוס) — שני טווחים, N-R לא נוגעים.
+      // K-M בעיצוב טקסט — קוד כמו 3016-3 לא יפורש כתאריך
+      const target = sheet.getRange(item.row, 11, 1, 3);
+      target.setNumberFormat("@");
+      target.setValues([values.slice(0, 3)]);
+      sheet.getRange(item.row, 19).setValue(values[3]);
+    }
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פרומפט המעבדה — מאפיין בקטלוג המאומת מסומן "ידוע" (אין לשנות);
+// פאנל ומערכת גוף רק מהרשימות. קריאה בלבד מהקטלוג.
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_labBuildPrompt(ss, domain, pending, catalog, state) {
+  const panels = _s15_readCatalog(ss, { catalogFirstCol: S15_LAB_PANEL_FIRST_COL, catalogWidth: S15_LAB_PANEL_WIDTH });
+
+  let panelList = "";
+  panels.forEach(function(entry) {
+    state.panels[entry.code] = true;
+    panelList += "\n  " + entry.code + " = " + entry.name + " — " + entry.desc;
+  });
+
+  let systemsList = "";
+  if (typeof S13_BODY_SYSTEMS !== "undefined") {
+    Object.keys(S13_BODY_SYSTEMS).forEach(function(code) {
+      state.systems[code] = true;
+      systemsList += (systemsList ? ", " : "") + code + "=" + S13_BODY_SYSTEMS[code].nameHe;
+    });
+  }
+
+  let rowsBlock = "";
+  pending.forEach(function(item, idx) {
+    item.catalogMatch = _s15_findInCatalog(catalog, item.name);
+    rowsBlock += "\n--- שורה " + (idx + 1) + " (rowIndex=" + idx + ") ---\n";
+    rowsBlock += "שם המאפיין: " + item.name + "\n";
+    rowsBlock += "קבוצה במסמך: " + (item.ctx.category || "—") + "\n";
+    rowsBlock += "ערך ויחידה: " + (item.ctx.value || "—") + (item.ctx.unit ? " (" + item.ctx.unit + ")" : "") + "\n";
+    rowsBlock += "סוג דגימה: " + (item.ctx.specimen || "—") + "\n";
+    if (item.catalogMatch) {
+      rowsBlock += "מאפיין ידוע מהקטלוג המאומת: " + item.catalogMatch.code + " = " + item.catalogMatch.name + " (אין לשנות)\n";
+    }
+  });
+
+  return "אתה מומחה למעבדה קלינית ולקידוד LOINC. קיבלת " + pending.length + " תוצאות בדיקה " +
+    "(מעבדה ומדדים חיוניים) שחולצו ממסמכים רפואיים בישראל. לכל שורה:\n" +
+    "1. loincCode — קוד LOINC של המאפיין שנמדד (למשל 718-7 להמוגלובין בדם, 8480-6 ללחץ דם סיסטולי). " +
+    "בחר את הקוד הנפוץ למאפיין ולסוג הדגימה. אם אינך בטוח — מחרוזת ריקה, אל תנחש.\n" +
+    "2. componentName — שם המאפיין באנגלית, קצר ומקובל (למשל Hemoglobin, Creatinine).\n" +
+    "3. descriptionHe — תיאור קצר בעברית של מה שהמאפיין בודק.\n" +
+    "4. medicalSystem — קוד מערכת הגוף שהמאפיין מעיד עליה (לפי האיבר הנבדק, לא לפי סוג הדגימה; " +
+    "למשל TSH → מערכת אנדוקרינית, קריאטינין → מערכת השתן, אנזימי כבד → מערכת העיכול), מתוך הרשימה " +
+    "בלבד: " + (systemsList || "SYS00-SYS14") + ". אם לא ברור — SYS00.\n" +
+    "5. panelCode — הפאנל שאליו המאפיין שייך, מתוך הרשימה הסגורה הבאה בלבד:" + panelList + "\n" +
+    "אסור להמציא פאנל שאינו ברשימה. אם אין התאמה ברורה — " + S15_LAB_DEFAULT_PANEL + ".\n" +
+    "לשורה שמסומנת \"מאפיין ידוע מהקטלוג\" — החזר את אותו loincCode, וקבע רק את panelCode.\n" +
+    rowsBlock +
+    "\nהחזר JSON בלבד, ללא טקסט נוסף, בפורמט: " +
+    '{"results":[{"rowIndex":0,"loincCode":"","componentName":"","descriptionHe":"","medicalSystem":"","panelCode":""},...]}' +
+    " — מערך אחד עם " + pending.length + " איברים, לפי סדר השורות לעיל.";
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פענוח תשובה לשורת מעבדה — מחזיר {values:[K, L, M, S], isNew} או null.
+// קטלוג מאומת גובר על Gemini. קוד חדש תקין → הצעה (suggestions) לפי
+// מבנה התרופות: {name, desc, raw:[...], system}. פאנל מחוץ לרשימה → PNL-L00.
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_labBuildRow(item, result, state, suggestions) {
+  if (!state.panels[S15_LAB_DEFAULT_PANEL]) {
+    Logger.log("[S15] בלוק הפאנלים ריק או חסר " + S15_LAB_DEFAULT_PANEL + " — שורה " + item.row + " לא נכתבה");
+    return null;
+  }
+
+  let panel = String(result.panelCode || "").toUpperCase().replace(/\s/g, "");
+  if (!state.panels[panel]) {
+    Logger.log("[S15] שורה " + item.row + " — פאנל מחוץ לרשימה (" + result.panelCode + ") → " + S15_LAB_DEFAULT_PANEL);
+    panel = S15_LAB_DEFAULT_PANEL;
+  }
+
+  let system = _s15_cleanCode(result.medicalSystem, /^SYS\d{2}$/);
+  if (system && !state.systems[system] && Object.keys(state.systems).length) system = "";
+
+  let code  = "";
+  let isNew = false;
+  if (item.catalogMatch) {
+    code   = item.catalogMatch.code;              // הקטלוג המאומת גובר על הצעת Gemini
+    system = item.catalogMatch.system || system;
+  } else {
+    code = _s15_cleanCode(result.loincCode, /^\d{1,7}-\d$/);
+    if (code) {
+      const prev = suggestions[code];
+      suggestions[code] = {
+        name:   String(result.componentName || (prev && prev.name) || "").trim(),
+        desc:   String(result.descriptionHe || (prev && prev.desc) || "").trim(),
+        raw:    prev ? (prev.raw.indexOf(item.name) === -1 ? prev.raw.concat([item.name]) : prev.raw) : [item.name],
+        system: system || (prev && prev.system) || ""
+      };
+      isNew = true;
+    } else {
+      Logger.log("[S15] שורה " + item.row + " (" + item.name + ") — Gemini לא החזיר קוד LOINC תקין: " + result.loincCode);
+    }
+  }
+
+  return { values: [system, code, panel, S15_STATUS_SUGGESTED], isNew: isNew };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task #263 שלב 5] אימות מעבדה ומדדים — חלון S16 במצב "lab".
+// אותה תבנית כמו אימות התרופות וההנחיות: S15 שומר את נתוני השורה תחת
+// S16_PROP_KEY ופותח את S16_Sidebar.html; החלון מזהה payload.mode="lab".
+// ניווט ואישור: s15_labLoadRowByNumber / s15_labApprove.
+// קטלוג פתוח (BG-BL): קוד מאומת — נתוני הקטלוג גוברים; קוד חדש — נכתב
+// לקטלוג באישור וההצעה הממתינה נמחקת. מסלולי התרופות וההנחיות לא משתנים.
+// ══════════════════════════════════════════════════════════════════
+
+const S15_LAB_SHEET = "בדיקות_דם";
+
+// מספרי עמודות בגליון בדיקות_דם (1 = A)
+const S15_LAB_COLS = {
+  date: 1, name: 2, category: 3, value: 4, range: 5, status: 6, note: 7,
+  sourceUrl: 8, fileId: 9, issuer: 10, system: 11, code: 12, panel: 13,
+  specimen: 14, valueNum: 15, unit: 16, refLow: 17, refHigh: 18, enrich: 19
+};
+
+// ══════════════════════════════════════════════════════════════════
+// פתיחת חלון האימות לגליון המעבדה (נקרא מ-s15_showValidation)
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_labShowValidation(ss, sheet, ui) {
+  if (typeof S16_PROP_KEY === "undefined") {
+    ui.alert("❌ שירות S16 לא נמצא (S16_ValidateMedicalStatus.gs) — חלון האימות אינו זמין.");
+    return;
+  }
+
+  const row          = sheet.getActiveCell().getRow();
+  const firstDataRow = (SHEET_CONFIG[S15_LAB_SHEET] && SHEET_CONFIG[S15_LAB_SHEET].FIRST_DATA_ROW) || 5;
+  if (row < firstDataRow) {
+    ui.alert("⚠️ נא לעמוד על שורת נתונים (לא על הכותרת).");
+    return;
+  }
+
+  const payload = _s15_labBuildValidationPayload(ss, sheet, row);
+  if (!payload) {
+    ui.alert("❌ לא ניתן לטעון נתוני שורה " + row);
+    return;
+  }
+
+  PropertiesService.getScriptProperties().setProperty(S16_PROP_KEY, JSON.stringify(payload));
+
+  const html = HtmlService
+    .createTemplateFromFile("S16_Sidebar")
+    .evaluate()
+    .setWidth(1100)
+    .setHeight(750)
+    .setTitle("S15 — אימות מעבדה ומדדים");
+
+  ui.showModalDialog(html, "🧪 S15 — " + S15_LAB_SHEET + " | שורה " + row);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// בניית נתוני שורת מעבדה לחלון — מהשורה, מהקטלוג המאומת (BG-BL), מההצעות
+// השמורות; רשימות הבחירה מ-_s15_labReadOptions.
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_labBuildValidationPayload(ss, sheet, row) {
+  const C            = S15_LAB_COLS;
+  const firstDataRow = (SHEET_CONFIG[S15_LAB_SHEET] && SHEET_CONFIG[S15_LAB_SHEET].FIRST_DATA_ROW) || 5;
+  const lastRow      = sheet.getLastRow();
+  if (row < firstDataRow || row > lastRow) return null;
+
+  const width = Math.min(C.enrich, sheet.getMaxColumns());
+  const vals  = sheet.getRange(row, 1, 1, width).getValues()[0];
+  function get(col) { return col <= width ? vals[col - 1] : ""; }
+  function str(v)   { return String(v === null || v === undefined ? "" : v).trim(); }
+
+  const testName = str(get(C.name));
+  if (!testName) return null;
+
+  const catalog = _s15_readCatalog(ss, _s15_getDomain(S15_LAB_SHEET));
+  const code    = _s15_labCodeText(get(C.code), ss.getSpreadsheetTimeZone()).toUpperCase();
+
+  let verified = code ? catalog.filter(function(e) { return e.code === code; })[0] : null;
+  if (!verified && !code) verified = _s15_findInCatalog(catalog, testName);
+
+  const pending = _s15_getPendingCatalog()[S15_LAB_SHEET] || {};
+  const sugg    = (!verified && code) ? pending[code] : null;
+
+  let catalogSource = "none";
+  let catalogInfo   = { name: "", desc: "", raw: testName, system: str(get(C.system)) };
+  if (verified) {
+    catalogSource = "verified";
+    catalogInfo   = { name: verified.name, desc: verified.desc, raw: verified.raw.join(", "), system: verified.system };
+  } else if (sugg) {
+    catalogSource = "suggested";
+    catalogInfo   = { name: sugg.name || "", desc: sugg.desc || "", raw: (sugg.raw || []).join(", "), system: sugg.system || str(get(C.system)) };
+  }
+
+  const options = _s15_labReadOptions(ss, catalog, pending);
+
+  return {
+    mode:              "lab",
+    sheetName:         S15_LAB_SHEET,
+    row:               row,
+    firstDataRow:      firstDataRow,
+    lastRow:           lastRow,
+    enrichStatus:      str(get(C.enrich)),
+    testName:          testName,
+    category:          str(get(C.category)),
+    testDate:          _s15_formatDate(get(C.date)),
+    valueText:         str(get(C.value)),
+    normalRange:       str(get(C.range)),
+    labStatus:         str(get(C.status)),
+    doctorNote:        str(get(C.note)),
+    sourceUrl:         str(get(C.sourceUrl)),
+    docIssuer:         str(get(C.issuer)),
+    specimen:          str(get(C.specimen)),
+    code:              verified ? verified.code : code,
+    catalogSource:     catalogSource,
+    catalog:           catalogInfo,
+    panel:             str(get(C.panel)).toUpperCase(),
+    valueNum:          str(get(C.valueNum)),
+    unit:              str(get(C.unit)),
+    refLow:            str(get(C.refLow)),
+    refHigh:           str(get(C.refHigh)),
+    knownCodes:        options.knownCodes,
+    panelOptions:      options.panelOptions,
+    bodySystemOptions: options.bodySystemOptions
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ניווט הקודם/הבא בחלון במצב מעבדה — מחזיר payload חדש ושומר אותו
+// ══════════════════════════════════════════════════════════════════
+
+function s15_labLoadRowByNumber(row) {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(S15_LAB_SHEET);
+    if (!sheet) return { error: true, msg: "❌ גליון לא נמצא: " + S15_LAB_SHEET };
+
+    const payload = _s15_labBuildValidationPayload(ss, sheet, row);
+    if (!payload) return { error: true, msg: "❌ לא ניתן לטעון שורה " + row };
+
+    if (typeof S16_PROP_KEY !== "undefined") {
+      PropertiesService.getScriptProperties().setProperty(S16_PROP_KEY, JSON.stringify(payload));
+    }
+    return payload;
+  } catch (e) {
+    Logger.log("[S15] s15_labLoadRowByNumber שגיאה: " + e.message);
+    return { error: true, msg: "❌ שגיאה: " + e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// עזר — מספר מהחלון: ריק → ""; מספר (כולל שלילי ועשרוני) → Number;
+// לא תקין → null. פסיק עשרוני מתקבל כנקודה.
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_labParseNumber(text) {
+  const t = String(text === null || text === undefined ? "" : text).trim().replace(",", ".");
+  if (!t) return "";
+  if (!/^-?\d+(\.\d+)?$/.test(t)) return null;
+  return Number(t);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// רשימות הבחירה בחלון המעבדה — פאנלים (BS-BW), מערכות גוף, ו-knownCodes:
+// כל הקודים המוכרים (מאומתים וממתינים) עם השמות המשויכים להם, להתראת
+// קוד כפול בחלון (לא חוסמת). קריאה בלבד ממיפוי_קודים.
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_labReadOptions(ss, catalog, pending) {
+  const knownCodes = {};
+  Object.keys(pending).forEach(function(k) {
+    knownCodes[k] = { name: pending[k].name || "", raw: pending[k].raw || [], source: "suggested" };
+  });
+  catalog.forEach(function(e) { knownCodes[e.code] = { name: e.name, raw: e.raw, source: "verified" }; });
+
+  const panelOptions = _s15_readCatalog(ss, { catalogFirstCol: S15_LAB_PANEL_FIRST_COL, catalogWidth: S15_LAB_PANEL_WIDTH })
+    .map(function(e) { return { code: e.code, name: e.name }; });
+
+  const bodySystemOptions = [];
+  if (typeof S13_BODY_SYSTEMS !== "undefined") {
+    Object.keys(S13_BODY_SYSTEMS).forEach(function(k) {
+      bodySystemOptions.push({ code: k, nameHe: S13_BODY_SYSTEMS[k].nameHe });
+    });
+  }
+
+  return { knownCodes: knownCodes, panelOptions: panelOptions, bodySystemOptions: bodySystemOptions };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// עזר לאישור — כתיבה לקטלוג המעבדה (BG-BL) ומחיקת ההצעה הממתינה.
+// קוד קיים — נתוני הקטלוג גוברים ורק שם הבדיקה נוסף ל-Raw_Value; קוד חדש —
+// שורה חדשה בבלוק. מחזיר { system, msg }.
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_labWriteCatalog(ss, domain, code, testName, system, v) {
+  let msg = "";
+  const catalog  = _s15_readCatalog(ss, domain);
+  const entry    = catalog.filter(function(e) { return e.code === code; })[0];
+  const mapSheet = ss.getSheetByName(CODE_MAP_SHEET_NAME);
+
+  if (entry) {
+    // קוד מאומת קיים — נתוני הקטלוג גוברים; מוסיפים רק את שם הבדיקה אם חסר
+    system = entry.system || system;
+    const known = entry.raw.some(function(n) { return _s15_normalizeName(n) === _s15_normalizeName(testName); });
+    if (!known) {
+      mapSheet.getRange(entry.row, domain.catalogFirstCol + 3).setValue(entry.raw.concat([testName]).join(", "));
+      msg = " — ⚠️ השם \"" + testName + "\" נוסף לקוד " + code + " (" + entry.name + ")";
+    }
+  } else {
+    const raw = String(v.rawNames || "").split(",").map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+    if (!raw.some(function(n) { return _s15_normalizeName(n) === _s15_normalizeName(testName); })) raw.push(testName);
+    const newRow = _s15_lastCatalogRow(ss, domain) + 1;
+    // שורה חדשה בעיצוב טקסט — קוד כמו 3016-3 לא יפורש כתאריך
+    const newRange = mapSheet.getRange(newRow, domain.catalogFirstCol, 1, domain.catalogWidth);
+    newRange.setNumberFormat("@");
+    newRange.setValues([[
+      code, String(v.componentName || "").trim(), String(v.description || "").trim(), raw.join(", "), "", system
+    ]]);
+    msg = " — קוד חדש " + code + " נוסף לקטלוג (שורה " + newRow + ")";
+  }
+
+  const all = _s15_getPendingCatalog();
+  if (all[S15_LAB_SHEET] && all[S15_LAB_SHEET][code]) {
+    delete all[S15_LAB_SHEET][code];
+    PropertiesService.getScriptProperties().setProperty(S15_PROP_PENDING_CATALOG, JSON.stringify(all));
+  }
+
+  return { system: system, msg: msg };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// אישור שורת מעבדה — כותב K-M (מערכת, LOINC, פאנל) ו-O-S (ערך מספרי,
+// יחידה, גבול תחתון, גבול עליון, "מאומת"). A-J ו-N לא נכתבים.
+// מיפוי_קודים: קוד חדש — שורה חדשה בבלוק BG-BL; קוד קיים — נתוני הקטלוג
+// גוברים ורק שם הבדיקה נוסף ל-Raw_Value. קוד ריק מותר — הקטלוג לא משתנה.
+// v = { code, componentName, description, rawNames, medicalSystem, panel,
+//       valueNum, unit, refLow, refHigh }
+// ══════════════════════════════════════════════════════════════════
+
+function s15_labApprove(row, v) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return { success: false, msg: "⏳ פעולה אחרת רצה כרגע — נסה שוב" };
+
+  try {
+    const C      = S15_LAB_COLS;
+    const ss     = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet  = ss.getSheetByName(S15_LAB_SHEET);
+    const domain = _s15_getDomain(S15_LAB_SHEET);
+    if (!sheet) return { success: false, msg: "❌ גליון לא נמצא: " + S15_LAB_SHEET };
+    if (sheet.getMaxColumns() < C.enrich) return { success: false, msg: "❌ חסרות עמודות ההעשרה (K-S) בגליון" };
+
+    const testName = String(sheet.getRange(row, C.name).getValue() || "").trim();
+    if (!testName) return { success: false, msg: "❌ שורה " + row + " ריקה" };
+
+    const code = String(v.code || "").toUpperCase().replace(/\s/g, "");
+    if (code && !domain.codePattern.test(code)) {
+      return { success: false, msg: "❌ קוד LOINC לא תקין: " + code + " (למשל 718-7)" };
+    }
+    let system = String(v.medicalSystem || "").trim();
+    if (system && !/^SYS\d{2}$/.test(system)) return { success: false, msg: "❌ קוד מערכת גוף לא תקין: " + system };
+
+    const panel  = String(v.panel || "").toUpperCase().replace(/\s/g, "");
+    const panels = _s15_readCatalog(ss, { catalogFirstCol: S15_LAB_PANEL_FIRST_COL, catalogWidth: S15_LAB_PANEL_WIDTH });
+    if (!panels.some(function(p) { return p.code === panel; })) return { success: false, msg: "❌ יש לבחור פאנל מהרשימה" };
+
+    const valueNum = _s15_labParseNumber(v.valueNum);
+    const refLow   = _s15_labParseNumber(v.refLow);
+    const refHigh  = _s15_labParseNumber(v.refHigh);
+    if (valueNum === null) return { success: false, msg: "❌ \"ערך מספרי\" חייב להיות מספר או ריק" };
+    if (refLow === null)   return { success: false, msg: "❌ \"גבול תחתון\" חייב להיות מספר או ריק" };
+    if (refHigh === null)  return { success: false, msg: "❌ \"גבול עליון\" חייב להיות מספר או ריק" };
+    if (refLow !== "" && refHigh !== "" && refLow > refHigh) {
+      return { success: false, msg: "❌ הגבול התחתון גדול מהגבול העליון" };
+    }
+
+    // ── קטלוג ──
+    const cat = code ? _s15_labWriteCatalog(ss, domain, code, testName, system, v) : { system: system, msg: "" };
+    system = cat.system;
+
+    // ── שורת הבדיקה ── (K-M בעיצוב טקסט: קוד כמו 3016-3 לא יפורש כתאריך)
+    const target = sheet.getRange(row, C.system, 1, 3);
+    target.setNumberFormat("@");
+    target.setValues([[system, code, panel]]);
+    sheet.getRange(row, C.valueNum, 1, 5).setValues([[
+      valueNum, String(v.unit || "").trim(), refLow, refHigh, S15_STATUS_VERIFIED
+    ]]);
+
+    Logger.log("[S15] בדיקה בשורה " + row + " (" + testName + ") אושרה — קוד: " + (code || "ללא") + " | " + panel + cat.msg);
+    return { success: true, msg: "✅ שורה " + row + " אושרה" + cat.msg };
+
+  } catch (e) {
+    Logger.log("[S15] s15_labApprove שגיאה: " + e.message);
     return { success: false, msg: "❌ שגיאה: " + e.message };
   } finally {
     lock.releaseLock();
