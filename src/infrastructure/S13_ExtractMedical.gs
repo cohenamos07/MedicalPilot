@@ -1,6 +1,6 @@
 /**
  * @file        S13_ExtractMedical.gs
- * @version     1.8.0 | @updated 29/10/2026 19:49 | @service S13
+ * @version     1.10.0 | @updated 01/11/2026 19:10 | @service S13
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S13_ExtractMedical.gs
  * @description שירות חילוץ עמוק — קורא שורות מאומתות (Validation_Status="מאומת",
  *              Extraction_Status ריק) מיומן_אירועים_רפואי, מקבץ לפי File_ID
@@ -24,6 +24,12 @@
  *              [v1.8.0] בדיקת דם (מעבדה ומדדים) — Gemini מחזיר רשימת תוצאות, ונכתבת
  *              שורה לכל תוצאה (ערך מספרי, יחידה, טווח, סוג דגימה); מערכת הגוף כבר
  *              לא SYS06 קבוע — נשארת ריקה להעשרה ב-S15.
+ *              [v1.9.0] בניסיון החוזר (תשובה חלקית/ריקה) נשלח קודם המסמך המקורי
+ *              (PDF/תמונה, עד 15MB) כקובץ מצורף; טקסט ה-TXT רק אם המקור לא זמין.
+ *              [v1.10.0] בדיקה גנטית — Gemini מחזיר רשימת תכונות, ונכתבת שורה לכל
+ *              תכונה (פאנל, ממצא, משמעות, נטייה, המלצה, גן/וריאנט/גנוטיפ/ACMG אם
+ *              מופיעים); מערכת הגוף כבר לא SYS14 קבוע — נשארת ריקה להעשרה ב-S15.
+ *              בבדיקה גנטית ובבדיקת דם המסמך המקורי מצורף כבר בקריאה הראשונה.
  * @impacts     יומן_אירועים_רפואי: קורא בלבד (A-L, [v1.3.1] עודכן מ-A-I, Task
  *              #205 — File_ID עבר לעמודה L), כותב Extraction_Status (I).
  *              בדיקות_דם/בדיקות_גנטיות/תרופות_קבועות/הנחיות_רפואיות_ומשימות/
@@ -44,12 +50,52 @@
  *              [v1.8.0] בדיקות_דם: 19 עמודות (A-S) — שורה לכל תוצאה, בכתיבה מרוכזת
  *              (setValues). Medical_System (K), LOINC_Code (L), Panel_Code (M) ו-
  *              Enrich_Status (S) נכתבים ריקים — S15 ימלא מהקטלוג.
+ *              [v1.9.0] Drive: קריאת המסמך המקורי לפי File_ID — קריאה בלבד, רק
+ *              בניסיון החוזר.
+ *              [v1.10.0] בדיקות_גנטיות: 17 עמודות (A-Q) — שורה לכל תכונה, בכתיבה
+ *              מרוכזת (setValues). Medical_System (I), Trait_Code (J), Panel_Code (K)
+ *              ו-Enrich_Status (Q) נכתבים ריקים — S15 ימלא מהקטלוג. Drive: המסמך
+ *              המקורי נקרא כבר בקריאה הראשונה כשבמסמך יש בדיקה גנטית או בדיקת דם.
  * @callers     runS13ViewIconEvents (ViewEngine.gs, עמודה F ביומן_אירועים_רפואי)
  * @functions   runS13 | _s13_checkRow | _s13_getEligibleGroups | _s13_processSingleRow |
  *              _s13_processBatch | _s13_getSchemaBlock | _s13_fetchTxtUrlByFileId |
  *              _s13_fetchTxtContent | _s13_buildPrompt | _s13_normalizeDate |
  *              _s13_callGemini | _s13_buildRowValues | _s13_writeExtractedRow |
- *              _s13_processGroup | _s13_loadCatalog | _s13_validateCode | _s13_toNumber
+ *              _s13_processGroup | _s13_loadCatalog | _s13_validateCode | _s13_toNumber |
+ *              _s13_fetchOriginalPart | _s13_genTendency
+ * @changes     [v1.10.0] Task #264 (שלב 2) — גנטיקה: פיצול לשורה לכל תכונה, באותו
+ *              דפוס כמו מעבדה (v1.8.0). חדש: S13_GEN_TENDENCIES (אין|נמוכה|בינונית|
+ *              גבוהה), S13_GEN_TENDENCY_SYNONYMS (מוגברת→גבוהה וכו'), S13_GEN_ACMG
+ *              (5 דרגות), _s13_genTendency (נרמול לסולם הסגור, ערך לא מוכר → ריק).
+ *              _s13_getSchemaBlock — סכימת "בדיקה גנטית" היא רשימת Results
+ *              (Panel_Name, Finding, Clinical_Significance, Tendency, Gene_Symbol,
+ *              Variant_ID, Genotype, Gene_Variant, ACMG_Class, Recommendation).
+ *              _s13_buildRowValues — ענף גנטי: 17 ערכים, מערכת/קוד תכונה/פאנל/
+ *              העשרה ריקים, ACMG מחוץ לרשימה → ריק. _s13_writeExtractedRow — ענף
+ *              משותף לבדיקת דם ולבדיקה גנטית: שורה לכל פריט (גנטי — לפי Finding
+ *              או Gene_Symbol), setValues אחד. _s13_buildPrompt — כלל (9): כרטיס
+ *              תכונה = פריט אחד, פאנל = כותרת הקטע ("סיכום ממצאים" אינו פאנל),
+ *              משמעות ונטייה במילות המסמך, המלצה מתוך "סיכום" הכרטיס, גן/ACMG רק
+ *              אם מופיעים; כלל (10): שורת "הנחיה" במסמך גנטי — פריט מאוחד אחד.
+ *              _s13_processGroup — בבדיקה גנטית/בדיקת דם המסמך המקורי מצורף כבר
+ *              בקריאה הראשונה (הסיכום ביומן לא כולל פאנל/המלצה/גן); בניסיון החוזר
+ *              אותו קובץ משמש שוב; שאר הסוגים — ללא שינוי. נבדק בשטח: דוח ממצאים
+ *              גנטיים (אירוע 247) — 22/22 תכונות, נטייה והמלצות נכונות, הנחיה
+ *              מאוחדת אחת; דוח נוטריגנטי (אירוע 249) — 24/24. פאנל ריק או "סיכום
+ *              ממצאים" ב-13 תכונות שבעמודים ללא כותרת קטע בקובץ הסרוק — לשיוך
+ *              ב-S15. אומת מול הקוד החי (טביעת אצבע לכל בלוק, בדיקת תחביר).
+ * @changes     [v1.9.0] Task #268 — בניסיון החוזר של _s13_processGroup (תשובה
+ *              חלקית/ריקה מהקריאה הראשונה) נשלח המסמך המקורי במקום טקסט ה-TXT
+ *              של S06, באותו דפוס כמו S09 v2.2.0. _s13_fetchOriginalPart (חדשה,
+ *              תאומה ל-_s09_fetchOriginalPart) — PDF/JPEG/PNG/WEBP/HEIC/HEIF עד
+ *              15MB כחלק inline_data; אחרת null → TXT כגיבוי, כמו קודם.
+ *              _s13_callGemini — פרמטר שני אופציונלי originalPart, נשלח כחלק
+ *              ראשון (קריאה בלי הפרמטר — ללא שינוי). _s13_buildPrompt ללא שינוי:
+ *              במסלול המקורי מקבלת שורת הנחיה קצרה במקום טקסט ה-TXT. נוספו
+ *              רישומי לוג למקור הניסיון החוזר. נבדק בשטח: תדפיס כללית און-ליין
+ *              (אירוע 251) → בדיקות_דם שורות 6-25, טווחים נכונים ו-5 תוצאות
+ *              "נמוך" (Task #265), אומתו ב-S16. אומת מול הקוד החי (השוואה
+ *              שורה-שורה וטביעת אצבע לכל בלוק, בדיקת תחביר).
  * @changes     [v1.8.0] Task #263 (שלב 3) — מעבדה ומדדים: פיצול לשורה לכל תוצאה.
  *              _s13_getSchemaBlock — סכימת "בדיקת דם" היא רשימת Results (Test_Name,
  *              Category, Value, Value_Num, Unit, Ref_Low, Ref_High, Normal_Range,
@@ -388,8 +434,11 @@ function _s13_getSchemaBlock(routingCategory) {
         '"Ref_Low":"מספר או ריק","Ref_High":"מספר או ריק","Normal_Range":"","Status":"תקין|גבוה|נמוך|לא תקין",' +
         '"Specimen":"דם|שתן|צואה|מדידה|אחר","Doctor_Note":""}]}';
 
+    // [Task #264] גנטיקה — רשימת תכונות (פריט לכל תכונה או גן שנבדקו)
     case "בדיקה גנטית":
-      return '{"Panel_Name":"","Gene_Variant":"","Finding":"","Clinical_Significance":"","Recommendation":""}';
+      return '{"Results":[{"Panel_Name":"","Finding":"","Clinical_Significance":"","Tendency":"אין|נמוכה|בינונית|גבוהה או ריק",' +
+        '"Gene_Symbol":"","Variant_ID":"","Genotype":"","Gene_Variant":"",' +
+        '"ACMG_Class":"פתוגני|כנראה פתוגני|משמעות לא ודאית|כנראה שפיר|שפיר או ריק","Recommendation":""}]}';
 
     case "מרשם תרופה":
       return '{"Drug_Name":"","Active_Ingredient":"","Dosage":"","Frequency":"","Treatment_Reason":"","Start_Date":"DD/MM/YYYY","End_Date":"DD/MM/YYYY","Status":"פעיל|הופסק"}';
@@ -621,6 +670,29 @@ function _s13_buildPrompt(group, fallbackTxt, catalog) {
       "לא תקינה\").\n";
   }
 
+  // [Task #264] שורות בדיקה גנטית — פיצול לפריט נפרד לכל תכונה (אותה תבנית כמו כלל (8))
+  // [Task #264] חידוד אחרי בדיקת שטח: כרטיס תכונה = פריט אחד, פאנל = כותרת הקטע,
+  // המלצה מתוך "סיכום" הכרטיס, ושורת "הנחיה" באותו מסמך — פריט מאוחד אחד.
+  const hasGen = group.rows.some(function(r) { return r.routingCategory === "בדיקה גנטית"; });
+  if (hasGen) {
+    prompt +=
+      "(9) שורה עם Routing_Category \"בדיקה גנטית\": החזר ב-Results פריט נפרד לכל תכונה או גן שנבדקו " +
+      "(למשל \"אומגה 3 - נטייה למחסור\", \"צפיפות העצם\" — כל אחד פריט). כרטיס תכונה אחד במסמך (כותרת אחת " +
+      "עם תוצאה וסיכום) = פריט אחד בדיוק — אל תפצל כרטיס לשני פריטים גם אם משפט התוצאה מנוסח אחרת מהכותרת. " +
+      "Finding = כותרת הכרטיס כפי שמופיעה במסמך. Panel_Name = כותרת הקטע שהכרטיס שייך אליו (למשל " +
+      "\"פעילות גופנית\", \"העדפה לטעמים\", \"אורחות חיים\"); \"סיכום ממצאים\" היא כותרת עמוד ואינה פאנל — " +
+      "בעמוד ללא כותרת קטע, Panel_Name = כותרת הקטע האחרונה שהופיעה לפניו; אם אין כלל — ריק. Clinical_Significance = " +
+      "התוצאה המילולית כפי שמופיעה במסמך, מילה במילה (למשל \"אין נטייה למחסור\"). Tendency = דרגת הנטייה לפי " +
+      "מילת הדרגה במסמך (גם התווית שמתחת לסרגל הדרגה), אחת מ: אין|נמוכה|בינונית|גבוהה (\"מוגברת\" → גבוהה); אם אין דרגה — ריק. Gene_Symbol = " +
+      "סימול הגן לפי HGNC (למשל MTHFR), Variant_ID = מזהה dbSNP (למשל rs1801133), Genotype = הגנוטיפ (למשל C/T), " +
+      "Gene_Variant = הטקסט הגולמי של הגן או הווריאנט — כל אלה רק אם מופיעים במסמך, אחרת ריק. ACMG_Class = " +
+      "פתוגני|כנראה פתוגני|משמעות לא ודאית|כנראה שפיר|שפיר, רק אם הסיווג מופיע במסמך, אחרת ריק. Recommendation = " +
+      "ההמלצה המעשית מתוך ה\"סיכום\" של אותו כרטיס בלבד (המשפטים שמתחילים ב\"מומלץ\", \"מומלצת\" או \"ניתן\"), " +
+      "מילה במילה; אם אין — ריק. אל תמציא תכונה, גן או דרגה שאינם בטקסט.\n" +
+      "(10) שורה עם Routing_Category \"הנחיה\" באותו מסמך גנטי: החזר עבורה פריט אחד בלבד (rowIndex שלה, פעם אחת), " +
+      "ו-Task_Description = טקסט ההנחיה המאוחד כפי שמופיע בשורה — אל תפצל אותה להנחיה נפרדת לכל המלצה.\n";
+  }
+
   prompt += rowsBlock;
 
   if (fallbackTxt) {
@@ -647,6 +719,36 @@ function _s13_normalizeDate(dateStr) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// [Task #268] קריאת המסמך המקורי מ-Drive — חלק קובץ (inline_data) ל-Gemini.
+// זהה ללוגיקה ב-S09 (_s09_fetchOriginalPart) — אותו דפוס כמו זוג פונקציות ה-TXT.
+// ══════════════════════════════════════════════════════════════════
+
+function _s13_fetchOriginalPart(fileId) {
+  // פורמטים נתמכים ומגבלת גודל — מוגדרים כאן ולא כקבועים גלובליים.
+  // 15MB: קידוד base64 מגדיל בכ-33%, כלומר כ-20MB לבקשה אחת ל-Gemini.
+  // כל פורמט אחר (מסמך גוגל, Word וכו') או קובץ גדול יותר → null → חזרה ל-TXT.
+  const supportedTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+  const maxBytes       = 15 * 1024 * 1024;
+  try {
+    if (!fileId) return null;
+    const file     = DriveApp.getFileById(fileId);
+    const mimeType = file.getMimeType();
+    if (supportedTypes.indexOf(mimeType) === -1) {
+      Logger.log("[S13] המסמך המקורי בפורמט לא נתמך (" + mimeType + ") — fileId: " + fileId + " — חוזר ל-TXT");
+      return null;
+    }
+    if (file.getSize() > maxBytes) {
+      Logger.log("[S13] המסמך המקורי גדול מ-15MB (" + file.getSize() + " בייט) — fileId: " + fileId + " — חוזר ל-TXT");
+      return null;
+    }
+    return { inline_data: { mime_type: mimeType, data: Utilities.base64Encode(file.getBlob().getBytes()) } };
+  } catch (e) {
+    Logger.log("[S13] שגיאת קריאת המסמך המקורי — fileId: " + fileId + " | שגיאה: " + e.message + " — חוזר ל-TXT");
+    return null;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // קריאת Gemini בפועל — מקבלת פרומפט מוכן (מ-_s13_buildPrompt), מחזירה
 // אובייקט מפוענח {results:[{rowIndex,fields},...]} או null בכשל.
 // טיפול שגיאות זהה ל-_s09_callGemini (HTTP/finishReason/JSON parse).
@@ -654,7 +756,7 @@ function _s13_normalizeDate(dateStr) {
 
 let _s13_lastFailReason = "";
 
-function _s13_callGemini(prompt) {
+function _s13_callGemini(prompt, originalPart) {
   let raw = null;
   _s13_lastFailReason = "";
   try {
@@ -662,8 +764,11 @@ function _s13_callGemini(prompt) {
     const url    = "https://generativelanguage.googleapis.com/v1beta/models/" +
                    S13_GEMINI_MODEL + ":generateContent?key=" + apiKey;
 
+    // [Task #268] חלק הקובץ המקורי (אופציונלי) נשלח כחלק ראשון, לפני הטקסט — כמו ב-S09
+    const parts = originalPart ? [originalPart, { text: prompt }] : [{ text: prompt }];
+
     const payload = {
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ parts: parts }],
       generationConfig: { temperature: 0.1, maxOutputTokens: 32768, thinkingConfig: { thinkingBudget: 0 } }
     };
 
@@ -785,8 +890,16 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
       ];
     }
 
-    case "בדיקה גנטית":
-      // Test_Date | Panel_Name | Gene_Variant | Finding | Clinical_Significance | Recommendation | Source_URL | File_ID
+    case "בדיקה גנטית": {
+      // [Task #264] שורה אחת לכל תכונה (fields = פריט בודד מ-Results), 17 עמודות:
+      // Test_Date | Panel_Name | Gene_Variant | Finding | Clinical_Significance |
+      // Recommendation | Source_URL | File_ID | Medical_System | Trait_Code |
+      // Panel_Code | Tendency | Gene_Symbol | Variant_ID | Genotype | ACMG_Class |
+      // Enrich_Status. Medical_System, Trait_Code, Panel_Code ו-Enrich_Status נשארים
+      // ריקים — S15 ממלא מהקטלוג (בוטל "גנטיקה תמיד SYS14"). Finding = שם התכונה,
+      // Clinical_Significance = התוצאה המילולית כפי שבמסמך; Tendency מנורמלת לסולם
+      // הסגור (_s13_genTendency); ACMG_Class רק מתוך 5 הדרגות, אחרת ריק.
+      const acmgRaw = (fields.ACMG_Class || "").toString().trim();
       return [
         _s13_normalizeDate(ctx.eventDate),
         fields.Panel_Name || "",
@@ -796,8 +909,17 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
         fields.Recommendation || "",
         sourceUrl,
         ctx.fileId,
-        "SYS14"
+        "",
+        "",
+        "",
+        _s13_genTendency(fields.Tendency),
+        fields.Gene_Symbol || "",
+        fields.Variant_ID || "",
+        fields.Genotype || "",
+        S13_GEN_ACMG.indexOf(acmgRaw) !== -1 ? acmgRaw : "",
+        ""
       ];
+    }
 
     case "מרשם תרופה":
 
@@ -911,6 +1033,12 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
 
 const S13_LAB_SPECIMENS = ["דם", "שתן", "צואה", "מדידה", "אחר"];
 
+// [Task #264] גנטיקה — דרגות נטייה (סולם 4 דרגות) וסיווג ACMG (5 דרגות).
+// ערך מחוץ לרשימה (אחרי נרמול מילים נרדפות) נכתב ריק.
+const S13_GEN_TENDENCIES = ["אין", "נמוכה", "בינונית", "גבוהה"];
+const S13_GEN_TENDENCY_SYNONYMS = { "מוגברת": "גבוהה", "גבוה": "גבוהה", "בינוני": "בינונית", "נמוך": "נמוכה" };
+const S13_GEN_ACMG = ["פתוגני", "כנראה פתוגני", "משמעות לא ודאית", "כנראה שפיר", "שפיר"];
+
 function _s13_toNumber(value) {
   if (value === null || value === undefined) return "";
   if (typeof value === "number") return isFinite(value) ? value : "";
@@ -919,9 +1047,17 @@ function _s13_toNumber(value) {
   return parseFloat(s);
 }
 
+// [Task #264] נרמול דרגת נטייה לסולם הסגור — ערך לא מוכר → ריק
+function _s13_genTendency(value) {
+  const s = (value || "").toString().trim();
+  if (S13_GEN_TENDENCIES.indexOf(s) !== -1) return s;
+  return S13_GEN_TENDENCY_SYNONYMS[s] || "";
+}
+
 // ══════════════════════════════════════════════════════════════════
 // כתיבת שורה בודדת לגליון היעד המתאים, לפי S13_TARGET_SHEETS
 // [Task #263] בדיקת דם — שורה לכל פריט ב-Results, בכתיבה מרוכזת אחת
+// [Task #264] בדיקה גנטית — אותו מסלול: שורה לכל תכונה ב-Results
 // ══════════════════════════════════════════════════════════════════
 
 function _s13_writeExtractedRow(ss, routingCategory, fields, ctx) {
@@ -933,19 +1069,23 @@ function _s13_writeExtractedRow(ss, routingCategory, fields, ctx) {
     return false;
   }
 
-  if (routingCategory === "בדיקת דם") {
+  if (routingCategory === "בדיקת דם" || routingCategory === "בדיקה גנטית") {
+    const isGen = routingCategory === "בדיקה גנטית";
     const items = Array.isArray(fields.Results) ? fields.Results : [fields];
-    const labRows = items.filter(function(it) {
-      return it && ((it.Test_Name || "").toString().trim() || (it.Value || "").toString().trim());
+    const listRows = items.filter(function(it) {
+      if (!it) return false;
+      return isGen
+        ? ((it.Finding || "").toString().trim() || (it.Gene_Symbol || "").toString().trim())
+        : ((it.Test_Name || "").toString().trim() || (it.Value || "").toString().trim());
     }).map(function(it) {
       return _s13_buildRowValues(routingCategory, it, ctx);
     });
-    if (labRows.length === 0) {
-      Logger.log("[S13] אין תוצאות מעבדה לכתיבה | File_ID: " + ctx.fileId);
+    if (listRows.length === 0) {
+      Logger.log("[S13] אין " + (isGen ? "תכונות גנטיות" : "תוצאות מעבדה") + " לכתיבה | File_ID: " + ctx.fileId);
       return false;
     }
-    sheet.getRange(sheet.getLastRow() + 1, 1, labRows.length, labRows[0].length).setValues(labRows);
-    Logger.log("[S13] נכתבו " + labRows.length + " תוצאות ל-" + targetSheetName + " | File_ID: " + ctx.fileId);
+    sheet.getRange(sheet.getLastRow() + 1, 1, listRows.length, listRows[0].length).setValues(listRows);
+    Logger.log("[S13] נכתבו " + listRows.length + (isGen ? " תכונות" : " תוצאות") + " ל-" + targetSheetName + " | File_ID: " + ctx.fileId);
     return true;
   }
 
@@ -964,24 +1104,54 @@ function _s13_processGroup(ss, sourceSheet, group) {
   // [Task #220 שלב ב] קטלוג מיפוי_קודים — נטען פעם אחת לכל מסמך (File_ID)
   const catalog = _s13_loadCatalog();
 
-  let prompt = _s13_buildPrompt(group, null, catalog);
-  let response = _s13_callGemini(prompt);
+  // [Task #264] בדיקה גנטית ובדיקת דם (רשימת תוצאות) — המסמך עצמו הוא מקור
+  // הנתונים (פאנל, המלצה לכל תכונה, גן, טווחים), ולא רק סיכום שורת היומן.
+  // לכן המסמך המקורי מצורף כבר בקריאה הראשונה. שאר הסוגים — ללא שינוי.
+  const needsDocument = group.rows.some(function(r) {
+    return r.routingCategory === "בדיקה גנטית" || r.routingCategory === "בדיקת דם";
+  });
+  let originalPart = needsDocument ? _s13_fetchOriginalPart(group.fileId) : null;
+
+  let prompt;
+  let response;
+
+  if (originalPart) {
+    prompt   = _s13_buildPrompt(group, "המסמך המקורי מצורף לבקשה זו כקובץ — הוא המקור העיקרי: חלץ ממנו את כל השדות שבסכימה, גם אם אינם מופיעים בשורות לעיל.", catalog);
+    response = _s13_callGemini(prompt, originalPart);
+    Logger.log("[S13] File_ID " + group.fileId + " — קריאה ראשונה עם המסמך המקורי (רשימת תוצאות)");
+  } else {
+    prompt   = _s13_buildPrompt(group, null, catalog);
+    response = _s13_callGemini(prompt);
+  }
 
   let results = response && response.results;
   const incomplete = !results || results.length < group.rows.length;
 
-  // חלופה א' — נופל לטקסט TXT מלא רק אם התשובה חלקית/ריקה
+  // חלופה א' — נופל להקשר המסמך המלא רק אם התשובה חלקית/ריקה.
+  // [Task #268] קודם המסמך המקורי (PDF/תמונה) מצורף כקובץ; טקסט ה-TXT רק אם
+  // המקור לא זמין (פורמט לא נתמך, קובץ מעל 15MB או כשל קריאה) — כמו ב-S09.
+  // [Task #264] אם המקור כבר נקרא בקריאה הראשונה — אותו קובץ משמש שוב (ללא קריאה נוספת מ-Drive).
   if (incomplete) {
     Logger.log("[S13] File_ID " + group.fileId + " — תשובה חלקית/ריקה (סיבה: " +
-      (_s13_lastFailReason || "תוצאות חסרות") + "), מנסה שוב עם fallback ל-TXT");
+      (_s13_lastFailReason || "תוצאות חסרות") + "), מנסה שוב עם המסמך המקורי (או TXT כגיבוי)");
 
-    const txtUrl     = _s13_fetchTxtUrlByFileId(group.fileId);
-    const fallbackTxt = txtUrl ? _s13_fetchTxtContent(txtUrl) : null;
+    originalPart = originalPart || _s13_fetchOriginalPart(group.fileId);
 
-    if (fallbackTxt) {
-      prompt   = _s13_buildPrompt(group, fallbackTxt, catalog);
-      response = _s13_callGemini(prompt);
+    if (originalPart) {
+      prompt   = _s13_buildPrompt(group, "המסמך המקורי מצורף לבקשה זו כקובץ — חפש בו את הפרט החסר.", catalog);
+      response = _s13_callGemini(prompt, originalPart);
       results  = response && response.results;
+      Logger.log("[S13] File_ID " + group.fileId + " — ניסיון חוזר עם המסמך המקורי");
+    } else {
+      const txtUrl     = _s13_fetchTxtUrlByFileId(group.fileId);
+      const fallbackTxt = txtUrl ? _s13_fetchTxtContent(txtUrl) : null;
+
+      if (fallbackTxt) {
+        prompt   = _s13_buildPrompt(group, fallbackTxt, catalog);
+        response = _s13_callGemini(prompt);
+        results  = response && response.results;
+        Logger.log("[S13] File_ID " + group.fileId + " — ניסיון חוזר עם TXT (גיבוי)");
+      }
     }
   }
 
