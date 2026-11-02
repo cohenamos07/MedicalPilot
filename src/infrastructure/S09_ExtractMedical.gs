@@ -1,17 +1,19 @@
 /**
  * MedicalPilot — S09_ExtractMedical.gs
  * @file    S09_ExtractMedical.gs
- * @version 2.1.0 | @updated 21/10/2026 23:06 | @service S09
+ * @version 2.2.0 | @updated 01/11/2026 12:26 | @service S09
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S09_ExtractMedical.gs
  * @description חילוץ ראשוני של אירועים רפואיים ממסמך מאושר — קריאת Gemini אחת
  *          לכל מסמך, שורת אירוע גנרית לכל נושא ליומן_אירועים_רפואי (בסיס
  *          לאימות S10 ולחילוץ העמוק ב-S13).
+ *          [v2.2.0] Gemini קורא את המסמך המקורי (PDF/תמונה, עד 15MB) כקובץ
+ *          מצורף; קובץ ה-TXT של S06 (רשימת מילים) משמש כגיבוי בלבד.
  * @callers runS09ViewIcon (ViewEngine.gs — אייקון עמודה O בניהול_מיילים, ותפריט
  *          "🧠 עיבוד AI" ← "חילוץ אירועים רפואיים (S09)", Menu_PROD.gs).
  * @functions runS09 | _s09_processSingleRow | _s09_processBatch | _s09_checkRow |
  *          _s09_processRow | _s09_fetchFewShotExamples | _s09_buildFewShotBlock |
- *          _s09_fetchTxtContent | _s09_callGemini | _s09_normalizeDate |
- *          _s09_writeToSheets | _s09_writeError
+ *          _s09_fetchTxtContent | _s09_fetchOriginalPart | _s09_callGemini |
+ *          _s09_normalizeDate | _s09_writeToSheets | _s09_writeError
  * @impacts חילוץ אירועים רפואיים ממסמכים מאומתים — קריאה יחידה לכל מסמך,
  *          כותב אך ורק ליומן_אירועים_רפואי (שורת אירוע גנרית לכל נושא/ממצא
  *          נבדל, כולל קטגוריית_ניתוב מתוך Enum סגור של 7 ערכים). פענוח מפורט
@@ -21,9 +23,24 @@
  *          תנאי סף: עמודה M = "אושר ידנית" + עמודה L = רפואי + עמודה X לא ריקה.
  *          קריאה: ניהול_מיילים עמודות A,I,J,K,L,M,W,X + גליון דוגמאות_למידה_S10
  *          (few-shot, סכימה שטוחה — מקובצת לפי Source_File_ID למסמכים שלמים).
+ *          [v2.2.0] Drive: קריאת המסמך המקורי לפי File_ID (עמודה A) — קריאה בלבד.
  *          כתיבה: ניהול_מיילים עמודות M,S,T + יומן_אירועים_רפואי בלבד.
  *          תלויות: GEMINI_API_KEY (gemini-2.5-flash), Drive API, COLUMN_MAP.gs.
  *          מופעל מהתפריט ומאייקון עמודה O בגליון ניהול_מיילים.
+ * @changes [v2.2.0] Task #268 — Gemini קורא את המסמך המקורי במקום קובץ ה-TXT
+ *          של S06 (רשימת מילים בלי סדר — סיבת השורש לטעויות חילוץ).
+ *          _s09_fetchOriginalPart (חדשה) — PDF/JPEG/PNG/WEBP/HEIC/HEIF עד 15MB
+ *          כחלק inline_data; פורמט אחר, קובץ גדול יותר או כשל → null.
+ *          _s09_processRow — קודם המקור, ה-TXT רק כגיבוי; המקור נרשם בלוג,
+ *          בהודעה ובשגיאת PARSE; תאריך המסמך (K) מומר ל-DD/MM/YYYY (בעבר
+ *          toString() גולמי נכתב ליומן כגיבוי). _s09_callGemini — פרמטר רביעי
+ *          originalPart, הקובץ נשלח כחלק ראשון; נוסח ה-TXT ללא שינוי; שני
+ *          כללים חדשים בפרומפט: המלצות למטופל כשורת "הנחיה" נפרדת, ורמת
+ *          נטייה/רגישות/סיכון מועתקת במילות המסמך. נבדק בשטח: דוח ממצאים
+ *          גנטיים — 22/22 תכונות; דוח נוטריגנטי — 24/24 (היה 15/24, ניתוב
+ *          "מצב רפואי" שגוי); תדפיס כללית און-ליין — טווחי נורמה נכונים
+ *          (Task #265 נפתר, 5 תוצאות "נמוך" במקום "תקין"). אומת מול הקוד
+ *          החי (השוואה שורה-שורה וטביעת אצבע לכל בלוק, בדיקת תחביר).
  * @changes [v2.1.0] Task #223 + Task #220 — שני כללים חדשים בפרומפט בלבד
  *          (_s09_callGemini, rulesBlock), ללא שינוי לוגיקה או מבנה כתיבה:
  *          (1) Task #220 — מערכת_רפואית = מערכת גוף בלבד, לעולם לא התמחות/
@@ -241,30 +258,44 @@ function _s09_checkRow(sheet, row) {
 
 function _s09_processRow(ss, sheet, row) {
   try {
+    // [Task #268] תאריך המסמך (עמודה K) נקרא כאובייקט תאריך — מומר ל-DD/MM/YYYY.
+    // בעבר הומר ב-toString() גולמי, ונכתב כך ליומן כגיבוי כש-Gemini לא החזיר תאריך.
+    const docDateRaw = sheet.getRange(row, 11).getValue();
     const docData = {
       fileId:    (sheet.getRange(row, 1).getValue()  || "").toString().trim(),
       docTitle:  (sheet.getRange(row, 9).getValue()  || "").toString().trim(),
       docIssuer: (sheet.getRange(row, 10).getValue() || "").toString().trim(),
-      docDate:   (sheet.getRange(row, 11).getValue() || "").toString().trim(),
+      docDate:   docDateRaw instanceof Date
+                   ? Utilities.formatDate(docDateRaw, Session.getScriptTimeZone(), "dd/MM/yyyy")
+                   : (docDateRaw || "").toString().trim(),
       sourceUrl: (sheet.getRange(row, 23).getValue() || "").toString().trim(),
       txtUrl:    (sheet.getRange(row, 24).getValue() || "").toString().trim()
     };
 
-    const txtContent = _s09_fetchTxtContent(docData.txtUrl);
-    if (!txtContent) {
-      _s09_writeError(sheet, row, "ACCESS", "לא ניתן לקרוא קובץ TXT — בדוק הרשאות Drive");
-      return { success: false, msg: "❌ שגיאת גישה לקובץ TXT" };
+    // [Task #268] המסמך המקורי (PDF/תמונה) נשלח ל-Gemini במקום קובץ ה-TXT של S06.
+    // קובץ ה-TXT (רשימת מילים) נקרא רק כגיבוי — פורמט לא נתמך, קובץ מעל 15MB
+    // או כשל קריאה. TXT_URL נשאר חובה בתנאי הסף (בקרת המרה וספירת מילים).
+    const originalPart = _s09_fetchOriginalPart(docData.fileId);
+    let txtContent = null;
+    if (!originalPart) {
+      txtContent = _s09_fetchTxtContent(docData.txtUrl);
+      if (!txtContent) {
+        _s09_writeError(sheet, row, "ACCESS", "לא ניתן לקרוא את המסמך המקורי ולא את קובץ ה-TXT — בדוק הרשאות Drive");
+        return { success: false, msg: "❌ שגיאת גישה למסמך המקורי ולקובץ TXT" };
+      }
     }
+    const sourceLabel = originalPart ? "מסמך מקורי" : "TXT (גיבוי)";
 
     // [v1.1.0] שליפת דוגמאות למידה מ-S10
     const fewShotExamples = _s09_fetchFewShotExamples(ss);
 
     // [v2.0.0 — Task 185] קריאה יחידה בלבד — אין יותר קריאת "blood" נפרדת
-    const result = _s09_callGemini(txtContent, docData, fewShotExamples);
+    // [Task #268] פרמטר רביעי — חלק הקובץ המקורי (null = שימוש ב-txtContent)
+    const result = _s09_callGemini(txtContent, docData, fewShotExamples, originalPart);
     if (!result) {
       const failReason = _s09_lastFailReason || "UNKNOWN"; // [v1.4.0 — Task 180]
       _s09_writeError(sheet, row, "PARSE_" + failReason,
-        "Gemini לא החזיר JSON תקין — סיבה: " + failReason);
+        "Gemini לא החזיר JSON תקין — סיבה: " + failReason + " | מקור: " + sourceLabel);
       return { success: false, msg: "❌ שגיאת עיבוד Gemini (" + failReason + ")" };
     }
 
@@ -276,10 +307,10 @@ function _s09_processRow(ss, sheet, row) {
     sheet.getRange(row, 13).setValue(statusText);
     sheet.getRange(row, 19).setValue("");
     sheet.getRange(row, 20).setValue("");
-    Logger.log("[S09] שורה " + row + " → " + statusText +
+    Logger.log("[S09] שורה " + row + " → " + statusText + " | מקור: " + sourceLabel +
       (fewShotExamples.length > 0 ? " | דוגמאות: " + fewShotExamples.length : " | ללא דוגמאות"));
 
-    return { success: true, msg: "✅ שורה " + row + " — " + statusText };
+    return { success: true, msg: "✅ שורה " + row + " — " + statusText + " (מקור: " + sourceLabel + ")" };
 
   } catch (e) {
     _s09_writeError(sheet, row, "UNKNOWN", e.message);
@@ -287,7 +318,6 @@ function _s09_processRow(ss, sheet, row) {
     return { success: false, msg: "❌ שגיאה: " + e.message };
   }
 }
-
 // ══════════════════════════════════════════════════════════════════
 // [v1.1.0] שליפת דוגמאות Few-Shot מגליון S10_למידה_רפואי
 // ══════════════════════════════════════════════════════════════════
@@ -405,10 +435,39 @@ function _s09_fetchTxtContent(txtUrl) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// [Task #268] קריאת המסמך המקורי מ-Drive — חלק קובץ (inline_data) ל-Gemini
+// ══════════════════════════════════════════════════════════════════
+
+function _s09_fetchOriginalPart(fileId) {
+  // פורמטים נתמכים ומגבלת גודל — מוגדרים כאן ולא כקבועים גלובליים.
+  // 15MB: קידוד base64 מגדיל בכ-33%, כלומר כ-20MB לבקשה אחת ל-Gemini.
+  // כל פורמט אחר (מסמך גוגל, Word וכו') או קובץ גדול יותר → null → חזרה ל-TXT.
+  const supportedTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+  const maxBytes       = 15 * 1024 * 1024;
+  try {
+    if (!fileId) return null;
+    const file     = DriveApp.getFileById(fileId);
+    const mimeType = file.getMimeType();
+    if (supportedTypes.indexOf(mimeType) === -1) {
+      Logger.log("[S09] המסמך המקורי בפורמט לא נתמך (" + mimeType + ") — fileId: " + fileId + " — חוזר ל-TXT");
+      return null;
+    }
+    if (file.getSize() > maxBytes) {
+      Logger.log("[S09] המסמך המקורי גדול מ-15MB (" + file.getSize() + " בייט) — fileId: " + fileId + " — חוזר ל-TXT");
+      return null;
+    }
+    return { inline_data: { mime_type: mimeType, data: Utilities.base64Encode(file.getBlob().getBytes()) } };
+  } catch (e) {
+    Logger.log("[S09] שגיאת קריאת המסמך המקורי — fileId: " + fileId + " | שגיאה: " + e.message + " — חוזר ל-TXT");
+    return null;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // קריאת Gemini — חילוץ מובנה + Few-Shot
 // ══════════════════════════════════════════════════════════════════
 
-function _s09_callGemini(txtContent, docData, fewShotExamples) {
+function _s09_callGemini(txtContent, docData, fewShotExamples, originalPart) {
   let raw = null;
   _s09_lastFailReason = ""; // [v1.4.0 — Task 180]
   try {
@@ -446,6 +505,8 @@ function _s09_callGemini(txtContent, docData, fewShotExamples) {
   ותנאי מעקב/מנהלה (תוקף, מועד ביקורת הבא) ששייכים ל"הנחיה"
 - אם יש כמה תת-נושאים שונים בתוך ה"הנחיות" עצמן (למשל גם הגבלה התנהגותית
   וגם תוקף/מעקב) — פצל לשורת "הנחיה" נפרדת לכל תת-נושא, אל תאחד את כולם יחד
+- המלצות והוראות למטופל שמופיעות במסמך (למשל המלצות תזונה, אורח חיים, תוספים, מעקב או בדיקות המשך) — חלץ תמיד כשורת "הנחיה" נפרדת, גם כשהן מופיעות בתוך דוח של בדיקה גנטית, בדיקת דם או ממצא אחר. אל תכלול אותן בתוך סיכום_ממצא של שורת הממצא עצמה
+- רמת נטייה, רגישות או סיכון שמופיעה במסמך תועתק בדיוק במילים של המסמך — אל תשנה את הדרגה ואל תחליף את המילה (למשל אם כתוב "נמוכה" — אל תכתוב "אין נטייה"; אם כתוב "גבוהה" — אל תכתוב "מוגברת")
 
 דוגמה ממחישה:
 מסמך שמכיל: "כשיר לעבודה ב-80% משרה (4 ימים בשבוע). להימנע מחשיפה לקהל.
@@ -474,24 +535,29 @@ function _s09_callGemini(txtContent, docData, fewShotExamples) {
 - דוגמה: סיכום שחרור אחרי כריתת אונת תריס בגלל סרטן תריס, עם "מחלות רקע: סוכרת מאוזנת, סרטן כליה" →
   סרטן התריס והניתוח הם אירועים רגילים; הסוכרת וסרטן הכליה הם "מחלת רקע"
 - אל תמציא מידע שאינו במסמך`;
+
+    // [Task #268] מסמך מקורי מצורף כקובץ — או טקסט ה-TXT (גיבוי), כמו קודם
+    const contentBlock = originalPart ? "תוכן המסמך: מצורף כקובץ המקורי." : "תוכן המסמך:\n" + txtContent;
     const prompt = `אתה מומחה לניתוח מסמכים רפואיים בעברית.
-קרא את המסמך הבא וחלץ ממנו מידע רפואי מובנה.
+קרא את המסמך ${originalPart ? "המצורף" : "הבא"} וחלץ ממנו מידע רפואי מובנה.
 ${fewShotBlock}
 פרטי המסמך:
 - כותרת: ${docData.docTitle}
 - מנפיק: ${docData.docIssuer}
 - תאריך: ${docData.docDate}
 
-תוכן המסמך:
-${txtContent}
+${contentBlock}
 
 החזר JSON בלבד (ללא טקסט נוסף) במבנה הבא:
 ${schemaBlock}
 
 ${rulesBlock}`;
 
+    // [Task #268] הקובץ המקורי (אם יש) נשלח כחלק ראשון, לפני הטקסט — כמו בפיילוט
+    const parts = originalPart ? [originalPart, { text: prompt }] : [{ text: prompt }];
+
     const payload = {
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ parts: parts }],
       // [v1.2.3 — Task 79] maxOutputTokens — מניעת קיטוע תשובה ארוכה (JSON חצי)
       // [v1.4.0 — Task 180] thinkingConfig:0 מבטל "חשיבה" פנימית שצורכת טוקנים
       // מהתקציב עוד לפני כתיבת הפלט בפועל (התנהגות ברירת מחדל ב-gemini-2.5-flash);
