@@ -1,6 +1,6 @@
 /**
  * @file        S15_EnrichCatalog.gs
- * @version     1.5.0 | @updated 31/10/2026 19:04 | @service S15
+ * @version     1.7.0 | @updated 02/11/2026 20:05 | @service S15
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S15_EnrichCatalog.gs
  * @description שירות העשרת קטלוגים — מנוע כללי שמוגדר לפי תחום (S15_DOMAINS).
  *              לכל גליון יעד: סורק שורות שעמודת הסטטוס שלהן ריקה, מחפש כל
@@ -38,6 +38,22 @@
  *              פאנל (חובה, רשימה סגורה), מערכת גוף, ערך מספרי, יחידה וגבולות
  *              טווח; קוד חדש נכתב כשורה בבלוק BG-BL. קודי LOINC נכתבים בעיצוב
  *              טקסט, כדי שגוגל שיטס לא יפרש אותם כתאריך.
+ *              [v1.6.0] תחום רביעי: בדיקות_גנטיות (בלוק תכונות_גנטיות, BM-BR,
+ *              מפתח = קוד פנימי GTR-nnn — לתכונות אין קידוד בינלאומי). מטפל
+ *              ייעודי (_s15_genHandler): קטלוג פתוח — תכונה מוכרת (בקטלוג המאומת
+ *              או בהצעה ממתינה) מקבלת את הקוד הקיים, תכונה חדשה את הקוד הפנוי
+ *              הבא, ותכונות עם אותו שם מנורמל באותה ריצה — קוד אחד. פאנל מרשימה
+ *              סגורה (קודי PNL-G בבלוק פאנלים, BS-BW), ברירת מחדל PNL-G00; מערכת
+ *              גוף SYSnn מהרשימה. גן תקין (עמודה M) שאינו בקטלוג הגנים (CC-CH)
+ *              נשמר כהצעה ממתינה. הצעות מסומנות block="traits" / block="genes".
+ *              [v1.7.0] אימות גנטיקה בחלון S16_Sidebar.html במצב "gen":
+ *              s15_showValidation מעביר את גליון בדיקות_גנטיות ל-_s15_genShowValidation;
+ *              ניווט (s15_genLoadRowByNumber) ואישור (s15_genApprove). קוד תכונה
+ *              נבחר רק מהקודים המוכרים (מאומתים או ממתינים); קוד ממתין נכתב
+ *              כשורה בבלוק BM-BR, קוד מאומת — נתוני הקטלוג גוברים ורק השם
+ *              נוסף. Raw_Value מחושב בשרת ואינו נשלח מהחלון (לקח #266). גן
+ *              תקין שאינו בקטלוג — שורה חדשה בבלוק CC-CH. הצעה שהוחלפה ואינה
+ *              בשימוש נמחקת. הנטייה (L) לתצוגה בלבד.
  * @impacts     תרופות_קבועות: קורא A-E (שם, חומר פעיל, מינון, תדירות, סיבה),
  *              כותב M-R בלבד (ATC_Code | Dose_Amount | Dose_Unit |
  *              Times_Per_Day | Days_Per_Week | Enrich_Status="הוצע").
@@ -76,6 +92,19 @@
  *              BG-BL בעיצוב טקסט (קוד חדש) או עדכון Raw_Value (BJ) בקוד קיים;
  *              קורא BS-BW (פאנלים). Script Properties: S16_CURRENT_PAYLOAD
  *              ומחיקת הצעה מ-S15_PENDING_CATALOG. LockService באישור.
+ *              [v1.6.0] בדיקות_גנטיות: קורא B-E ו-M (שם הפאנל במסמך, גן או
+ *              וריאנט, שם התכונה, משמעות, סמל גן), כותב I-K (Medical_System |
+ *              Trait_Code | Panel_Code, בעיצוב טקסט) ו-Q (Enrich_Status="הוצע")
+ *              בלבד; A-H ו-L-P לא נכתבים. מיפוי_קודים: קורא בלבד — BM-BR
+ *              (תכונות), BS-BW (פאנלים) ו-CC-CH (גנים). Script Properties:
+ *              S15_PENDING_CATALOG (הצעות תכונות וגנים, קריאה וכתיבה).
+ *              [v1.7.0] אימות גנטיקה (s15_genApprove): בדיקות_גנטיות — כותב I-K
+ *              (מערכת, קוד תכונה, פאנל; בעיצוב טקסט) ו-Q ("מאומת"); M (סמל גן)
+ *              רק אם שונה בחלון; A-H, L ו-N-P לא נכתבים. מיפוי_קודים — שורה
+ *              חדשה ב-BM-BR (קוד ממתין) או הוספת שם ל-Raw_Value (קוד מאומת),
+ *              ושורה חדשה ב-CC-CH (גן חדש), בעיצוב טקסט; קורא BS-BW. Script
+ *              Properties: S16_CURRENT_PAYLOAD ומחיקת הצעות מ-S15_PENDING_CATALOG.
+ *              LockService באישור.
  * @callers     runS15EnrichIcon (ViewEngine.gs, אייקון "[ S15 העשרה ]")
  *              runS15ValidateIcon (ViewEngine.gs, אייקון "[ S16 אימות ]") →
  *              s15_showValidation; S16_Sidebar.html → s15_loadRowByNumber,
@@ -90,6 +119,11 @@
  *              [v1.5.0] runS15ValidateIcon גם מאייקון בגליון בדיקות_דם (B2, הוצב
  *              ידנית) → s15_showValidation; S16_Sidebar.html →
  *              s15_labLoadRowByNumber, s15_labApprove
+ *              [v1.6.0] runS15EnrichIcon גם מאייקון בגליון בדיקות_גנטיות (A2,
+ *              הוצב ידנית)
+ *              [v1.7.0] runS15ValidateIcon גם מאייקון בגליון בדיקות_גנטיות (B2,
+ *              הוצב ידנית) → s15_showValidation; S16_Sidebar.html →
+ *              s15_genLoadRowByNumber, s15_genApprove
  * @functions   runS15Enrich | _s15_getDomain | _s15_readCatalog | _s15_normalizeName |
  *              _s15_findInCatalog | _s15_collectPendingRows | _s15_buildPrompt |
  *              _s15_callGemini | _s15_cleanCode | _s15_cleanNumber |
@@ -105,7 +139,31 @@
  *              _s15_labCodeText | _s15_labShowValidation |
  *              _s15_labBuildValidationPayload | s15_labLoadRowByNumber |
  *              _s15_labParseNumber | _s15_labReadOptions | _s15_labWriteCatalog |
- *              s15_labApprove
+ *              s15_labApprove |
+ *              _s15_genHandler | _s15_genBuildPrompt | _s15_genBuildRow |
+ *              _s15_genGeneDomain | _s15_genShowValidation | _s15_genReadOptions |
+ *              _s15_genBuildValidationPayload | s15_genLoadRowByNumber |
+ *              _s15_genWriteTraitCatalog | _s15_genWriteGene | _s15_genCleanupPending |
+ *              s15_genApprove
+ * @changes     [v1.7.0] Task #264 שלב 4 — אימות גנטיקה בחלון S16 הקיים (חלופה ב,
+ *              תוספת בלבד; מסלולי התרופות, ההנחיות והמעבדה ללא שינוי). ענף
+ *              ב-s15_showValidation לגליון בדיקות_גנטיות; בסוף הקובץ: S15_GEN_SHEET,
+ *              S15_GEN_COLS (A-Q) ותשע פונקציות. אישור תחת נעילה, עם בדיקת קוד
+ *              מהרשימה (חובה), פאנל PNL-G (חובה), מערכת SYSnn וסמל גן. אומת מול
+ *              הקוד החי (diff מדויק, node --check), בהרצה מדומה ובבדיקת שטח:
+ *              שורות 5-6 אושרו (GTR-001, GTR-002 נכתבו ל-BM-BR בשורות 5-6, Q="מאומת"),
+ *              פאנל ריק נחסם, קוד מאומת ננעל עם התראת שם אחר, מעבר אוטומטי
+ *              לשורה הבאה; נסיגה — חלונות המעבדה, ההנחיות והמצב הרפואי ללא שינוי.
+ * @changes     [v1.6.0] Task #264 שלב 3 — הרחבת המנוע לתחום הגנטיקה (תוספת
+ *              בלבד; מסלולי התרופות, ההנחיות והמעבדה ללא שינוי). רשומה חדשה
+ *              ב-S15_DOMAINS (בדיקות_גנטיות, handler "genetics"), שורה ב-
+ *              _s15_getHandler, ובסוף הקובץ: שבעה קבועים (S15_GEN_*) ושלוש
+ *              פונקציות. אומת מול הקוד החי (diff מדויק, node --check), בהרצה
+ *              מדומה ובבדיקת שטח: 46 שורות הועשרו (שורות 5-50, I-K ו-Q בלבד),
+ *              46 קודי תכונה GTR-001 עד GTR-046 (אין תכונה חוזרת בין שני הדוחות),
+ *              כל הפאנלים מ-PNL-G (13 הפאנלים החסרים שויכו), עמודות A-H ו-L-P
+ *              ללא שינוי, בלוקי התכונות והגנים במיפוי_קודים ריקים כמקודם;
+ *              נסיגה בתרופות ובמעבדה — "אין שורות ממתינות".
  * @changes     [v1.5.0] Task #263 שלב 5 — אימות מעבדה בחלון S16 הקיים (תוספת
  *              בלבד; מסלולי התרופות וההנחיות ללא שינוי). ענף ב-s15_showValidation
  *              לגליון בדיקות_דם; בסוף הקובץ: S15_LAB_SHEET, S15_LAB_COLS (A-S)
@@ -229,6 +287,21 @@ const S15_DOMAINS = {
     catalogWidth:     6,   // BG-BL: Code | Normalized_Value | Description | Raw_Value | Icon_Link | Medical_System
     codePattern:      /^\d{1,7}-\d$/, // קוד LOINC (למשל 718-7)
     handler:          "lab"
+  },
+  // [Task #264 שלב 3] תחום הגנטיקה — מטפל ייעודי, קטלוג תכונות פתוח (קוד
+  // פנימי GTR-nnn, אין קידוד בינלאומי לתכונות); פאנל מרשימה סגורה (PNL-G);
+  // גן תקין שאינו בקטלוג נשמר כהצעה בלבד. כותב I-K ו-Q בלבד (שאר העמודות
+  // נכתבו ע"י S13 ולא נוגעים בהן).
+  "בדיקות_גנטיות": {
+    label:            "גנטיקה",
+    nameCol:          4,   // D = Finding (שם התכונה)
+    contextCols:      { panelName: 2, geneVariant: 3, significance: 5, geneSymbol: 13 }, // B, C, E, M
+    firstTargetCol:   9,   // I = Medical_System (I-K: Medical_System | Trait_Code | Panel_Code)
+    statusCol:        17,  // Q = Enrich_Status
+    catalogFirstCol:  65,  // BM = Trait_Code בבלוק תכונות_גנטיות במיפוי_קודים
+    catalogWidth:     6,   // BM-BR: Code | Normalized_Value | Description | Raw_Value | Icon_Link | Medical_System
+    codePattern:      /^GTR-\d{3}$/, // קוד תכונה פנימי (למשל GTR-001)
+    handler:          "genetics"
   }
 };
 
@@ -688,6 +761,7 @@ function s15_showValidation() {
 
   // [Task #261 שלב 4] גליון ההנחיות — חלון האימות במצב "instruction".
   // [Task #263 שלב 5] גליון בדיקות_דם — חלון האימות במצב "lab".
+  // [Task #264 שלב 4] גליון בדיקות_גנטיות — חלון האימות במצב "gen".
   // כל גליון אחר — המסלול הקיים של התרופות, ללא שינוי.
   if (sheet.getName() === S15_INSTR_SHEET) {
     _s15_instrShowValidation(ss, sheet, ui);
@@ -695,6 +769,10 @@ function s15_showValidation() {
   }
   if (sheet.getName() === S15_LAB_SHEET) {
     _s15_labShowValidation(ss, sheet, ui);
+    return;
+  }
+  if (sheet.getName() === S15_GEN_SHEET) {
+    _s15_genShowValidation(ss, sheet, ui);
     return;
   }
 
@@ -992,6 +1070,7 @@ const S15_SPECIALTY_WIDTH      = 5;  // J-N: Code | Normalized_Value | Descripti
 function _s15_getHandler(domain) {
   if (domain && domain.handler === "instructions") return _s15_instrHandler();
   if (domain && domain.handler === "lab")          return _s15_labHandler(); // [Task #263]
+  if (domain && domain.handler === "genetics")     return _s15_genHandler(); // [Task #264]
   return null;
 }
 // ══════════════════════════════════════════════════════════════════
@@ -1762,6 +1841,638 @@ function s15_labApprove(row, v) {
 
   } catch (e) {
     Logger.log("[S15] s15_labApprove שגיאה: " + e.message);
+    return { success: false, msg: "❌ שגיאה: " + e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task #264 שלב 3] מטפל הגנטיקה — קטלוג תכונות פתוח (בלוק BM-BR, קוד
+// פנימי GTR-nnn — אין קידוד בינלאומי לתכונות), פאנל מרשימה סגורה (בלוק
+// BS-BW, קודי PNL-G בלבד), מערכת גוף לפי התכונה. תכונה מוכרת — מהקטלוג
+// המאומת או מהצעה ממתינה — מקבלת את הקוד הקיים; תכונה חדשה מקבלת את
+// הקוד הפנוי הבא, ותכונות עם אותו שם מנורמל באותה ריצה מקבלות קוד אחד.
+// גן תקין (עמודה M) שאינו בקטלוג הגנים (CC-CH) נשמר כהצעה ממתינה עם
+// סימון block="genes"; הצעת תכונה מסומנת block="traits". מיפוי_קודים
+// לא נכתב כאן — רק באישור בחלון האימות (שלב 4).
+// ══════════════════════════════════════════════════════════════════
+
+const S15_GEN_PANEL_PREFIX   = "PNL-G";
+const S15_GEN_DEFAULT_PANEL  = "PNL-G00";
+const S15_GEN_TRAIT_PREFIX   = "GTR-";
+const S15_GEN_TRAIT_MAX      = 999;
+const S15_GEN_GENE_FIRST_COL = 81;   // CC = Gene_Symbol בבלוק גנים במיפוי_קודים
+const S15_GEN_GENE_WIDTH     = 6;    // CC-CH: Gene_Symbol | Normalized_Value | Description | Raw_Value | Icon_Link | Medical_System
+const S15_GEN_GENE_PATTERN   = /^[A-Z][A-Z0-9-]{1,14}$/; // סמל גן בינלאומי (למשל MTHFR, BRCA1)
+
+function _s15_genHandler() {
+  const state = { panels: {}, systems: {}, known: [], knownCodes: {}, genes: {}, assigned: {}, nextNum: 1 };
+  return {
+    buildPrompt: function(ss, domain, pending, catalog) {
+      return _s15_genBuildPrompt(ss, domain, pending, catalog, state);
+    },
+    buildRow: function(item, result, suggestions) {
+      return _s15_genBuildRow(item, result, state, suggestions);
+    },
+    writeRow: function(sheet, item, values) {
+      // I-K (מערכת, תכונה, פאנל) ו-Q (סטטוס) — שני טווחים, L-P לא נוגעים.
+      // I-K בעיצוב טקסט — כמו במעבדה, קוד לא יפורש כמספר או כתאריך
+      const target = sheet.getRange(item.row, 9, 1, 3);
+      target.setNumberFormat("@");
+      target.setValues([values.slice(0, 3)]);
+      sheet.getRange(item.row, 17).setValue(values[3]);
+    }
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פרומפט הגנטיקה — תכונות מוכרות (קטלוג מאומת + הצעות ממתינות), פאנלים
+// גנטיים ומערכות גוף מהרשימות בלבד. קובע גם את מספר הקוד הפנוי הבא.
+// קריאה בלבד מהקטלוג ומההצעות.
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_genBuildPrompt(ss, domain, pending, catalog, state) {
+  const panels = _s15_readCatalog(ss, { catalogFirstCol: S15_LAB_PANEL_FIRST_COL, catalogWidth: S15_LAB_PANEL_WIDTH });
+
+  let panelList = "";
+  panels.forEach(function(entry) {
+    if (entry.code.indexOf(S15_GEN_PANEL_PREFIX) !== 0) return; // רק פאנלים גנטיים
+    state.panels[entry.code] = true;
+    panelList += "\n  " + entry.code + " = " + entry.name + " — " + entry.desc;
+  });
+
+  let systemsList = "";
+  if (typeof S13_BODY_SYSTEMS !== "undefined") {
+    Object.keys(S13_BODY_SYSTEMS).forEach(function(code) {
+      state.systems[code] = true;
+      systemsList += (systemsList ? ", " : "") + code + "=" + S13_BODY_SYSTEMS[code].nameHe;
+    });
+  }
+
+  // תכונות מוכרות — הקטלוג המאומת, ואחריו ההצעות הממתינות של הגליון
+  catalog.forEach(function(entry) {
+    if (!domain.codePattern.test(entry.code)) return;
+    state.known.push(entry);
+    state.knownCodes[entry.code] = entry;
+  });
+  const pendingCatalog = _s15_getPendingCatalog()[domain.sheetName] || {};
+  Object.keys(pendingCatalog).forEach(function(code) {
+    const p = pendingCatalog[code] || {};
+    if (!domain.codePattern.test(code) || state.knownCodes[code]) return;
+    const entry = {
+      code:    code,
+      name:    String(p.name || "").trim(),
+      desc:    String(p.desc || "").trim(),
+      raw:     Array.isArray(p.raw) ? p.raw : [],
+      system:  String(p.system || "").trim(),
+      pending: true
+    };
+    state.known.push(entry);
+    state.knownCodes[code] = entry;
+  });
+
+  // הקוד הפנוי הבא — אחרי הגבוה מבין הקטלוג וההצעות
+  state.known.forEach(function(entry) {
+    const num = parseInt(entry.code.substring(S15_GEN_TRAIT_PREFIX.length), 10);
+    if (isFinite(num) && num >= state.nextNum) state.nextNum = num + 1;
+  });
+
+  // גנים בקטלוג המאומת — גן שכבר קיים לא מוצע שוב
+  _s15_readCatalog(ss, { catalogFirstCol: S15_GEN_GENE_FIRST_COL, catalogWidth: S15_GEN_GENE_WIDTH }).forEach(function(entry) {
+    state.genes[entry.code.toUpperCase()] = entry;
+  });
+
+  let knownList = "";
+  state.known.forEach(function(entry) {
+    knownList += "\n  " + entry.code + " = " + entry.name + (entry.desc ? " — " + entry.desc : "");
+  });
+
+  let rowsBlock = "";
+  pending.forEach(function(item, idx) {
+    item.catalogMatch = _s15_findInCatalog(state.known, item.name);
+    rowsBlock += "\n--- שורה " + (idx + 1) + " (rowIndex=" + idx + ") ---\n";
+    rowsBlock += "שם התכונה במסמך: " + item.name + "\n";
+    rowsBlock += "כותרת הקטע במסמך: " + (item.ctx.panelName || "—") + "\n";
+    rowsBlock += "משמעות ונטייה: " + (item.ctx.significance || "—") + "\n";
+    if (item.ctx.geneSymbol || item.ctx.geneVariant) {
+      rowsBlock += "גן או וריאנט: " + [item.ctx.geneSymbol, item.ctx.geneVariant].filter(function(s) { return s; }).join(" | ") + "\n";
+    }
+    if (item.catalogMatch) {
+      rowsBlock += "תכונה ידועה: " + item.catalogMatch.code + " = " + item.catalogMatch.name + " (אין לשנות)\n";
+    }
+  });
+
+  return "אתה מומחה לגנטיקה קלינית ולדוחות בדיקה גנטית (כולל דוחות נוטריגנטיים). קיבלת " + pending.length +
+    " תכונות גנטיות שחולצו מדוחות בדיקה של מטופל בישראל. לכל שורה:\n" +
+    "1. traitCode — אם התכונה זהה לאחת התכונות המוכרות ברשימה להלן (אותה תכונה, גם בניסוח אחר) — " +
+    "החזר את הקוד שלה. אחרת — מחרוזת ריקה. אסור להמציא קוד.\n" +
+    "2. traitNameHe — שם קצר ואחיד בעברית לתכונה עצמה, בלי רמת הנטייה (למשל \"רגישות לטעם מלוח\" " +
+    "ולא \"רגישות בינונית לטעם מלוח\"). לאותה תכונה בשורות שונות — אותו שם בדיוק.\n" +
+    "3. descriptionHe — תיאור קצר בעברית של מה שהתכונה מתארת.\n" +
+    "4. medicalSystem — קוד מערכת הגוף שהתכונה נוגעת בה לפי השפעתה (למשל טעם ותזונה → מערכת העיכול, " +
+    "פציעות ספורט → מערכת השלד והשרירים), מתוך הרשימה בלבד: " + (systemsList || "SYS00-SYS14") +
+    ". אם לא ברור — SYS00.\n" +
+    "5. panelCode — הפאנל לפי משמעות התכונה, מתוך הרשימה הסגורה הבאה בלבד:" + panelList + "\n" +
+    "כותרת הקטע במסמך היא רמז בלבד — \"סיכום ממצאים\" אינה פאנל. אסור להמציא פאנל שאינו ברשימה. " +
+    "אם אין התאמה ברורה — " + S15_GEN_DEFAULT_PANEL + ".\n" +
+    "6. geneDescriptionHe — רק אם צוין גן בשורה: תיאור קצר בעברית של תפקיד הגן. אחרת — מחרוזת ריקה.\n" +
+    "לשורה שמסומנת \"תכונה ידועה\" — החזר את אותו traitCode, וקבע את panelCode.\n" +
+    "תכונות מוכרות (קוד = שם — תיאור):" + (knownList || "\n  (אין עדיין)") + "\n" +
+    rowsBlock +
+    "\nהחזר JSON בלבד, ללא טקסט נוסף, בפורמט: " +
+    '{"results":[{"rowIndex":0,"traitCode":"","traitNameHe":"","descriptionHe":"","medicalSystem":"","panelCode":"","geneDescriptionHe":""},...]}' +
+    " — מערך אחד עם " + pending.length + " איברים, לפי סדר השורות לעיל.";
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פענוח תשובה לשורת גנטיקה — מחזיר {values:[I, J, K, Q], isNew} או null.
+// סדר ההכרעה בקוד התכונה: התאמה בשם המסמך → קוד מוכר מ-Gemini → התאמה
+// בשם המנורמל → קוד חדש (אחד לכל שם מנורמל בריצה). קטלוג מאומת גובר
+// גם על המערכת. פאנל מחוץ לרשימה → PNL-G00. גן חדש → הצעה ממתינה.
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_genBuildRow(item, result, state, suggestions) {
+  if (!state.panels[S15_GEN_DEFAULT_PANEL]) {
+    Logger.log("[S15] בלוק הפאנלים חסר " + S15_GEN_DEFAULT_PANEL + " — שורה " + item.row + " לא נכתבה");
+    return null;
+  }
+
+  let panel = String(result.panelCode || "").toUpperCase().replace(/\s/g, "");
+  if (!state.panels[panel]) {
+    Logger.log("[S15] שורה " + item.row + " — פאנל מחוץ לרשימה (" + result.panelCode + ") → " + S15_GEN_DEFAULT_PANEL);
+    panel = S15_GEN_DEFAULT_PANEL;
+  }
+
+  let system = _s15_cleanCode(result.medicalSystem, /^SYS\d{2}$/);
+  if (system && !state.systems[system] && Object.keys(state.systems).length) system = "";
+
+  const nameHe = String(result.traitNameHe || "").trim() || item.name;
+
+  let entry = item.catalogMatch;
+  if (!entry) {
+    const geminiCode = _s15_cleanCode(result.traitCode, /^GTR-\d{3}$/);
+    if (geminiCode && state.knownCodes[geminiCode]) entry = state.knownCodes[geminiCode];
+  }
+  if (!entry) entry = _s15_findInCatalog(state.known, nameHe);
+
+  let code  = "";
+  let isNew = false;
+  if (entry && !entry.pending) {
+    code   = entry.code;                         // הקטלוג המאומת גובר על הצעת Gemini
+    system = entry.system || system;
+  } else {
+    if (entry) {
+      code = entry.code;                         // הצעה ממתינה מריצה קודמת — אותו קוד
+    } else {
+      const key = _s15_normalizeName(nameHe);
+      code = state.assigned[key] || "";
+      if (!code) {
+        if (state.nextNum > S15_GEN_TRAIT_MAX) {
+          Logger.log("[S15] שורה " + item.row + " — נגמרו קודי התכונה (" + S15_GEN_TRAIT_PREFIX + S15_GEN_TRAIT_MAX + ")");
+          return null;
+        }
+        code = S15_GEN_TRAIT_PREFIX + ("00" + state.nextNum).slice(-3);
+        state.nextNum++;
+        state.assigned[key] = code;
+      }
+    }
+    const prev = suggestions[code];
+    suggestions[code] = {
+      name:   (prev && prev.name) || (entry && entry.name) || nameHe,
+      desc:   (prev && prev.desc) || (entry && entry.desc) || String(result.descriptionHe || "").trim(),
+      raw:    prev ? (prev.raw.indexOf(item.name) === -1 ? prev.raw.concat([item.name]) : prev.raw) : [item.name],
+      system: (prev && prev.system) || (entry && entry.system) || system,
+      block:  "traits"
+    };
+    system = suggestions[code].system || system; // אותה מערכת לכל שורות התכונה
+    isNew  = true;
+  }
+
+  // גן (עמודה M) — רק סמל תקין שאינו בקטלוג הגנים; העמודה עצמה לא נכתבת
+  const geneRaw = String(item.ctx.geneSymbol || "").trim();
+  if (geneRaw) {
+    const gene = _s15_cleanCode(geneRaw, S15_GEN_GENE_PATTERN);
+    if (!gene) {
+      Logger.log("[S15] שורה " + item.row + " — סמל גן לא תקין, לא הוצע: " + geneRaw);
+    } else if (!state.genes[gene]) {
+      const prevGene = suggestions[gene];
+      suggestions[gene] = {
+        name:   gene,
+        desc:   (prevGene && prevGene.desc) || String(result.geneDescriptionHe || "").trim(),
+        raw:    prevGene ? (prevGene.raw.indexOf(geneRaw) === -1 ? prevGene.raw.concat([geneRaw]) : prevGene.raw) : [geneRaw],
+        system: (prevGene && prevGene.system) || system,
+        block:  "genes"
+      };
+    }
+  }
+
+  return { values: [system, code, panel, S15_STATUS_SUGGESTED], isNew: isNew };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task #264 שלב 4] אימות גנטיקה — חלון S16 במצב "gen". אותה תבנית כמו
+// אימות המעבדה: S15 שומר את נתוני השורה תחת S16_PROP_KEY ופותח את
+// S16_Sidebar.html; החלון מזהה payload.mode="gen". ניווט ואישור:
+// s15_genLoadRowByNumber / s15_genApprove. קוד התכונה נבחר רק מהקודים
+// המוכרים (מאומתים או ממתינים); שמות המסמכים (Raw_Value) מחושבים בשרת
+// ואינם נשלחים מהחלון (לקח #266). קוד ממתין — נכתב לקטלוג באישור; קוד
+// מאומת — נתוני הקטלוג גוברים. מסלולי התרופות, ההנחיות והמעבדה לא משתנים.
+// ══════════════════════════════════════════════════════════════════
+
+const S15_GEN_SHEET = "בדיקות_גנטיות";
+
+// מספרי עמודות בגליון בדיקות_גנטיות (1 = A)
+const S15_GEN_COLS = {
+  date: 1, panelName: 2, geneVariant: 3, name: 4, significance: 5, recommendation: 6,
+  sourceUrl: 7, fileId: 8, system: 9, code: 10, panel: 11, tendency: 12,
+  gene: 13, variant: 14, genotype: 15, acmg: 16, enrich: 17
+};
+
+// ══════════════════════════════════════════════════════════════════
+// עזר — הגדרת בלוק הגנים במיפוי_קודים (CC-CH) לפונקציות הקטלוג הכלליות
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_genGeneDomain() {
+  return { sheetName: S15_GEN_SHEET, catalogFirstCol: S15_GEN_GENE_FIRST_COL, catalogWidth: S15_GEN_GENE_WIDTH };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// פתיחת חלון האימות לגליון הגנטיקה (נקרא מ-s15_showValidation)
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_genShowValidation(ss, sheet, ui) {
+  if (typeof S16_PROP_KEY === "undefined") {
+    ui.alert("❌ שירות S16 לא נמצא (S16_ValidateMedicalStatus.gs) — חלון האימות אינו זמין.");
+    return;
+  }
+
+  const row          = sheet.getActiveCell().getRow();
+  const firstDataRow = (SHEET_CONFIG[S15_GEN_SHEET] && SHEET_CONFIG[S15_GEN_SHEET].FIRST_DATA_ROW) || 5;
+  if (row < firstDataRow) {
+    ui.alert("⚠️ נא לעמוד על שורת נתונים (לא על הכותרת).");
+    return;
+  }
+
+  const payload = _s15_genBuildValidationPayload(ss, sheet, row);
+  if (!payload) {
+    ui.alert("❌ לא ניתן לטעון נתוני שורה " + row);
+    return;
+  }
+
+  PropertiesService.getScriptProperties().setProperty(S16_PROP_KEY, JSON.stringify(payload));
+
+  const html = HtmlService
+    .createTemplateFromFile("S16_Sidebar")
+    .evaluate()
+    .setWidth(1100)
+    .setHeight(750)
+    .setTitle("S15 — אימות גנטיקה");
+
+  ui.showModalDialog(html, "🧬 S15 — " + S15_GEN_SHEET + " | שורה " + row);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// רשימות הבחירה בחלון הגנטיקה — knownCodes: כל קודי התכונה המוכרים
+// (מאומתים וממתינים; לא גנים) עם שם, תיאור, מערכת ושמות במסמכים —
+// לעדכון מיידי בחלון ולהתראת קוד כפול. פאנלים — קודי PNL-G בלבד.
+// קריאה בלבד ממיפוי_קודים.
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_genReadOptions(ss, domain, catalog, pending) {
+  const knownCodes = {};
+  Object.keys(pending).forEach(function(k) {
+    if (!domain.codePattern.test(k)) return; // רק הצעות תכונה, לא גנים
+    const p = pending[k] || {};
+    knownCodes[k] = {
+      name: p.name || "", desc: p.desc || "", system: p.system || "",
+      raw: Array.isArray(p.raw) ? p.raw : [], source: "suggested"
+    };
+  });
+  catalog.forEach(function(e) {
+    if (!domain.codePattern.test(e.code)) return;
+    knownCodes[e.code] = { name: e.name, desc: e.desc, system: e.system, raw: e.raw, source: "verified" };
+  });
+
+  const panelOptions = _s15_readCatalog(ss, { catalogFirstCol: S15_LAB_PANEL_FIRST_COL, catalogWidth: S15_LAB_PANEL_WIDTH })
+    .filter(function(e) { return e.code.indexOf(S15_GEN_PANEL_PREFIX) === 0; })
+    .map(function(e) { return { code: e.code, name: e.name }; });
+
+  const bodySystemOptions = [];
+  if (typeof S13_BODY_SYSTEMS !== "undefined") {
+    Object.keys(S13_BODY_SYSTEMS).forEach(function(k) {
+      bodySystemOptions.push({ code: k, nameHe: S13_BODY_SYSTEMS[k].nameHe });
+    });
+  }
+
+  return { knownCodes: knownCodes, panelOptions: panelOptions, bodySystemOptions: bodySystemOptions };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// בניית נתוני שורת גנטיקה לחלון — מהשורה, מקטלוג התכונות (BM-BR) ומקטלוג
+// הגנים (CC-CH), ומההצעות השמורות. הנטייה (L) — לתצוגה בלבד.
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_genBuildValidationPayload(ss, sheet, row) {
+  const C            = S15_GEN_COLS;
+  const firstDataRow = (SHEET_CONFIG[S15_GEN_SHEET] && SHEET_CONFIG[S15_GEN_SHEET].FIRST_DATA_ROW) || 5;
+  const lastRow      = sheet.getLastRow();
+  if (row < firstDataRow || row > lastRow) return null;
+
+  const width = Math.min(C.enrich, sheet.getMaxColumns());
+  const vals  = sheet.getRange(row, 1, 1, width).getValues()[0];
+  function get(col) { return col <= width ? vals[col - 1] : ""; }
+  function str(v)   { return String(v === null || v === undefined ? "" : v).trim(); }
+
+  const traitName = str(get(C.name));
+  if (!traitName) return null;
+
+  const domain  = _s15_getDomain(S15_GEN_SHEET);
+  const catalog = _s15_readCatalog(ss, domain);
+  const pending = _s15_getPendingCatalog()[S15_GEN_SHEET] || {};
+  const options = _s15_genReadOptions(ss, domain, catalog, pending);
+
+  const rowSystem = str(get(C.system));
+  const code      = str(get(C.code)).toUpperCase();
+  const known     = code ? options.knownCodes[code] : null;
+
+  let catalogSource = "none";
+  let catalogInfo   = { name: "", desc: "", system: rowSystem };
+  if (known) {
+    catalogSource = known.source;
+    catalogInfo   = { name: known.name, desc: known.desc, system: known.system || rowSystem };
+  }
+
+  // גן — מהקטלוג המאומת, מהצעה ממתינה (block="genes"), או ללא
+  const geneText   = str(get(C.gene));
+  const geneSymbol = geneText.toUpperCase().replace(/\s/g, "");
+  let geneSource   = "none";
+  let geneInfo     = { name: "", desc: "" };
+  if (geneSymbol) {
+    const geneEntry = _s15_readCatalog(ss, _s15_genGeneDomain()).filter(function(e) {
+      return e.code.toUpperCase() === geneSymbol;
+    })[0];
+    const geneSugg = pending[geneSymbol] && pending[geneSymbol].block === "genes" ? pending[geneSymbol] : null;
+    if (geneEntry) {
+      geneSource = "verified";
+      geneInfo   = { name: geneEntry.name, desc: geneEntry.desc };
+    } else if (geneSugg) {
+      geneSource = "suggested";
+      geneInfo   = { name: geneSugg.name || "", desc: geneSugg.desc || "" };
+    }
+  }
+
+  return {
+    mode:              "gen",
+    sheetName:         S15_GEN_SHEET,
+    row:               row,
+    firstDataRow:      firstDataRow,
+    lastRow:           lastRow,
+    enrichStatus:      str(get(C.enrich)),
+    traitName:         traitName,
+    panelName:         str(get(C.panelName)),
+    significance:      str(get(C.significance)),
+    recommendation:    str(get(C.recommendation)),
+    tendency:          str(get(C.tendency)),
+    testDate:          _s15_formatDate(get(C.date)),
+    sourceUrl:         str(get(C.sourceUrl)),
+    docIssuer:         "",
+    doctorNote:        "",
+    code:              code,
+    catalogSource:     catalogSource,
+    catalog:           catalogInfo,
+    panel:             str(get(C.panel)).toUpperCase(),
+    geneSymbol:        geneText,
+    geneVariant:       str(get(C.geneVariant)),
+    variantId:         str(get(C.variant)),
+    genotype:          str(get(C.genotype)),
+    acmg:              str(get(C.acmg)),
+    geneSource:        geneSource,
+    gene:              geneInfo,
+    knownCodes:        options.knownCodes,
+    panelOptions:      options.panelOptions,
+    bodySystemOptions: options.bodySystemOptions
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ניווט הקודם/הבא בחלון במצב גנטיקה — מחזיר payload חדש ושומר אותו
+// ══════════════════════════════════════════════════════════════════
+
+function s15_genLoadRowByNumber(row) {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(S15_GEN_SHEET);
+    if (!sheet) return { error: true, msg: "❌ גליון לא נמצא: " + S15_GEN_SHEET };
+
+    const payload = _s15_genBuildValidationPayload(ss, sheet, row);
+    if (!payload) return { error: true, msg: "❌ לא ניתן לטעון שורה " + row };
+
+    if (typeof S16_PROP_KEY !== "undefined") {
+      PropertiesService.getScriptProperties().setProperty(S16_PROP_KEY, JSON.stringify(payload));
+    }
+    return payload;
+  } catch (e) {
+    Logger.log("[S15] s15_genLoadRowByNumber שגיאה: " + e.message);
+    return { error: true, msg: "❌ שגיאה: " + e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// עזר לאישור — כתיבה לקטלוג התכונות (BM-BR). קוד מאומת — נתוני הקטלוג
+// גוברים ורק שם התכונה נוסף ל-Raw_Value; קוד ממתין — שורה חדשה בבלוק,
+// בעיצוב טקסט. Raw_Value מחושב מההצעה ומשם התכונה — לא מהחלון.
+// מחזיר { system, msg } או { error }.
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_genWriteTraitCatalog(ss, domain, code, traitName, system, v, pending) {
+  let msg = "";
+  const catalog  = _s15_readCatalog(ss, domain);
+  const entry    = catalog.filter(function(e) { return e.code === code; })[0];
+  const mapSheet = ss.getSheetByName(CODE_MAP_SHEET_NAME);
+  const key      = _s15_normalizeName(traitName);
+
+  if (entry) {
+    system = entry.system || system;
+    const known = _s15_normalizeName(entry.name) === key ||
+      entry.raw.some(function(n) { return _s15_normalizeName(n) === key; });
+    if (!known) {
+      mapSheet.getRange(entry.row, domain.catalogFirstCol + 3).setValue(entry.raw.concat([traitName]).join(", "));
+      msg = " — ⚠️ השם \"" + traitName + "\" נוסף לקוד " + code + " (" + entry.name + ")";
+    }
+    return { system: system, msg: msg };
+  }
+
+  const sugg = pending[code];
+  if (!sugg) return { error: "❌ הקוד " + code + " אינו בקטלוג ואינו בהצעות הממתינות" };
+
+  const raw = (Array.isArray(sugg.raw) ? sugg.raw : [])
+    .map(function(s) { return String(s || "").trim(); })
+    .filter(function(s) { return s; });
+  if (!raw.some(function(n) { return _s15_normalizeName(n) === key; })) raw.push(traitName);
+
+  const name   = String(v.traitName || "").trim() || String(sugg.name || "").trim() || traitName;
+  const desc   = String(v.description || "").trim() || String(sugg.desc || "").trim();
+  const newRow = _s15_lastCatalogRow(ss, domain) + 1;
+  const newRange = mapSheet.getRange(newRow, domain.catalogFirstCol, 1, domain.catalogWidth);
+  newRange.setNumberFormat("@");
+  newRange.setValues([[code, name, desc, raw.join(", "), "", system]]);
+
+  return { system: system, msg: " — קוד חדש " + code + " נוסף לקטלוג התכונות (שורה " + newRow + ")" };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// עזר לאישור — כתיבה לקטלוג הגנים (CC-CH): גן שאינו בקטלוג מקבל שורה
+// חדשה (בעיצוב טקסט); גן קיים — ללא שינוי. מחזיר הודעה (או "").
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_genWriteGene(ss, symbol, rawText, system, v, pending) {
+  const domain = _s15_genGeneDomain();
+  const exists = _s15_readCatalog(ss, domain).some(function(e) { return e.code.toUpperCase() === symbol; });
+  if (exists) return "";
+
+  const sugg = pending[symbol] && pending[symbol].block === "genes" ? pending[symbol] : null;
+  const raw  = (sugg && Array.isArray(sugg.raw) ? sugg.raw : [])
+    .map(function(s) { return String(s || "").trim(); })
+    .filter(function(s) { return s; });
+  if (rawText && raw.indexOf(rawText) === -1) raw.push(rawText);
+
+  const name   = String(v.geneName || "").trim() || (sugg && String(sugg.name || "").trim()) || symbol;
+  const desc   = String(v.geneDescription || "").trim() || (sugg && String(sugg.desc || "").trim()) || "";
+  const geneSystem = (sugg && String(sugg.system || "").trim()) || system;
+
+  const mapSheet = ss.getSheetByName(CODE_MAP_SHEET_NAME);
+  const newRow   = _s15_lastCatalogRow(ss, domain) + 1;
+  const newRange = mapSheet.getRange(newRow, domain.catalogFirstCol, 1, domain.catalogWidth);
+  newRange.setNumberFormat("@");
+  newRange.setValues([[symbol, name, desc, raw.join(", "), "", geneSystem]]);
+
+  return " — גן חדש " + symbol + " נוסף לקטלוג הגנים (שורה " + newRow + ")";
+}
+
+// ══════════════════════════════════════════════════════════════════
+// עזר לאישור — ניקוי הצעות ממתינות: הקוד שאושר והגן שאושר נמחקים;
+// הקוד המקורי של השורה, אם הוחלף, נמחק רק כשאף שורה אחרת שלא אומתה
+// לא משתמשת בו (מניעת הצעות יתומות). מחזיר הודעה (או "").
+// ══════════════════════════════════════════════════════════════════
+
+function _s15_genCleanupPending(sheet, row, approvedCode, originalCode, geneSymbol) {
+  const all = _s15_getPendingCatalog();
+  const cur = all[S15_GEN_SHEET];
+  if (!cur) return "";
+
+  let changed = false;
+  let msg     = "";
+  if (cur[approvedCode]) {
+    delete cur[approvedCode];
+    changed = true;
+  }
+  if (geneSymbol && cur[geneSymbol] && cur[geneSymbol].block === "genes") {
+    delete cur[geneSymbol];
+    changed = true;
+  }
+  if (originalCode && originalCode !== approvedCode && cur[originalCode]) {
+    const C            = S15_GEN_COLS;
+    const firstDataRow = (SHEET_CONFIG[S15_GEN_SHEET] && SHEET_CONFIG[S15_GEN_SHEET].FIRST_DATA_ROW) || 5;
+    const lastRow      = sheet.getLastRow();
+    let inUse = false;
+    if (lastRow >= firstDataRow) {
+      const data = sheet.getRange(firstDataRow, C.code, lastRow - firstDataRow + 1, C.enrich - C.code + 1).getValues();
+      inUse = data.some(function(r, i) {
+        if (firstDataRow + i === row) return false;
+        const c = String(r[0] || "").trim().toUpperCase();
+        const s = String(r[C.enrich - C.code] || "").trim();
+        return c === originalCode && s !== S15_STATUS_VERIFIED;
+      });
+    }
+    if (!inUse) {
+      delete cur[originalCode];
+      changed = true;
+      msg = " — ההצעה " + originalCode + " נמחקה (לא בשימוש)";
+    }
+  }
+
+  if (changed) {
+    all[S15_GEN_SHEET] = cur;
+    PropertiesService.getScriptProperties().setProperty(S15_PROP_PENDING_CATALOG, JSON.stringify(all));
+  }
+  return msg;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// אישור שורת גנטיקה — כותב I-K (מערכת, קוד תכונה, פאנל; בעיצוב טקסט)
+// ו-Q ("מאומת"); M (סמל גן) נכתב רק אם שונה בחלון. הנטייה (L) ושאר
+// העמודות לא נכתבות. קטלוג התכונות — קוד ממתין → שורה חדשה, קוד מאומת →
+// הוספת שם; קטלוג הגנים — גן חדש → שורה חדשה. כל הבדיקות לפני כתיבה.
+// v = { code, traitName, description, medicalSystem, panel, geneSymbol,
+//       geneName, geneDescription } — geneSymbol null = מקטע הגן לא הוצג.
+// ══════════════════════════════════════════════════════════════════
+
+function s15_genApprove(row, v) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return { success: false, msg: "⏳ פעולה אחרת רצה כרגע — נסה שוב" };
+
+  try {
+    const C      = S15_GEN_COLS;
+    const ss     = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet  = ss.getSheetByName(S15_GEN_SHEET);
+    const domain = _s15_getDomain(S15_GEN_SHEET);
+    if (!sheet) return { success: false, msg: "❌ גליון לא נמצא: " + S15_GEN_SHEET };
+    if (sheet.getMaxColumns() < C.enrich) return { success: false, msg: "❌ חסרות עמודות ההעשרה (I-Q) בגליון" };
+
+    const rowVals   = sheet.getRange(row, 1, 1, C.enrich).getValues()[0];
+    const traitName = String(rowVals[C.name - 1] || "").trim();
+    if (!traitName) return { success: false, msg: "❌ שורה " + row + " ריקה" };
+    const originalCode = String(rowVals[C.code - 1] || "").trim().toUpperCase();
+
+    // ── קוד התכונה — חובה, רק מהקודים המוכרים ──
+    const code = String(v.code || "").toUpperCase().replace(/\s/g, "");
+    if (!code) return { success: false, msg: "❌ יש לבחור קוד תכונה מהרשימה" };
+    if (!domain.codePattern.test(code)) return { success: false, msg: "❌ קוד תכונה לא תקין: " + code };
+    const pending   = _s15_getPendingCatalog()[S15_GEN_SHEET] || {};
+    const inCatalog = _s15_readCatalog(ss, domain).some(function(e) { return e.code === code; });
+    if (!inCatalog && !pending[code]) {
+      return { success: false, msg: "❌ הקוד " + code + " אינו ברשימת הקודים המוכרים — יש לבחור מהרשימה" };
+    }
+
+    let system = String(v.medicalSystem || "").trim();
+    if (system && !/^SYS\d{2}$/.test(system)) return { success: false, msg: "❌ קוד מערכת גוף לא תקין: " + system };
+
+    const panel  = String(v.panel || "").toUpperCase().replace(/\s/g, "");
+    const panels = _s15_readCatalog(ss, { catalogFirstCol: S15_LAB_PANEL_FIRST_COL, catalogWidth: S15_LAB_PANEL_WIDTH });
+    const panelOk = panel.indexOf(S15_GEN_PANEL_PREFIX) === 0 && panels.some(function(p) { return p.code === panel; });
+    if (!panelOk) return { success: false, msg: "❌ יש לבחור פאנל גנטי מהרשימה" };
+
+    // ── גן — סמל מהחלון (אם המקטע הוצג), אחרת מהשורה ──
+    const geneText    = String(rowVals[C.gene - 1] || "").trim();
+    const geneFromWin = (v.geneSymbol !== null && v.geneSymbol !== undefined);
+    const geneInput   = geneFromWin ? String(v.geneSymbol || "").trim() : geneText;
+    const geneSymbol  = geneInput.toUpperCase().replace(/\s/g, "");
+    if (geneSymbol && !S15_GEN_GENE_PATTERN.test(geneSymbol)) {
+      return { success: false, msg: "❌ סמל גן לא תקין: " + geneInput + " (סמל אחד, למשל MTHFR)" };
+    }
+    const geneChanged = geneFromWin && geneSymbol !== geneText.toUpperCase().replace(/\s/g, "");
+
+    // ── קטלוגים ──
+    const cat = _s15_genWriteTraitCatalog(ss, domain, code, traitName, system, v, pending);
+    if (cat.error) return { success: false, msg: cat.error };
+    system = cat.system;
+    const geneMsg = geneSymbol ? _s15_genWriteGene(ss, geneSymbol, geneText || geneInput, system, v, pending) : "";
+
+    // ── שורת התכונה ── (I-K בעיצוב טקסט)
+    const target = sheet.getRange(row, C.system, 1, 3);
+    target.setNumberFormat("@");
+    target.setValues([[system, code, panel]]);
+    if (geneChanged) sheet.getRange(row, C.gene).setValue(geneSymbol);
+    sheet.getRange(row, C.enrich).setValue(S15_STATUS_VERIFIED);
+
+    const cleanMsg = _s15_genCleanupPending(sheet, row, code, originalCode, geneSymbol);
+
+    Logger.log("[S15] תכונה בשורה " + row + " (" + traitName + ") אושרה — " + code + " | " + panel + cat.msg + geneMsg + cleanMsg);
+    return { success: true, msg: "✅ שורה " + row + " אושרה" + cat.msg + geneMsg + cleanMsg };
+
+  } catch (e) {
+    Logger.log("[S15] s15_genApprove שגיאה: " + e.message);
     return { success: false, msg: "❌ שגיאה: " + e.message };
   } finally {
     lock.releaseLock();
