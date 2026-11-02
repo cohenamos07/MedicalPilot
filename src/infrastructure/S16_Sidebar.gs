@@ -1,6 +1,6 @@
 <!--
   MedicalPilot — S16_Sidebar.html
-  @version     2.9.0 | @updated 31/10/2026 19:04 | @service S16
+  @version     2.10.0 | @updated 02/11/2026 20:24 | @service S16
   @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_Sidebar.html
   @description ממשק Dialog לאימות כל קודי הסיווג ביומן_מצב_רפואי (21 עמודות):
                קוד מערכת גוף (select סגור), קוד אירוע/התמחות/חומרה/אבחנה
@@ -37,6 +37,12 @@
                קטלוג (שם, תיאור, מערכת גוף, שמות במסמכים), פאנל (חובה, רשימה
                סגורה), ערך מספרי, יחידה וגבולות טווח; שמאל — מטא-דאטה ותצוגת
                מסמך מקור. התראה אדומה, לא חוסמת, כשהקוד כבר משויך לבדיקה אחרת.
+               [v2.10.0] מצב גנטיקה (payload.mode="gen", מ-S15): אותו חלון מציג
+               שורה מגליון בדיקות_גנטיות — התכונה במסמך (תצוגה, כולל הנטייה), קוד
+               תכונה (בחירה מהקודים המוכרים בלבד; שם, תיאור ומערכת מתעדכנים לפי
+               הקוד ונעולים כשהוא מאומת), פאנל (חובה, PNL-G), ומקטע גן רק כשיש
+               בשורה גן/וריאנט/גנוטיפ/סיווג; שמאל — renderLabLeftCol. אחרי אישור —
+               מעבר אוטומטי לשורה הבאה (במצב גנטיקה בלבד).
   @impacts     כפתורים: אשר, הוסף-קוד (4, אחד לכל שדה קטלוג פתוח), ניווט
                הקודם/הבא. תלוי ב: S16_ValidateMedicalStatus.gs — כל
                הלוגיקה מתבצעת שם.
@@ -59,16 +65,36 @@
                [v2.9.0] במצב מעבדה: ניווט וטעינה מחדש — s15_labLoadRowByNumber,
                אישור — s15_labApprove(row, v) (S15_EnrichCatalog.gs). מצבי
                התרופות, ההנחיות והמצב הרפואי — ללא שינוי.
+               [v2.10.0] במצב גנטיקה: ניווט — s15_genLoadRowByNumber, אישור —
+               s15_genApprove(row, v) עם 8 שדות (S15_EnrichCatalog.gs); שמות
+               המסמכים לא נשלחים מהחלון (לקח #266). אחרי אישור מוצלח נטענת השורה
+               הבאה. מצבי התרופות, ההנחיות, המעבדה והמצב הרפואי — ללא שינוי.
   @callers     S16_ValidateMedicalStatus.gs (showS16Sidebar)
                S15_EnrichCatalog.gs (s15_showValidation — מצב תרופות)
                S15_EnrichCatalog.gs (s15_showValidation — מצב הנחיות, [v2.7.0])
                S15_EnrichCatalog.gs (s15_showValidation — מצב מעבדה, [v2.9.0])
+               S15_EnrichCatalog.gs (s15_showValidation — מצב גנטיקה, [v2.10.0])
   @functions   initUI, render, renderCodeFieldHtml, esc, prevRow, nextRow,
                doApprove, doSaveCatalogCode, handleResult, handleError,
                fillOrganOptions, suggestionHintHtml, toggleNewCode, geminiHintHtml,
                organStateHtml, renderMedication, doApproveMedication,
                renderInstruction, updateInstrKindHint, doApproveInstruction, allergyHtml,
-               renderLab, renderLabLeftCol, updateLabCodeHint, doApproveLab
+               renderLab, renderLabLeftCol, updateLabCodeHint, doApproveLab,
+               renderGen, onGenCodeChange, updateGenCodeHint, doApproveGen
+  @changes     [v2.10.0] Task #264 שלב 4 — מצב גנטיקה בחלון הקיים (בלי חלון
+               חדש, תוספת בלבד). render: מעבר ל-renderGen כש-payload.mode="gen".
+               renderGen (חדשה): כותרת "🧬 S15 — אימות גנטיקה", התכונה במסמך
+               (תצוגה, כולל הנטייה), קוד תכונה (select מהקודים המוכרים, מאומת
+               / ממתין), שם אחיד, תיאור, מערכת גוף, פאנל (חובה) ומקטע גן מותנה.
+               onGenCodeChange (חדשה): מילוי ונעילה לפי הקוד שנבחר.
+               updateGenCodeHint (חדשה): התראה אדומה, לא חוסמת, כשהקוד משויך
+               לשמות אחרים. doApproveGen (חדשה): בדיקת קוד ופאנל ושליחה ל-
+               s15_genApprove. prevRow/nextRow — טעינה דרך s15_genLoadRowByNumber;
+               doApprove — מעבר ל-doApproveGen; handleResult — מעבר אוטומטי לשורה
+               הבאה במצב גנטיקה. אומת מול הקוד החי (diff מדויק אחרי כל בלוק,
+               בדיקת תחביר לסקריפט), בהרצה מדומה ובבדיקת שטח: שורות 5-6 אושרו
+               עם מעבר אוטומטי, פאנל ריק נחסם, קוד מאומת ננעל עם התראת שם אחר;
+               חלונות המעבדה, ההנחיות והמצב הרפואי ללא שינוי.
   @changes     [v2.9.0] Task #263 שלב 5 — מצב מעבדה בחלון הקיים (בלי חלון
                חדש, תוספת בלבד). render: מעבר ל-renderLab כש-payload.mode=
                "lab". renderLab (חדשה): כותרת "🧪 S15 — אימות מעבדה ומדדים",
@@ -567,6 +593,8 @@
 
     // [Task #263 שלב 5] מצב מעבדה — payload מ-S15 (s15_showValidation / s15_labLoadRowByNumber)
     if (payload.mode === 'lab') { renderLab(payload); return; }
+    // [Task #264 שלב 4] מצב גנטיקה — payload מ-S15 (s15_showValidation / s15_genLoadRowByNumber)
+    if (payload.mode === 'gen') { renderGen(payload); return; }
 
     document.getElementById('rowMeta').textContent =
       'שורה ' + payload.row + ' מתוך ' + payload.lastRow;
@@ -709,6 +737,11 @@
       google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_labLoadRowByNumber(target);
       return;
     }
+    // [Task #264 שלב 4] מצב גנטיקה — טעינה דרך S15
+    if (currentPayload.mode === 'gen') {
+      google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_genLoadRowByNumber(target);
+      return;
+    }
     google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(target);
   }
 
@@ -731,6 +764,11 @@
       google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_labLoadRowByNumber(target);
       return;
     }
+    // [Task #264 שלב 4] מצב גנטיקה — טעינה דרך S15
+    if (currentPayload.mode === 'gen') {
+      google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_genLoadRowByNumber(target);
+      return;
+    }
     google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(target);
   }
 
@@ -742,6 +780,8 @@
     if (currentPayload.mode === 'instruction') { doApproveInstruction(); return; }
     // [Task #263 שלב 5] מצב מעבדה — אישור דרך S15
     if (currentPayload.mode === 'lab') { doApproveLab(); return; }
+    // [Task #264 שלב 4] מצב גנטיקה — אישור דרך S15
+    if (currentPayload.mode === 'gen') { doApproveGen(); return; }
     const sysCode   = document.getElementById('sysCodeSelect').value;
     const certCode  = document.getElementById('certaintySelect').value;
     const organCode = document.getElementById('organSelect').value;
@@ -802,6 +842,10 @@
         } else if (currentPayload.mode === 'lab') {
           // [Task #263 שלב 5] מצב מעבדה — טעינה מחדש דרך S15
           google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_labLoadRowByNumber(currentPayload.row);
+        } else if (currentPayload.mode === 'gen') {
+          // [Task #264 שלב 4] מצב גנטיקה — מעבר אוטומטי לשורה הבאה (בשורה האחרונה — טעינה מחדש)
+          const nextGen = (currentPayload.row < currentPayload.lastRow) ? currentPayload.row + 1 : currentPayload.row;
+          google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s15_genLoadRowByNumber(nextGen);
         } else {
           google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(currentPayload.row);
         }
@@ -1218,6 +1262,171 @@
     if (!v.panel) { handleError({ msg: "❌ יש לבחור פאנל מהרשימה" }); return; }
     google.script.run.withSuccessHandler(handleResult).withFailureHandler(handleError)
       .s15_labApprove(currentPayload.row, v);
+  }
+
+  // ════ [Task #264 שלב 4] מצב גנטיקה — תצוגת שורה מגליון בדיקות_גנטיות ════
+  // ימין: התכונה במסמך (תצוגה בלבד, כולל הנטייה), קוד תכונה (בחירה מהקודים
+  // המוכרים בלבד) ונתוני קטלוג, פאנל (רשימה סגורה, PNL-G), ומקטע גן — רק
+  // כשיש בשורה גן/וריאנט/גנוטיפ/סיווג. שמאל: renderLabLeftCol (ללא שינוי).
+  // קוד מאומת — שדות הקטלוג נעולים. שמות המסמכים לא נשלחים מהחלון (#266).
+  function renderGen(p) {
+    document.querySelector('.header-title').textContent = '🧬 S15 — אימות גנטיקה';
+    document.getElementById('rowMeta').textContent =
+      'שורה ' + p.row + ' מתוך ' + p.lastRow + ' — ' + p.traitName;
+    document.getElementById('statusBadge').textContent = p.enrichStatus || '—';
+
+    const known = p.knownCodes || {};
+    const codes = Object.keys(known).sort();
+    let codeOptionsHtml = (p.code && known[p.code]) ? '' : '<option value="">— בחר —</option>';
+    codes.forEach(function(code) {
+      const k   = known[code];
+      const sel = (code === p.code) ? ' selected' : '';
+      codeOptionsHtml += '<option value="' + esc(code) + '"' + sel + '>' + esc(code) + ' — ' + esc(k.name) +
+        (k.source === 'verified' ? ' (מאומת)' : ' (ממתין)') + '</option>';
+    });
+
+    let sysOptionsHtml = '<option value="">— ללא —</option>';
+    (p.bodySystemOptions || []).forEach(function(opt) {
+      sysOptionsHtml += '<option value="' + esc(opt.code) + '">' + esc(opt.code) + ' — ' + esc(opt.nameHe) + '</option>';
+    });
+
+    let panelOptionsHtml = '<option value="">— בחר —</option>';
+    (p.panelOptions || []).forEach(function(opt) {
+      const sel = (opt.code === p.panel) ? ' selected' : '';
+      panelOptionsHtml += '<option value="' + esc(opt.code) + '"' + sel + '>' + esc(opt.code) + ' — ' + esc(opt.name) + '</option>';
+    });
+
+    function inputHtml(id, label, value, extra) {
+      return '<div style="flex:1; min-width:0;"><label class="edit-label">' + label + '</label>' +
+        '<input type="text" id="' + id + '" value="' + esc(value) + '"' + (extra || '') + '></div>';
+    }
+    function rowHtml(label, value) {
+      return '<div class="field-row"><div class="field-label">' + label + '</div><div class="field-value">' + esc(value) + '</div></div>';
+    }
+
+    const hasGene = !!(p.geneSymbol || p.geneVariant || p.variantId || p.genotype || p.acmg);
+    let geneHtml = '';
+    if (hasGene) {
+      const geneLock = (p.geneSource === 'verified') ? ' disabled' : '';
+      let geneHint;
+      if (p.geneSource === 'verified') {
+        geneHint = '<div class="hint" style="color:#2e7d32; font-weight:bold;">✅ גן מאומת בקטלוג — נתוני הגן נעולים</div>';
+      } else if (p.geneSource === 'suggested') {
+        geneHint = '<div class="hint" style="color:#e65100; font-weight:bold;">🤖 הצעת Gemini — הגן ייווסף לקטלוג באישור</div>';
+      } else {
+        geneHint = '<div class="hint">גן תקין שאינו בקטלוג ייווסף לקטלוג באישור; ריק — ללא גן</div>';
+      }
+      geneHtml =
+        '<div class="section">' +
+          '<div class="section-title">גן</div>' +
+          '<div style="display:flex; gap:8px;">' +
+            inputHtml('genGeneSymbol', 'סמל הגן (למשל MTHFR)', p.geneSymbol) +
+            inputHtml('genGeneName', 'שם הגן', p.gene.name, geneLock) +
+          '</div>' +
+          '<div style="margin-top:4px;">' + inputHtml('genGeneDesc', 'תיאור הגן (עברית)', p.gene.desc, geneLock) + '</div>' +
+          geneHint +
+          rowHtml('גן או וריאנט במסמך', p.geneVariant) + rowHtml('וריאנט', p.variantId) +
+          rowHtml('גנוטיפ', p.genotype) + rowHtml('סיווג ACMG', p.acmg) +
+        '</div>';
+    }
+
+    document.getElementById('rightCol').innerHTML =
+      '<div class="section">' +
+        '<div class="section-title">התכונה במסמך (תצוגה בלבד)</div>' +
+        rowHtml('שם התכונה', p.traitName) + rowHtml('כותרת הקטע', p.panelName) +
+        rowHtml('משמעות', p.significance) + rowHtml('נטייה', p.tendency) +
+        rowHtml('המלצה', p.recommendation) +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-title">קוד תכונה וקטלוג</div>' +
+        '<div style="display:flex; gap:8px;">' +
+          '<div style="flex:1; min-width:0;"><label class="edit-label">קוד תכונה (חובה, מהרשימה)</label>' +
+            '<select id="genCode" onchange="onGenCodeChange()">' + codeOptionsHtml + '</select></div>' +
+          inputHtml('genTraitName', 'שם אחיד (עברית)', '') +
+        '</div>' +
+        '<div id="genSourceHint"></div><div id="genCodeHint"></div>' +
+        '<div style="display:flex; gap:8px; margin-top:4px;">' +
+          inputHtml('genDesc', 'תיאור (עברית)', '') +
+          '<div style="flex:1; min-width:0;"><label class="edit-label">מערכת גוף</label>' +
+            '<select id="genSystem">' + sysOptionsHtml + '</select></div>' +
+        '</div>' +
+        '<div style="margin-top:4px;"><label class="edit-label">פאנל (חובה, רשימה סגורה)</label>' +
+          '<select id="genPanel">' + panelOptionsHtml + '</select></div>' +
+      '</div>' +
+      geneHtml;
+
+    onGenCodeChange();
+    renderLabLeftCol(p);
+  }
+
+  // ════ [Task #264 שלב 4] החלפת קוד תכונה — שם, תיאור ומערכת מנתוני הקוד ════
+  // קוד מאומת — השדות נעולים; קוד ממתין — ניתנים לעריכה. קוד הנוכחי של
+  // השורה — המערכת שבשורה גוברת על הצעת הקוד (כפי שנכתבה בהעשרה).
+  function onGenCodeChange() {
+    if (!currentPayload) return;
+    const p      = currentPayload;
+    const code   = document.getElementById('genCode').value;
+    const k      = (p.knownCodes || {})[code];
+    const isOwn  = (code === p.code);
+    const locked = !!(k && k.source === 'verified');
+
+    const nameEl = document.getElementById('genTraitName');
+    const descEl = document.getElementById('genDesc');
+    const sysEl  = document.getElementById('genSystem');
+    nameEl.value = k ? k.name : '';
+    descEl.value = k ? k.desc : '';
+    sysEl.value  = (isOwn && !locked) ? (p.catalog.system || '') : ((k && k.system) || '');
+    nameEl.disabled = locked;
+    descEl.disabled = locked;
+    sysEl.disabled  = locked;
+
+    let hint;
+    if (!code) {
+      hint = '<div class="hint" style="color:#c62828;">יש לבחור קוד תכונה מהרשימה</div>';
+    } else if (locked) {
+      hint = '<div class="hint" style="color:#2e7d32; font-weight:bold;">✅ קוד מאומת בקטלוג — נתוני הקטלוג נעולים</div>';
+    } else {
+      hint = '<div class="hint" style="color:#e65100; font-weight:bold;">🤖 הצעת Gemini — הקוד ייווסף לקטלוג באישור</div>';
+    }
+    document.getElementById('genSourceHint').innerHTML = hint;
+    updateGenCodeHint();
+  }
+
+  // ════ [Task #264 שלב 4] התראת קוד כפול (לא חוסמת) — שמות אחרים על אותו קוד ════
+  function updateGenCodeHint() {
+    const el = document.getElementById('genCodeHint');
+    if (!el || !currentPayload) return;
+    const code = document.getElementById('genCode').value;
+    const k    = (currentPayload.knownCodes || {})[code];
+    if (!k) { el.innerHTML = ''; return; }
+    function norm(t) { return String(t || '').toUpperCase().replace(/[^A-Z0-9\u0590-\u05FF]/g, ''); }
+    const me     = norm(currentPayload.traitName);
+    const others = (k.raw || []).filter(function(n) { return norm(n) !== me; });
+    el.innerHTML = others.length
+      ? '<div class="hint" style="color:#c62828; font-weight:bold;">⚠️ הקוד כבר משויך ל: ' + esc(others.join(', ')) +
+        ' — יש לוודא שזו אותה תכונה; האישור מותר</div>'
+      : '';
+  }
+
+  // ════ [Task #264 שלב 4] אישור שורת גנטיקה — s15_genApprove (S15_EnrichCatalog.gs) ════
+  // geneSymbol: null כשמקטע הגן לא הוצג — השרת לא נוגע בעמודת הגן
+  function doApproveGen() {
+    function val(id) { const el = document.getElementById(id); return el ? el.value.trim() : ''; }
+    const geneEl = document.getElementById('genGeneSymbol');
+    const v = {
+      code:            document.getElementById('genCode').value,
+      traitName:       val('genTraitName'),
+      description:     val('genDesc'),
+      medicalSystem:   document.getElementById('genSystem').value,
+      panel:           document.getElementById('genPanel').value,
+      geneSymbol:      geneEl ? geneEl.value.trim() : null,
+      geneName:        val('genGeneName'),
+      geneDescription: val('genGeneDesc')
+    };
+    if (!v.code)  { handleError({ msg: "❌ יש לבחור קוד תכונה מהרשימה" }); return; }
+    if (!v.panel) { handleError({ msg: "❌ יש לבחור פאנל מהרשימה" }); return; }
+    google.script.run.withSuccessHandler(handleResult).withFailureHandler(handleError)
+      .s15_genApprove(currentPayload.row, v);
   }
   function handleError(err) {
     const el = document.getElementById('statusMsg');
