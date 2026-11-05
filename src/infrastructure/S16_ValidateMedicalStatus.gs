@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S16_ValidateMedicalStatus.gs
- * @version     2.5.0 | @updated 29/10/2026 18:47 | @service S16
+ * @version     2.5.1 | @updated 03/11/2026 12:39 | @service S16
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_ValidateMedicalStatus.gs
  * @description שער אימות אנושי לכל קודי הסיווג בגליון יומן_מצב_רפואי (21
  *              עמודות, task214a): קוד מערכת גוף (Medical_System) — select
@@ -64,6 +64,11 @@
  *              _s16_saveCatalogCode | _s16_getCurrentPayload |
  *              _s16_keywordMatches | _s16_findKeywordSuggestion |
  *              _s16_buildOrganStatePayload | _s16_buildAllergyPayload
+ * @changes     [v2.5.1] Task #229 — כותרת חלון האימות (showModalDialog ב-showS16Sidebar)
+ *              לא כוללת עוד את מספר השורה: נקבעה פעם אחת בפתיחת החלון ולא התעדכנה
+ *              במעבר בחיצים. המספר הנכון מוצג בשורה הסגולה שבתוך החלון (rowMeta).
+ *              אותו תיקון בארבעת חלונות S15 (S15_EnrichCatalog.gs v1.8.0). אומת מול
+ *              הקוד החי (diff מדויק, node --check) ובבדיקה פונקציונלית בגליון.
  * @changes     [v2.5.0] Task #262 — רגישות/אלרגיה בשורות קוד אירוע A7. קבועים
  *              חדשים: S16_COL_ALLERGEN=25, S16_COL_REACTION=26, S16_ALLERGEN_MAP_
  *              FIRST_COL=53 (בלוק התרופות BA), S16_ALLERGEN_SUGGEST_COLS (אבחנה
@@ -270,7 +275,7 @@ function showS16Sidebar() {
     .setHeight(750)
     .setTitle("S16 — אימות מצב רפואי");
 
-  ui.showModalDialog(html, "🩺 S16 — " + MEDICAL_STATUS_SHEET_NAME + " | שורה " + row);
+  ui.showModalDialog(html, "🩺 S16 — " + MEDICAL_STATUS_SHEET_NAME);
 }
 
 // ══════════════════════════════════════════════════════════════════
