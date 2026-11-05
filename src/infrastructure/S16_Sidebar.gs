@@ -1,6 +1,6 @@
 <!--
   MedicalPilot — S16_Sidebar.html
-  @version     2.10.0 | @updated 02/11/2026 20:24 | @service S16
+  @version     2.11.0 | @updated 03/11/2026 12:44 | @service S16
   @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_Sidebar.html
   @description ממשק Dialog לאימות כל קודי הסיווג ביומן_מצב_רפואי (21 עמודות):
                קוד מערכת גוף (select סגור), קוד אירוע/התמחות/חומרה/אבחנה
@@ -43,6 +43,9 @@
                הקוד ונעולים כשהוא מאומת), פאנל (חובה, PNL-G), ומקטע גן רק כשיש
                בשורה גן/וריאנט/גנוטיפ/סיווג; שמאל — renderLabLeftCol. אחרי אישור —
                מעבר אוטומטי לשורה הבאה (במצב גנטיקה בלבד).
+               [v2.11.0] שדות השמות בקטלוג (שמות במסמכים / שמות מסחריים) — תצוגה
+               בלבד; ברשימת קודי הגנטיקה הסימון ✅/🤖 לפני הקוד; הודעת הסטטוס
+               מתנקה במעבר ידני בין שורות.
   @impacts     כפתורים: אשר, הוסף-קוד (4, אחד לכל שדה קטלוג פתוח), ניווט
                הקודם/הבא. תלוי ב: S16_ValidateMedicalStatus.gs — כל
                הלוגיקה מתבצעת שם.
@@ -69,6 +72,9 @@
                s15_genApprove(row, v) עם 8 שדות (S15_EnrichCatalog.gs); שמות
                המסמכים לא נשלחים מהחלון (לקח #266). אחרי אישור מוצלח נטענת השורה
                הבאה. מצבי התרופות, ההנחיות, המעבדה והמצב הרפואי — ללא שינוי.
+               [v2.11.0] שדות labRawNames / medTradeNames נעולים (disabled) — בקוד
+               מאומת מוצגים שמות הקטלוג, אחרת השם בשורה; הערכים עדיין נשלחים אך
+               השרת מתעלם מהם (S15 v1.8.0). אין שינוי בפרמטרים לשרת.
   @callers     S16_ValidateMedicalStatus.gs (showS16Sidebar)
                S15_EnrichCatalog.gs (s15_showValidation — מצב תרופות)
                S15_EnrichCatalog.gs (s15_showValidation — מצב הנחיות, [v2.7.0])
@@ -81,6 +87,18 @@
                renderInstruction, updateInstrKindHint, doApproveInstruction, allergyHtml,
                renderLab, renderLabLeftCol, updateLabCodeHint, doApproveLab,
                renderGen, onGenCodeChange, updateGenCodeHint, doApproveGen
+               clearStatusMsg
+  @changes     [v2.11.0] Task #266 + Task #229 + Task #258 — (1) #266: renderLab ו-
+               renderMedication — שדה השמות (labRawNames / medTradeNames) הפך לתצוגה
+               בלבד: נעול תמיד, ומציג את שמות הקטלוג בקוד מאומת או את השם בשורה —
+               מה שהשרת שומר בפועל בקוד חדש (S15 v1.8.0). קודם השדה נשאר עם שמות
+               ההצעה של הקוד הקודם אחרי החלפת קוד, ונכתב לקטלוג. (2) #229: renderGen
+               — ברשימת "קוד תכונה" הסימון ✅ (מאומת) / 🤖 (ממתין) עבר לפני הקוד,
+               כדי שלא ייחתך בשם ארוך. (3) #258: פונקציה חדשה clearStatusMsg, נקראת
+               בתחילת prevRow ו-nextRow — הודעת השורה הקודמת לא נשארת במעבר ידני;
+               אחרי אישור עם מעבר אוטומטי (גנטיקה) ההודעה נשארת בכוונה. אומת מול
+               הקוד החי (diff מדויק לכל בלוק, node --check לבלוק הסקריפט) ובבדיקה
+               פונקציונלית של חמשת החלונות.
   @changes     [v2.10.0] Task #264 שלב 4 — מצב גנטיקה בחלון הקיים (בלי חלון
                חדש, תוספת בלבד). render: מעבר ל-renderGen כש-payload.mode="gen".
                renderGen (חדשה): כותרת "🧬 S15 — אימות גנטיקה", התכונה במסמך
@@ -720,6 +738,7 @@
 
   function prevRow() {
     if (!currentPayload) return;
+    clearStatusMsg(); // [Task #258] הודעת השורה הקודמת לא נשארת במעבר ידני
     const target = currentPayload.row - 1;
     if (target < currentPayload.firstDataRow) return;
     // [Task #256 שלב 4] מצב תרופות — טעינה דרך S15
@@ -747,6 +766,7 @@
 
   function nextRow() {
     if (!currentPayload) return;
+    clearStatusMsg(); // [Task #258] הודעת השורה הקודמת לא נשארת במעבר ידני
     const target = currentPayload.row + 1;
     if (target > currentPayload.lastRow) return;
     // [Task #256 שלב 4] מצב תרופות — טעינה דרך S15
@@ -770,6 +790,13 @@
       return;
     }
     google.script.run.withSuccessHandler(render).withFailureHandler(handleError).s16_loadRowByNumber(target);
+  }
+
+  // [Task #258] ניקוי הודעת הסטטוס — במעבר ידני בין שורות בלבד (אחרי אישור עם מעבר אוטומטי ההודעה נשארת)
+  function clearStatusMsg() {
+    const el = document.getElementById('statusMsg');
+    el.className = '';
+    el.textContent = '';
   }
 
   function doApprove() {
@@ -924,7 +951,8 @@
           '<div style="flex:1; min-width:0;"><label class="edit-label">מערכת גוף</label>' +
             '<select id="medSystem"' + lock + '>' + sysOptionsHtml + '</select></div>' +
         '</div>' +
-        '<div style="margin-top:4px;">' + inputHtml('medTradeNames', 'שמות מסחריים (מופרדים בפסיק)', p.catalog.raw, lock) + '</div>' +
+        // [Task #266] תצוגה בלבד — השרת קובע את השמות: קוד מאומת — שמות הקטלוג; קוד חדש — שם התרופה בשורה
+        '<div style="margin-top:4px;">' + inputHtml('medTradeNames', 'שמות מסחריים (תצוגה — בקוד חדש נשמר שם התרופה בלבד)', verified ? p.catalog.raw : p.drugName, ' disabled') + '</div>' +
       '</div>' +
       '<div class="section">' +
         '<div class="section-title">מינון ותדירות</div>' +
@@ -1185,7 +1213,8 @@
           '<div style="flex:1; min-width:0;"><label class="edit-label">מערכת גוף</label>' +
             '<select id="labSystem"' + lock + '>' + sysOptionsHtml + '</select></div>' +
         '</div>' +
-        '<div style="margin-top:4px;">' + inputHtml('labRawNames', 'שמות במסמכים (מופרדים בפסיק)', p.catalog.raw, lock) + '</div>' +
+        // [Task #266] תצוגה בלבד — השרת קובע את השמות: קוד מאומת — שמות הקטלוג; קוד חדש — שם הבדיקה בשורה
+        '<div style="margin-top:4px;">' + inputHtml('labRawNames', 'שמות במסמכים (תצוגה — בקוד חדש נשמר שם הבדיקה בלבד)', verified ? p.catalog.raw : p.testName, ' disabled') + '</div>' +
         '<div style="margin-top:4px;"><label class="edit-label">פאנל (חובה, רשימה סגורה)</label>' +
           '<select id="labPanel">' + panelOptionsHtml + '</select></div>' +
       '</div>' +
@@ -1281,8 +1310,9 @@
     codes.forEach(function(code) {
       const k   = known[code];
       const sel = (code === p.code) ? ' selected' : '';
-      codeOptionsHtml += '<option value="' + esc(code) + '"' + sel + '>' + esc(code) + ' — ' + esc(k.name) +
-        (k.source === 'verified' ? ' (מאומת)' : ' (ממתין)') + '</option>';
+      // [Task #229] הסימון לפני הקוד — כדי שלא ייחתך בשם ארוך
+      codeOptionsHtml += '<option value="' + esc(code) + '"' + sel + '>' +
+        (k.source === 'verified' ? '✅ ' : '🤖 ') + esc(code) + ' — ' + esc(k.name) + '</option>';
     });
 
     let sysOptionsHtml = '<option value="">— ללא —</option>';
