@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S10_Validate.gs
- * @version 2.1.1 | @updated 18/09/2026 17:31 | @service S10
+ * @version 2.1.2 | @updated 05/11/2026 21:17 | @service S10
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S10_Validate.gs
  * @description אימות ידני ולמידה של אירועים רפואיים שחולצו על ידי S09.
  *              פותח Dialog לעריכה, אישור ולמידה של שדות מחולצים —
@@ -22,7 +22,13 @@
  *            s10_updateAndLearn, s10_learnOnly, s10_delete,
  *            _s10_fieldValue, _s10_saveToLearning, _s10_getCurrentPayload,
  *            _s10_saveEventCodeToMap, s10_saveEventCode
- * @changes [v2.1.1] Task #214 — _s10_saveEventCodeToMap עודכנה: גליון
+ * @changes [v2.1.2] Task #243 (בקשת עמוס) — showS10Sidebar: הוסר מספר השורה
+ *                   מכותרת החלון ("| שורה N") — כותרת showModalDialog לא
+ *                   מתעדכנת בניווט בתוך החלון, ולכן הציגה את שורת הפתיחה
+ *                   גם אחרי מעבר. המספר המעודכן מוצג בתוך החלון ("שורה X / Y").
+ *                   כמו #229 ב-S16. שאר הקובץ ללא שינוי; שאר תיקוני #221/#243
+ *                   ב-S10_Sidebar.html 1.3.0.
+ *          [v2.1.1] Task #214 — _s10_saveEventCodeToMap עודכנה: גליון
  *                   מיפוי_קודים עבר ל-6 בלוקי-עמודות קבועים (task215a, ראה
  *                   COLUMN_MAP.gs), והפונקציה עדיין הניחה מבנה שטוח ישן
  *                   (Type|Key|Normalized_Value|Raw_Value) וכתבה בטעות לבלוק
@@ -142,7 +148,8 @@ function showS10Sidebar() {
     .setHeight(750)
     .setTitle("S10 — אימות אירועים");
 
-  ui.showModalDialog(html, payload.icon + " S10 — " + sheetName + " | שורה " + row);
+  // [Task #243] בלי מספר שורה — כותרת החלון לא מתעדכנת בניווט (המספר מוצג בתוך החלון)
+  ui.showModalDialog(html, payload.icon + " S10 — " + sheetName);
 }
 
 // ══════════════════════════════════════════════════════════════════
