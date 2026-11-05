@@ -1,6 +1,6 @@
 <!--
   MedicalPilot — S10_Sidebar.html
-  @version 1.2.0 | @updated 01/09/2026 20:57 | @service S10
+  @version 1.3.0 | @updated 05/11/2026 21:17 | @service S10
   @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S10_Sidebar.html
   @description ממשק Dialog לאימות ידני של אירועים רפואיים שחולצו על ידי S09.
                מציג אירוע מחולץ (יומן_אירועים_רפואי בלבד, ברמת תת-אירוע)
@@ -8,13 +8,31 @@
   @impacts כפתורים: אישור, עדכון ולמידה, למידה יזומה, מחיקה, עדכון קודי
            אירוע (כפתור נפרד, כותב למיפוי_קודים בלבד — Task #209).
            תלוי ב: S10_Validate.gs — כל הלוגיקה מתבצעת שם.
+           [v1.3.0] חלונית שאלה בתוך החלון (confirmOverlay) — במקום
+           window.confirm של הדפדפן, לכל השאלות בחלון.
   @callers S10_Validate.gs (showS10Sidebar)
-  @functions initUI, buildFields, collectFields, switchView,
-             showSourceView, showTxtView, prevSibling, goNextSibling,
-             navigateToSibling, prevRow, nextRow, jumpToRow,
-             navigateTo, closeDialog, doApprove, doUpdate,
-             doLearn, doDelete, doSaveEventCode, handleResult, handleError
-  @changes [v1.2.0] Task #209 (בקשת עמוס) — הפרדה מוחלטת בין קטלוג קודי
+  @functions initUI, buildFields, collectFields, isDirty, askConfirm,
+             askLeaveDirty, switchView, showSourceView, showTxtView,
+             prevSibling, goNextSibling, navigateToSibling, prevRow,
+             nextRow, jumpToRow, navigateTo, closeDialog, doApprove,
+             doUpdate, doLearn, doDelete, runDelete, doSaveEventCode,
+             handleResult, handleError
+  @changes [v1.3.0] Tasks #221 + #243 (בקשת עמוס):
+                    #221 — עריכות לא אובדות: isDirty משווה את השדות בחלון
+                    לערכים שנטענו. "אישור" עם שינוי מציע שמירה ב"עדכון
+                    ולמידה" (doUpdate); מעבר שורה/אירוע עם שינוי
+                    (navigateTo/navigateToSibling, פרמטר force) מציע
+                    "מעבר בלי שמירה" / "חזרה לעריכה". אחרי עדכון מוצלח
+                    FIELDS_DEF מתעדכן לבסיס החדש להשוואה.
+                    #243 — אחרי מחיקה החלון לא נסגר: runDelete עוברת לאותו
+                    מספר שורה (האירוע הבא עולה למקום), ובשורה האחרונה —
+                    לשורה שלפניה; הודעת "נמחק — מוצגת שורה X" (doneMsg).
+                    חלונית שאלה בתוך החלון (askConfirm + CSS confirm-*)
+                    מחליפה את window.confirm בכל השאלות (כולל מחיקה) —
+                    חלון הדפדפן הופיע בראש המסך עם כתובת טכנית ונראה לא
+                    קשור. הוסרה confirmLeaveDirty. נבדק בפועל בגליון על
+                    2 שורות מדומות (MOCK-221): 8/8 בדיקות עברו.
+           [v1.2.0] Task #209 (בקשת עמוס) — הפרדה מוחלטת בין קטלוג קודי
                     אירוע לבין אישור/עדכון-ולמידה/למידה-יזומה: doApprove/
                     doUpdate/doLearn חזרו לצורתם המקורית (ללא פרמטרי קוד
                     אירוע). נוספה doSaveEventCode + כפתור ייעודי "עדכון
@@ -388,6 +406,35 @@
   .spinner.visible { display: inline-block; }
 
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ════ [Task #221/#243] חלונית שאלה בתוך החלון ════ */
+  .confirm-overlay {
+    display: none; position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.45);
+    align-items: center; justify-content: center;
+  }
+  .confirm-overlay.visible { display: flex; }
+  .confirm-box {
+    background: #fff; border-radius: 10px; width: 440px; max-width: 90%;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.3); overflow: hidden; direction: rtl;
+  }
+  .confirm-title {
+    background: #880e4f; color: #fff; font-size: 14px; font-weight: 700;
+    padding: 10px 16px;
+  }
+  .confirm-text {
+    padding: 16px; font-size: 13px; color: #333; line-height: 1.6;
+    white-space: pre-line;
+  }
+  .confirm-actions { display: flex; gap: 8px; padding: 0 16px 16px; }
+  .confirm-btn {
+    border: none; border-radius: 6px; padding: 8px 16px;
+    font-size: 13px; font-weight: 700; cursor: pointer;
+  }
+  .confirm-btn:hover { opacity: 0.85; }
+  .confirm-primary   { background: #1565c0; color: #fff; }
+  .confirm-danger    { background: #c62828; color: #fff; }
+  .confirm-secondary { background: #eeeeee; color: #333; }
 </style>
 </head>
 <body>
@@ -532,6 +579,18 @@
   <div class="status-bar idle" id="statusBar">
     <span class="spinner" id="spinner"></span>
     <span id="statusText">טוען נתונים...</span>
+  </div>
+</div>
+
+<!-- ════ [Task #221/#243] חלונית שאלה בתוך החלון ════ -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <div class="confirm-title" id="confirmTitle"></div>
+    <div class="confirm-text" id="confirmText"></div>
+    <div class="confirm-actions">
+      <button type="button" class="confirm-btn confirm-primary" id="confirmOk">אישור</button>
+      <button type="button" class="confirm-btn confirm-secondary" id="confirmCancel">ביטול</button>
+    </div>
   </div>
 </div>
 
@@ -892,6 +951,48 @@
     });
   }
 
+  // ════ [Task #221] זיהוי שינוי שלא נשמר ════
+  function isDirty() {
+    return FIELDS_DEF.some(function(f) {
+      var el = document.getElementById('field_' + f.col);
+      return el && el.value !== (f.value || '');
+    });
+  }
+
+  // ════ [Task #221/#243] חלונית שאלה בתוך החלון (במקום window.confirm) ════
+  // opts: { title, text, okLabel, cancelLabel, danger, onOk }
+  function askConfirm(opts) {
+    var overlay   = document.getElementById('confirmOverlay');
+    var okBtn     = document.getElementById('confirmOk');
+    var cancelBtn = document.getElementById('confirmCancel');
+    document.getElementById('confirmTitle').textContent = opts.title || 'אישור פעולה';
+    document.getElementById('confirmText').textContent  = opts.text  || '';
+    okBtn.textContent     = opts.okLabel     || 'אישור';
+    cancelBtn.textContent = opts.cancelLabel || 'ביטול';
+    okBtn.className = 'confirm-btn ' + (opts.danger ? 'confirm-danger' : 'confirm-primary');
+    function closeAsk() {
+      overlay.classList.remove('visible');
+      okBtn.onclick     = null;
+      cancelBtn.onclick = null;
+    }
+    okBtn.onclick     = function() { closeAsk(); if (opts.onOk) opts.onOk(); };
+    cancelBtn.onclick = function() { closeAsk(); };
+    overlay.classList.add('visible');
+    cancelBtn.focus();
+  }
+
+  // [Task #221] שאלה לפני מעבר כשיש שינוי שלא נשמר
+  function askLeaveDirty(whereText, onLeave) {
+    askConfirm({
+      title:       'יש שינויים שלא נשמרו',
+      text:        'שדות בחלון נערכו ולא נשמרו.\nמעבר ' + whereText + ' יבטל את השינויים.',
+      okLabel:     'מעבר בלי שמירה',
+      cancelLabel: 'חזרה לעריכה',
+      danger:      true,
+      onOk:        onLeave
+    });
+  }
+
   // ════ החלפת תצוגה מקורי/TXT ════
   function switchView(mode) {
     if (mode === 'txt' && !TXT_URL)    return;
@@ -981,7 +1082,12 @@
     if (targetRow) navigateToSibling(targetRow);
   }
 
-  function navigateToSibling(targetRow) {
+  // [Task #221] force — דילוג על בדיקת שינוי (אחרי אישור בחלונית השאלה)
+  function navigateToSibling(targetRow, force) {
+    if (!force && isDirty()) {
+      askLeaveDirty('לאירוע אחר', function() { navigateToSibling(targetRow, true); });
+      return;
+    }
     setStatus('info', 'טוען אירוע...');
     disableBtns(true);
     google.script.run
@@ -1010,7 +1116,13 @@
     navigateTo(val);
   }
 
-  function navigateTo(row) {
+  // [Task #221/#243] force — דילוג על בדיקת שינוי (אחרי מחיקה או אחרי אישור בחלונית);
+  // doneMsg — הודעה להצגה אחרי הטעינה
+  function navigateTo(row, force, doneMsg) {
+    if (!force && isDirty()) {
+      askLeaveDirty('לשורה ' + row, function() { navigateTo(row, true, doneMsg); });
+      return;
+    }
     setStatus('info', 'טוען שורה ' + row + '...');
     disableBtns(true);
     google.script.run
@@ -1021,6 +1133,7 @@
           return;
         }
         initUI(payload);
+        if (doneMsg) setStatus('success', doneMsg + ' — מוצגת שורה ' + row);
       })
       .withFailureHandler(function(e) {
         disableBtns(false);
@@ -1032,7 +1145,19 @@
   // ════ כפתורי פעולה ════
   function closeDialog() { google.script.host.close(); }
 
-      function doApprove() {
+  function doApprove() {
+    // [Task #221] "אישור" לא כותב שדות לגליון — אם נערך שדה, מציעים "עדכון ולמידה"
+    if (isDirty()) {
+      askConfirm({
+        title:       'יש שינויים שלא נשמרו',
+        text:        'כפתור "אישור" מסמן את השורה "מאומת" בלבד, ולא שומר שדות שנערכו.\n' +
+                     'שמירה ב"עדכון ולמידה" כותבת את השדות לגליון, מסמנת "מאומת" ושולחת דוגמת למידה.',
+        okLabel:     '💾 שמירה ב"עדכון ולמידה"',
+        cancelLabel: 'חזרה לחלון',
+        onOk:        doUpdate
+      });
+      return;
+    }
     setStatus('info', 'מבצע אישור...');
     disableBtns(true);
     google.script.run
@@ -1050,6 +1175,8 @@
     google.script.run
       .withSuccessHandler(function(res) {
         disableBtns(false);
+        // [Task #221] אחרי שמירה — הערכים שנשמרו הם הבסיס החדש לזיהוי שינוי
+        if (res && res.success) { FIELDS_DEF = JSON.parse(fieldsJson); }
         if (res && res.isDuplicate) { setStatus('info', res.msg); }
         else { handleResult(res); }
       })
@@ -1108,19 +1235,38 @@
   }
 
   function doDelete() {
-    var msg = 'האם למחוק את האירוע בשורה ' + ROW + '?\n\nפעולה זו בלתי הפיכה.';
-    if (!window.confirm(msg)) return;
+    // [Task #221/#243] שאלה בתוך החלון במקום window.confirm
+    askConfirm({
+      title:       'מחיקת אירוע',
+      text:        'למחוק את האירוע בשורה ' + ROW + '?\nפעולה זו בלתי הפיכה.',
+      okLabel:     '🗑️ מחיקה',
+      cancelLabel: 'ביטול',
+      danger:      true,
+      onOk:        runDelete
+    });
+  }
+
+  function runDelete() {
     setStatus('info', 'מוחק...');
     disableBtns(true);
+    var deletedRow = ROW;
     google.script.run
       .withSuccessHandler(function(res) {
         if (res && res.success) {
-          setStatus('success', res.msg);
-          setTimeout(function() { google.script.host.close(); }, 1500);
+          // [Task #243] אחרי מחיקה החלון לא נסגר — האירוע הבא עולה לאותו מספר שורה.
+          // אם נמחקה השורה האחרונה — עוברים לשורה שלפניה.
+          var newMax = MAX_ROW - 1;
+          var target = (deletedRow <= newMax) ? deletedRow : newMax;
+          if (target < 2) {
+            setStatus('success', res.msg + ' — אין שורות נוספות');
+            setTimeout(function() { google.script.host.close(); }, 1500);
+            return;
+          }
+          navigateTo(target, true, res.msg);
         } else { handleResult(res); }
       })
       .withFailureHandler(handleError)
-      .s10_delete(ROW);
+      .s10_delete(deletedRow);
   }
 
   function handleResult(res) {
