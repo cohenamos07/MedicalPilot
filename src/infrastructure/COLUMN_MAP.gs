@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.16.0 | @updated 31/10/2026 19:48 | @service COLUMN_MAP
+ * @version 2.17.0 | @updated 03/11/2026 11:35 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
@@ -39,6 +39,13 @@
  *          כותב מהקטלוג). מיפוי_קודים — 74 עמודות: נוספו בלוק מאפייני_מעבדה BG-BL
  *          (59-64, מפתח = קוד LOINC, writers: S15+עמוס) ובלוק פאנלים BS-BW (71-75,
  *          PNL-L00-PNL-L16, רשימה סגורה, writers: עמוס). BM-BR (65-70) שמורות ל-#264.
+ *          [v2.17.0] Task #264 (שלב 5) — בדיקות_גנטיות: 17 עמודות (היה 9) — נוספו
+ *          J-Q (Trait_Code | Panel_Code | Tendency | Gene_Symbol | Variant_ID |
+ *          Genotype | ACMG_Class | Enrich_Status), שורה לכל תכונה; I — בוטל "תמיד
+ *          SYS14" (S15 כותב מהקטלוג). מיפוי_קודים — 86 עמודות: נוספו בלוק
+ *          תכונות_גנטיות BM-BR (65-70, מפתח = GTR-nnn, writers: S15+עמוס) ובלוק
+ *          גנים CC-CH (81-86, מפתח = סמל גן HGNC, writers: S15+עמוס). בלוק פאנלים
+ *          BS-BW כולל עכשיו גם PNL-G00-PNL-G09.
  *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (11), בדיקות_דם (10),
  *          בדיקות_גנטיות (8), הנחיות_רפואיות_ומשימות (8) — 5 גליונות יעד של S09,
  *          נוספו ל-SHEET_CONFIG/SHEETS_MAP עם כותרות באנגלית, יושרו בפועל
@@ -63,11 +70,29 @@
  *          [v2.13.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות תרופות_קבועות M-S ובלוק BA-BF במיפוי_קודים
  *          [v2.14.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות הנחיות_רפואיות_ומשימות J-M ובלוק BX-CB במיפוי_קודים
  *          [v2.16.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות בדיקות_דם K-S ובלוקים BG-BL ו-BS-BW במיפוי_קודים
+ *          [v2.17.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות בדיקות_גנטיות I-Q ובלוקים BM-BR ו-CC-CH במיפוי_קודים
  * @functions SHEET_CONFIG, SHEETS_MAP, SHEETS_DEFAULT_DATA,
  *            insertEditorGitLinesColumns, printSheetMap, printColumnDetail,
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol, _medDate_normalizeDate
+ * @changes [v2.17.0] Task #264 (שלב 5) — תיעוד מבני בלבד, אין שינוי לוגי.
+ *          SHEETS_MAP["בדיקות_גנטיות"]: 9→17 עמודות — נוספו 10-17 (J-Q): Trait_Code,
+ *          Panel_Code (PNL-G00-PNL-G09), Tendency (אין|נמוכה|בינונית|גבוהה),
+ *          Gene_Symbol, Variant_ID, Genotype, ACMG_Class (5 דרגות), Enrich_Status
+ *          (הוצע|מאומת), כפי שנכתבים ב-S13 v1.10.0 וב-S15 v1.7.0. I (Medical_System):
+ *          writers הורחב ל-["S13","S15"], ההערה "תמיד SYS14" (Task #188) סומנה
+ *          כמבוטלת — נשארה לתיעוד. נוספו readers: ["S15"] לעמודות ש-S15 קורא
+ *          (A-G, I-Q). SHEETS_MAP["מיפוי_קודים"]: 74→86 עמודות — בלוק תכונות_גנטיות
+ *          65-70 (BM-BR: Trait_Code | Normalized_Value | Description | Raw_Value |
+ *          Icon_Link | Medical_System) ובלוק גנים 81-86 (CC-CH: Gene_Symbol |
+ *          Normalized_Value | Description | Raw_Value | Icon_Link | Medical_System);
+ *          עמודה 71 (Panel_Code) — טווח הערכים כולל PNL-G00-PNL-G09; הערת העמודות
+ *          השמורות הוסרה — כל 86 העמודות רשומות. ללא שינוי בקוד restoreHeaders
+ *          (חלופה א). אומת מול הקוד החי (diff מדויק, node --check, טעינת המפה: 17
+ *          ו-86 עמודות, מספור רציף) ומול הגליון החי: 17 מתוך 17 שמות בבדיקות_גנטיות
+ *          ו-86 מתוך 86 במיפוי_קודים זהים לשורה 4; בבדיקה פונקציונלית (הדפסת מבנה
+ *          גיליון — J-Q ו-CC-CH מוצגות).
  * @changes [v2.16.0] Task #263 (שלב 6) — תיעוד מבני בלבד, אין שינוי לוגי.
  *          SHEETS_MAP["בדיקות_דם"]: 11→19 עמודות — נוספו 12-19 (L-S): LOINC_Code,
  *          Panel_Code, Specimen (דם|שתן|צואה|מדידה|אחר), Value_Num, Unit, Ref_Low,
@@ -497,15 +522,27 @@ const SHEETS_MAP = {
 
   // [Task 184] גליון יעד — בדיקות גנטיות שחולצו ע"י S09 (כותרות אנגלית)
   "בדיקות_גנטיות": [
-    { col: 1, name: "Test_Date",              zone: "אירוע", writers: ["S13"], readers: [], values: "תאריך DD/MM/YYYY", notes: "" },
-    { col: 2, name: "Panel_Name",             zone: "אירוע", writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "לדוגמה: נוטריגנטי" },
-    { col: 3, name: "Gene_Variant",           zone: "אירוע", writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 4, name: "Finding",                zone: "תוכן",  writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 5, name: "Clinical_Significance",  zone: "תוכן",  writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 6, name: "Recommendation",         zone: "תוכן",  writers: ["S13"], readers: [], values: "טקסט חופשי",       notes: "" },
-    { col: 7, name: "Source_URL",             zone: "טכני",  writers: ["S13"], readers: [], values: "https://drive.google.com/...", notes: "" },
+    { col: 1, name: "Test_Date",              zone: "אירוע", writers: ["S13"], readers: ["S15"], values: "תאריך DD/MM/YYYY", notes: "[Task #264] מוצג בחלון האימות (S15)" },
+    { col: 2, name: "Panel_Name",             zone: "אירוע", writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",       notes: "לדוגמה: נוטריגנטי. [Task #264] כותרת הקטע במסמך — הקשר לפרומפט ההעשרה (שיוך לפאנל PNL-G) ומוצג בחלון האימות" },
+    { col: 3, name: "Gene_Variant",           zone: "אירוע", writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",       notes: "[Task #264] הטקסט הגולמי של הגן או הווריאנט כפי שבמסמך, רק אם מופיע — הקשר לפרומפט ההעשרה ומוצג בחלון האימות" },
+    { col: 4, name: "Finding",                zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",       notes: "[Task #264] שם התכונה — עמודת השם של תחום הגנטיקה ב-S15: מפתח חיפוש בקטלוג תכונות_גנטיות (BM-BR); באישור קוד מאומת — נוסף ל-Raw_Value בקטלוג" },
+    { col: 5, name: "Clinical_Significance",  zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",       notes: "[Task #264] התוצאה המילולית כפי שבמסמך (למשל \"אין נטייה למחסור\") — הקשר לפרומפט ההעשרה ומוצג בחלון האימות" },
+    { col: 6, name: "Recommendation",         zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "טקסט חופשי",       notes: "[Task #264] ההמלצה מתוך סיכום הכרטיס במסמך — מוצגת בחלון האימות. נשארת בגליון (החלטת 01/11/2026)" },
+    { col: 7, name: "Source_URL",             zone: "טכני",  writers: ["S13"], readers: ["S15"], values: "https://drive.google.com/...", notes: "[Task #264] תצוגת מסמך המקור בחלון האימות" },
     { col: 8, name: "File_ID",                zone: "טכני",  writers: ["S13"], readers: [], values: "Drive ID",          notes: "" },
-    { col: 9, name: "Medical_System",         zone: "טכני",  writers: ["S13"], readers: [], values: "SYS00-SYS14",       notes: "[Task #188] קבוע: תמיד SYS14 (גנים) — כל בדיקה גנטית מקוטלגת אוטומטית" }
+    { col: 9, name: "Medical_System",         zone: "טכני",  writers: ["S13","S15"], readers: ["S15"], values: "SYS00-SYS14",       notes: "[Task #188] קבוע: תמיד SYS14 (גנים) — כל בדיקה גנטית מקוטלגת אוטומטית. [Task #264] בוטל: S13 כותב ריק; S15 מציע בהעשרה וכותב באישור את מערכת היעד של התכונה מהקטלוג (מיפוי_קודים BR) — הקטלוג גובר" },
+
+    // [Task #264] עמודות J-Q — שורה לכל תכונה (S13 v1.10.0 מפצל אירוע גנטי לתכונות בודדות).
+    // S13 כותב L-P וריק ב-I-K ו-Q; העשרה (runS15Enrich, _s15_genHandler) כותבת I-K ו-Q="הוצע";
+    // אישור בחלון S16 (s15_genApprove) כותב I-K ו-Q="מאומת", ו-M רק אם שונה בחלון. I-K נכתבים בעיצוב טקסט.
+    { col: 10, name: "Trait_Code",    zone: "טכני",  writers: ["S13","S15"], readers: ["S15"], values: "GTR-001-GTR-999 או ריק", notes: "[Task #264] מפתח לבלוק תכונות_גנטיות במיפוי_קודים (BM). קוד פנימי — לתכונות אין קידוד בינלאומי. באישור חובה לבחור מהקודים המוכרים (מאומתים או ממתינים)" },
+    { col: 11, name: "Panel_Code",    zone: "טכני",  writers: ["S13","S15"], readers: ["S15"], values: "PNL-G00-PNL-G09",   notes: "[Task #264] מבלוק פאנלים במיפוי_קודים (BS) — קודי PNL-G בלבד. בהעשרה — פאנל מחוץ לרשימה → PNL-G00; באישור — חובה לבחור מהרשימה" },
+    { col: 12, name: "Tendency",      zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "אין|נמוכה|בינונית|גבוהה או ריק", notes: "[Task #264] דרגת הנטייה לפי מילת הדרגה במסמך, מנורמלת לסולם הסגור (_s13_genTendency: מוגברת → גבוהה); ערך לא מוכר → ריק. בחלון האימות — תצוגה בלבד; איחוד ניסוחים בתצוגה (#260)" },
+    { col: 13, name: "Gene_Symbol",   zone: "תוכן",  writers: ["S13","S15"], readers: ["S15"], values: "סמל גן לפי HGNC (למשל MTHFR) או ריק", notes: "[Task #264] רק אם מופיע במסמך. מפתח לבלוק גנים במיפוי_קודים (CC); גן תקין שאינו בקטלוג — הצעה ממתינה בהעשרה ושורה חדשה בקטלוג באישור. S15 כותב רק אם שונה בחלון" },
+    { col: 14, name: "Variant_ID",    zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "מזהה dbSNP (למשל rs1801133) או ריק", notes: "[Task #264] רק אם מופיע במסמך. בחלון האימות — תצוגה בלבד" },
+    { col: 15, name: "Genotype",      zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "גנוטיפ (למשל C/T) או ריק", notes: "[Task #264] רק אם מופיע במסמך. בחלון האימות — תצוגה בלבד" },
+    { col: 16, name: "ACMG_Class",    zone: "תוכן",  writers: ["S13"], readers: ["S15"], values: "פתוגני|כנראה פתוגני|משמעות לא ודאית|כנראה שפיר|שפיר או ריק", notes: "[Task #264] סיווג ACMG — רק מתוך 5 הדרגות (S13_GEN_ACMG), אחרת ריק. בחלון האימות — תצוגה בלבד" },
+    { col: 17, name: "Enrich_Status", zone: "טכני",  writers: ["S13","S15"], readers: ["S15"], values: "הוצע|מאומת או ריק", notes: "[Task #264] S13 כותב ריק = ממתין להעשרה; שורה עם ערך לא מעובדת שוב ב-runS15Enrich" }
   ],
 
     // [Task 184] גליון יעד — הנחיות ומשימות שחולצו ע"י S09 (כותרות אנגלית)
@@ -689,22 +726,42 @@ const SHEETS_MAP = {
     { col: 63, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #263] ריק כרגע — לשימוש עתידי באינפוגרפיקה" },
     { col: 64, name: "Medical_System",   zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "SYS00-SYS14", notes: "[Task #263] מערכת היעד של המאפיין (שיוך כפול: סוג הדגימה בעמ' 14 בבדיקות_דם + המערכת כאן). מקור ל-Medical_System (עמ' 11) בבדיקות_דם — הקטלוג גובר" },
 
-    // [Task #263] בלוק פאנלים (BS-BW) — רשימה סגורה משותפת: מעבדה PNL-L00-PNL-L16, ובהמשך גנטיקה PNL-G.. (Task #264). כותרת שורה 3: "פאנלים".
-    // נקרא ע"י S15 (_s15_readCatalog עם S15_LAB_PANEL_FIRST_COL) — בפרומפט ההעשרה וברשימת הפאנלים בחלון האימות; לא נכתב בקוד — מנוהל ידנית ע"י עמוס בלבד.
-    { col: 71, name: "Panel_Code",       zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "PNL-L00-PNL-L16 (מעבדה); בהמשך PNL-G.. (גנטיקה)", notes: "[Task #263] מפתח הבלוק. מקור ל-Panel_Code (עמ' 13) בבדיקות_דם. רשימה סגורה — בהעשרה פאנל מחוץ לרשימה → PNL-L00; באישור חובה לבחור מהרשימה" },
+    // [Task #264] בלוק תכונות_גנטיות (BM-BR) — קטלוג פתוח, שורה לכל תכונה, מפתח = קוד פנימי GTR-nnn (לתכונות אין קידוד בינלאומי). כותרת שורה 3: "תכונות_גנטיות".
+    // נקרא ע"י S15 (_s15_readCatalog) להעשרה ולאימות; בהעשרה (_s15_genHandler) — תכונה מוכרת (מאומתת או ממתינה) מקבלת את הקוד הקיים, תכונה חדשה את הקוד הפנוי הבא; תכונות עם אותו שם מנורמל באותה ריצה — קוד אחד.
+    // נכתב ע"י S15 באישור בחלון S16 (s15_genApprove → _s15_genWriteTraitCatalog): קוד ממתין = שורה חדשה בעיצוב טקסט, קוד מאומת = נתוני הקטלוג גוברים ורק שם התכונה מתווסף ל-Raw_Value.
+    { col: 65, name: "Trait_Code",       zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "GTR-001-GTR-999 (שלוש ספרות)", notes: "[Task #264] מפתח הבלוק. מקור ל-Trait_Code (עמ' 10) בבדיקות_גנטיות. קוד פנימי — באישור נבחר רק מהקודים המוכרים (מאומתים או ממתינים)" },
+    { col: 66, name: "Normalized_Value", zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "שם התכונה בעברית (למשל נטייה לפציעות ספורט בגיד אכילס)", notes: "[Task #264] מוצג בחלון האימות; מפתח חיפוש ב-S15" },
+    { col: 67, name: "Description",      zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "טקסט חופשי בעברית", notes: "[Task #264] מהחלון או מההצעה הממתינה" },
+    { col: 68, name: "Raw_Value",        zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "שמות התכונה במסמכים מופרדים בפסיקים", notes: "[Task #264] מפתח חיפוש ב-S15; מחושב בשרת מההצעה ומשם התכונה (עמ' 4) — לא נשלח מהחלון (לקח #266)" },
+    { col: 69, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #264] ריק כרגע — לשימוש עתידי באינפוגרפיקה" },
+    { col: 70, name: "Medical_System",   zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "SYS00-SYS14", notes: "[Task #264] מערכת היעד של התכונה (שיוך כפול: מערכת הגן + מערכת התכונה). מקור ל-Medical_System (עמ' 9) בבדיקות_גנטיות — הקטלוג גובר" },
+
+    // [Task #263] בלוק פאנלים (BS-BW) — רשימה סגורה משותפת: מעבדה PNL-L00-PNL-L16, גנטיקה PNL-G00-PNL-G09 ([Task #264]). כותרת שורה 3: "פאנלים".
+    // נקרא ע"י S15 (_s15_readCatalog עם S15_LAB_PANEL_FIRST_COL) — בפרומפט ההעשרה וברשימת הפאנלים בחלון האימות (מעבדה — PNL-L, גנטיקה — PNL-G בלבד); לא נכתב בקוד — מנוהל ידנית ע"י עמוס בלבד.
+    { col: 71, name: "Panel_Code",       zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "PNL-L00-PNL-L16 (מעבדה); PNL-G00-PNL-G09 (גנטיקה)", notes: "[Task #263] מפתח הבלוק. מקור ל-Panel_Code (עמ' 13) בבדיקות_דם. רשימה סגורה — בהעשרה פאנל מחוץ לרשימה → PNL-L00; באישור חובה לבחור מהרשימה. [Task #264] מקור ל-Panel_Code (עמ' 11) בבדיקות_גנטיות — מחוץ לרשימה → PNL-G00" },
     { col: 72, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "שם הפאנל בעברית (למשל ספירת דם)", notes: "[Task #263] מוצג בפרומפט ובחלון האימות" },
     { col: 73, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "טקסט חופשי — מה כולל הפאנל", notes: "[Task #263] הקשר לפרומפט ההעשרה" },
     { col: 74, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "ניסוחים וקיצורים מופרדים בפסיקים", notes: "[Task #263] רמזים לשיוך בפרומפט ההעשרה" },
     { col: 75, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #263] ריק כרגע — לשימוש עתידי באינפוגרפיקה" },
 
     // [Task #261] בלוק סוגי_הנחיות (BX-CB) — רשימה סגורה, INS00-INS09. כותרת שורה 3: "סוגי_הנחיות".
-    // עמודות BM-BR (65-70) שמורות לבלוק הגנים (Task #264) — יירשמו כשייבנה. [Task #263] BG-BL ו-BS-BW נרשמו למעלה.
+    // [Task #263] BG-BL ו-BS-BW נרשמו למעלה. [Task #264] BM-BR (תכונות_גנטיות) נרשם למעלה; CC-CH (גנים) נרשם למטה.
     // נקרא ע"י S15 (_s15_readCatalog) להעשרה ולאימות; לא נכתב בקוד — מנוהל ידנית ע"י עמוס בלבד.
     { col: 76, name: "Instruction_Code", zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "INS00-INS09", notes: "[Task #261] מפתח הבלוק. מקור ל-Instruction_Code (עמ' 10) בהנחיות_רפואיות_ומשימות. רשימה סגורה — S15 לא מציע קודים חדשים" },
     { col: 77, name: "Normalized_Value", zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "שם הסוג בעברית (למשל מעקב / ביקורת)", notes: "[Task #261] מוצג בפרומפט ובחלון האימות" },
     { col: 78, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "טקסט חופשי + \"ברירת מחדל: מתמשכת|משימה\"", notes: "[Task #261] S15 גוזר מכאן את ברירת המחדל של Instruction_Kind" },
     { col: 79, name: "Raw_Value",        zone: "מיפוי", writers: ["עמוס"], readers: ["S15"], values: "ניסוחים גולמיים מופרדים בפסיקים", notes: "[Task #261] ניסוחים מהיומן — בפרומפט ההעשרה" },
-    { col: 80, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #261] ריק כרגע — לשימוש עתידי באינפוגרפיקה" }
+    { col: 80, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #261] ריק כרגע — לשימוש עתידי באינפוגרפיקה" },
+
+    // [Task #264] בלוק גנים (CC-CH) — קטלוג פתוח, שורה לכל גן, מפתח = סמל גן בינלאומי (HGNC). כותרת שורה 3: "גנים".
+    // נקרא ע"י S15 (_s15_readCatalog עם S15_GEN_GENE_FIRST_COL): בהעשרה — גן תקין (עמ' 13 בבדיקות_גנטיות) שאינו בקטלוג נשמר כהצעה ממתינה (block="genes");
+    // נכתב ע"י S15 באישור בחלון S16 (s15_genApprove → _s15_genWriteGene): גן חדש = שורה חדשה בעיצוב טקסט; גן קיים — ללא שינוי.
+    { col: 81, name: "Gene_Symbol",      zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "סמל גן לפי HGNC (למשל MTHFR, BRCA1)", notes: "[Task #264] מפתח הבלוק. מקור ל-Gene_Symbol (עמ' 13) בבדיקות_גנטיות. סיווג בינלאומי — לא ממציאים סמלים. סמל אחד בלבד: אות גדולה ואחריה אותיות, ספרות או מקף" },
+    { col: 82, name: "Normalized_Value", zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "שם הגן (ברירת מחדל: הסמל עצמו)", notes: "[Task #264] מהחלון, מההצעה הממתינה או הסמל" },
+    { col: 83, name: "Description",      zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "טקסט חופשי בעברית", notes: "[Task #264] מהחלון או מההצעה הממתינה; יכול להישאר ריק" },
+    { col: 84, name: "Raw_Value",        zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "ניסוחי הגן במסמכים מופרדים בפסיקים", notes: "[Task #264] מחושב בשרת מההצעה ומעמודה M בשורה — לא נשלח מהחלון (לקח #266)" },
+    { col: 85, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #264] ריק כרגע — לשימוש עתידי באינפוגרפיקה" },
+    { col: 86, name: "Medical_System",   zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "SYS00-SYS14", notes: "[Task #264] מערכת הגוף של הגן — מההצעה הממתינה, אחרת מערכת התכונה שאושרה באותה שורה" }
   ]
 
 };
