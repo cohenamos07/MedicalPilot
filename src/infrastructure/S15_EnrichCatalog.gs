@@ -1,6 +1,6 @@
 /**
  * @file        S15_EnrichCatalog.gs
- * @version     1.7.0 | @updated 02/11/2026 20:05 | @service S15
+ * @version     1.8.0 | @updated 03/11/2026 12:41 | @service S15
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S15_EnrichCatalog.gs
  * @description שירות העשרת קטלוגים — מנוע כללי שמוגדר לפי תחום (S15_DOMAINS).
  *              לכל גליון יעד: סורק שורות שעמודת הסטטוס שלהן ריקה, מחפש כל
@@ -54,6 +54,9 @@
  *              נוסף. Raw_Value מחושב בשרת ואינו נשלח מהחלון (לקח #266). גן
  *              תקין שאינו בקטלוג — שורה חדשה בבלוק CC-CH. הצעה שהוחלפה ואינה
  *              בשימוש נמחקת. הנטייה (L) לתצוגה בלבד.
+ *              [v1.8.0] בקוד חדש בתרופות ובמעבדה — Raw_Value בקטלוג מתחיל רק מהשם
+ *              בשורה שמאושרת (לא מהחלון ולא מהצעת Gemini). כותרות חלונות האימות
+ *              ללא מספר שורה (המספר מוצג בתוך החלון ומתעדכן במעבר).
  * @impacts     תרופות_קבועות: קורא A-E (שם, חומר פעיל, מינון, תדירות, סיבה),
  *              כותב M-R בלבד (ATC_Code | Dose_Amount | Dose_Unit |
  *              Times_Per_Day | Days_Per_Week | Enrich_Status="הוצע").
@@ -105,6 +108,9 @@
  *              ושורה חדשה ב-CC-CH (גן חדש), בעיצוב טקסט; קורא BS-BW. Script
  *              Properties: S16_CURRENT_PAYLOAD ומחיקת הצעות מ-S15_PENDING_CATALOG.
  *              LockService באישור.
+ *              [v1.8.0] s15_approve ו-_s15_labWriteCatalog: שורה חדשה בבלוק BA-BF /
+ *              BG-BL נכתבת עם Raw_Value = שם התרופה / שם הבדיקה בשורה בלבד; השדות
+ *              tradeNames / rawNames שנשלחים מהחלון לא נקראים יותר.
  * @callers     runS15EnrichIcon (ViewEngine.gs, אייקון "[ S15 העשרה ]")
  *              runS15ValidateIcon (ViewEngine.gs, אייקון "[ S16 אימות ]") →
  *              s15_showValidation; S16_Sidebar.html → s15_loadRowByNumber,
@@ -145,6 +151,21 @@
  *              _s15_genBuildValidationPayload | s15_genLoadRowByNumber |
  *              _s15_genWriteTraitCatalog | _s15_genWriteGene | _s15_genCleanupPending |
  *              s15_genApprove
+ * @changes     [v1.8.0] Task #266 + Task #229 — (1) #266: באישור קוד חדש בתרופות
+ *              (s15_approve) ובמעבדה (_s15_labWriteCatalog), Raw_Value בשורת הקטלוג
+ *              החדשה מתחיל משם השורה המאושרת בלבד, במקום מתוכן השדה בחלון. השדה
+ *              נשאר עם שמות ההצעה של הקוד הקודם אחרי החלפת קוד, ונכתב לקטלוג
+ *              (BJ20/BJ25, 31/10/2026). גם הצעת Gemini לא נלקחת — היא יכולה לכלול
+ *              שמות של שורות אחרות. שורות נוספות עם אותו קוד מוסיפות את שמן במסלול
+ *              הקוד המאומת (ללא שינוי). בגנטיקה השמות כבר חושבו בשרת — ללא שינוי.
+ *              (2) #229: הוסר מספר השורה מכותרת ארבעת חלונות האימות
+ *              (s15_showValidation, _s15_instrShowValidation, _s15_labShowValidation,
+ *              _s15_genShowValidation) — הכותרת נקבעת בפתיחה ולא מתעדכנת במעבר.
+ *              במקביל: S16_Sidebar.html v2.11.0 (שדות השמות לתצוגה בלבד, סימון
+ *              קודי הגנטיקה, ניקוי הודעה), S16_ValidateMedicalStatus.gs v2.5.1.
+ *              אומת מול הקוד החי (diff מדויק לכל בלוק, node --check) ובבדיקה
+ *              פונקציונלית של חמשת החלונות (ללא אישור — הכתיבה לקטלוג תיבדק באישור
+ *              הקוד החדש הראשון).
  * @changes     [v1.7.0] Task #264 שלב 4 — אימות גנטיקה בחלון S16 הקיים (חלופה ב,
  *              תוספת בלבד; מסלולי התרופות, ההנחיות והמעבדה ללא שינוי). ענף
  *              ב-s15_showValidation לגליון בדיקות_גנטיות; בסוף הקובץ: S15_GEN_SHEET,
@@ -807,7 +828,7 @@ function s15_showValidation() {
     .setHeight(750)
     .setTitle("S15 — אימות תרופות");
 
-  ui.showModalDialog(html, "💊 S15 — " + S15_VALIDATION_SHEET + " | שורה " + row);
+  ui.showModalDialog(html, "💊 S15 — " + S15_VALIDATION_SHEET);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -981,8 +1002,10 @@ function s15_approve(row, v) {
           catalogMsg = " — השם המסחרי נוסף לקוד " + code + " בקטלוג";
         }
       } else {
-        const raw = String(v.tradeNames || "").split(",").map(function(s) { return s.trim(); }).filter(function(s) { return s; });
-        if (!raw.some(function(n) { return _s15_normalizeName(n) === _s15_normalizeName(drugName); })) raw.push(drugName);
+        // [Task #266] קוד חדש — Raw_Value מתחיל מהשם המסחרי בשורה בלבד: לא מהחלון (נשאר מקוד
+        // קודם אחרי החלפת קוד) ולא מהצעת Gemini (יכולה לכלול שמות של שורות אחרות). שורות
+        // נוספות שיאושרו עם אותו קוד יוסיפו את שמן במסלול הקוד הקיים למעלה.
+        const raw = [drugName];
         const newRow = _s15_lastCatalogRow(ss, domain) + 1;
         mapSheet.getRange(newRow, domain.catalogFirstCol, 1, domain.catalogWidth).setValues([[
           code, active, String(v.therapeuticGroup || "").trim(), raw.join(", "), "", system
@@ -1230,7 +1253,7 @@ function _s15_instrShowValidation(ss, sheet, ui) {
     .setHeight(750)
     .setTitle("S15 — אימות הנחיות");
 
-  ui.showModalDialog(html, "📋 S15 — " + S15_INSTR_SHEET + " | שורה " + row);
+  ui.showModalDialog(html, "📋 S15 — " + S15_INSTR_SHEET);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1602,7 +1625,7 @@ function _s15_labShowValidation(ss, sheet, ui) {
     .setHeight(750)
     .setTitle("S15 — אימות מעבדה ומדדים");
 
-  ui.showModalDialog(html, "🧪 S15 — " + S15_LAB_SHEET + " | שורה " + row);
+  ui.showModalDialog(html, "🧪 S15 — " + S15_LAB_SHEET);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1758,8 +1781,10 @@ function _s15_labWriteCatalog(ss, domain, code, testName, system, v) {
       msg = " — ⚠️ השם \"" + testName + "\" נוסף לקוד " + code + " (" + entry.name + ")";
     }
   } else {
-    const raw = String(v.rawNames || "").split(",").map(function(s) { return s.trim(); }).filter(function(s) { return s; });
-    if (!raw.some(function(n) { return _s15_normalizeName(n) === _s15_normalizeName(testName); })) raw.push(testName);
+    // [Task #266] קוד חדש — Raw_Value מתחיל משם הבדיקה בשורה בלבד: לא מהחלון (נשאר מקוד
+    // קודם אחרי החלפת קוד) ולא מהצעת Gemini (יכולה לכלול שמות של שורות אחרות). שורות
+    // נוספות שיאושרו עם אותו קוד יוסיפו את שמן במסלול הקוד הקיים למעלה.
+    const raw = [testName];
     const newRow = _s15_lastCatalogRow(ss, domain) + 1;
     // שורה חדשה בעיצוב טקסט — קוד כמו 3016-3 לא יפורש כתאריך
     const newRange = mapSheet.getRange(newRow, domain.catalogFirstCol, 1, domain.catalogWidth);
@@ -2129,7 +2154,7 @@ function _s15_genShowValidation(ss, sheet, ui) {
     .setHeight(750)
     .setTitle("S15 — אימות גנטיקה");
 
-  ui.showModalDialog(html, "🧬 S15 — " + S15_GEN_SHEET + " | שורה " + row);
+  ui.showModalDialog(html, "🧬 S15 — " + S15_GEN_SHEET);
 }
 
 // ══════════════════════════════════════════════════════════════════
