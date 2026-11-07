@@ -1,6 +1,6 @@
 /**
  * @file        System_Doc_Builder.gs
- * @version     2.1.0 | @updated 31/10/2026 21:21 | @service INFRA
+ * @version     2.2.0 | @updated 06/11/2026 14:53 | @service INFRA
  * @git         src/infrastructure/System_Doc_Builder.gs
  * @description בניית גיליונות תיעוד מערכת וניהול משימות פיתוח.
  *              כולל: גיליון תיעוד AI, גיליון קשרי שירות, גיליון ניהול_משימות.
@@ -24,6 +24,12 @@
  *              task_RefreshList | task_EndOfDay | task_DocFunctions
  *              task_AddFromDialog | task_SyncToday
  *              buildMedicalEventsSheet
+ * @changes     [v2.2.0] Task #273 — task_SessionStart (כפתור "[ רענן משימות ]"): מציגה
+ *              רק את דוח הרענון של task_RefreshList. הוסרו חלון "סדר יום לסשן" (קיים
+ *              ב-task_EndOfDay ובפתיחת יום עם הסוכן), חיפוש מסמך חפיפה ישן בדרייב
+ *              וצביעת השורות הכפולה (task_RefreshList כבר צובעת). task_RunReport ללא
+ *              שינוי — מציגה כעת גם היא רק את דוח הרענון. אומת מול הקוד החי (diff
+ *              מדויק, node --check) ובגליון החי: חלון אחד בלבד.
  * @changes     [v2.1.0] Task #267 — task_RefreshList: מיון חדש — פתוחות (כולל
  *              בביצוע) ואחריהן סגורות, בכל קבוצה לפי מספר משימה עולה (במקום מודול
  *              + עדיפות, Task #54; טבלת העדיפויות הוסרה). שורה 5 נשארת ריקה —
@@ -357,7 +363,7 @@ function task_SetupSheet() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// פתיחת סשן — קריאת חפיפה + הצעת משימות
+// פתיחת סשן — רענון רשימת המשימות בלבד (Task #273)
 // ══════════════════════════════════════════════════════════════════
 
 function task_SessionStart() {
@@ -365,109 +371,9 @@ function task_SessionStart() {
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(TASK_SHEET_NAME);
   if (!sheet) { ui.alert("גיליון לא נמצא — הרץ task_SetupSheet תחילה."); return; }
-// [v1.9.0] מיון + מספור + ניקוי אוטומטי לפני הדוח
-  SpreadsheetApp.getActiveSpreadsheet().toast("🔄 מסדר את הגליון...", "MedicalPilot", 3);
+// [v2.2.0] רק מיון + מספור + צביעה + ניקוי — דוח הרענון מוצג ב-task_RefreshList
+  ss.toast("🔄 מסדר את הגליון...", "MedicalPilot", 3);
   task_RefreshList();
-  SpreadsheetApp.flush();
-  const lastRow = sheet.getLastRow();
-  if (lastRow < TASK_DATA_START) { ui.alert("אין משימות פתוחות בגיליון."); return; }
-
-  const rowCount = lastRow - TASK_DATA_START + 1;
-  const data     = sheet.getRange(TASK_DATA_START, 1, rowCount, 8).getValues();
-
-  let open = 0, inProgress = 0, closed = 0;
-  data.forEach(function(row, i) {
-    const status   = String(row[COL_STATUS - 1]).trim();
-    const rowRange = sheet.getRange(TASK_DATA_START + i, 1, 1, 8);
-    if      (status.includes("סגור"))   { rowRange.setBackground(TASK_COLOR_GREEN);  closed++;     }
-    else if (status.includes("בביצוע")) { rowRange.setBackground(TASK_COLOR_YELLOW); inProgress++; }
-    else if (status.includes("פתוח"))   { rowRange.setBackground(TASK_COLOR_RED);    open++;       }
-  });
-
-  const openTasks = [];
-  data.forEach(function(row) {
-    const status = String(row[COL_STATUS - 1]).trim();
-    if (!status.includes("סגור") && row[COL_TASK_ID - 1] !== "") {
-      openTasks.push({
-        id:       row[COL_TASK_ID   - 1],
-        module:   String(row[COL_MODULE   - 1]).trim(),
-        desc:     String(row[COL_DESC     - 1]).trim(),
-        priority: String(row[COL_PRIORITY - 1]).trim(),
-        status:   status
-      });
-    }
-  });
-
-  let handoverText = "";
-  try {
-    const files = DriveApp.searchFiles(
-      "title contains 'חפיפה' and mimeType = 'application/vnd.google-apps.document'"
-    );
-    if (files.hasNext()) {
-      const doc  = DocumentApp.openById(files.next().getId());
-      const body = doc.getBody().getText();
-      handoverText = body.length > 800
-        ? body.substring(0, 800) + "\n...[קוצר]"
-        : body;
-    }
-  } catch (e) {
-    Logger.log("[task_SessionStart] חפיפה: " + e.message);
-  }
-
-  if (openTasks.length === 0) {
-    ui.alert(
-      "📊 דוח משימות\n\n" +
-      "🔴 פתוח:    " + open       + "\n" +
-      "🟡 בביצוע:  " + inProgress + "\n" +
-      "✅ סגור:    " + closed      + "\n" +
-      "─────────────────\n" +
-      "סה\"כ: " + (open + inProgress + closed) + "\n\n" +
-      "🎉 אין משימות פתוחות — הגיליון נקי!"
-    );
-    return;
-  }
-
-  const priorityOrder = { "🔥 גבוה": 1, "🔵 רגיל": 2, "⚪ נמוך": 3 };
-  openTasks.sort(function(a, b) {
-    if (a.module < b.module) return -1;
-    if (a.module > b.module) return  1;
-    return (priorityOrder[a.priority] || 9) - (priorityOrder[b.priority] || 9);
-  });
-
-  const grouped = {};
-  openTasks.forEach(function(t) {
-    if (!grouped[t.module]) grouped[t.module] = [];
-    grouped[t.module].push(t);
-  });
-
-  const now = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
-  let agenda  = "📊 דוח משימות — " + now + "\n";
-  agenda     += "🔴 פתוח: " + open + "  |  🟡 בביצוע: " + inProgress + "  |  ✅ סגור: " + closed + "\n";
-  agenda     += "══════════════════════════════\n\n";
-
-  if (handoverText) {
-    agenda += "📋 מסמך חפיפה אחרון:\n";
-    agenda += "──────────────────────────────\n";
-    agenda += handoverText + "\n\n";
-    agenda += "══════════════════════════════\n\n";
-  }
-
-  agenda += "📋 סדר יום — משימות פתוחות: " + openTasks.length + "\n";
-  agenda += "══════════════════════════════\n\n";
-
-  Object.keys(grouped).sort().forEach(function(module) {
-    agenda += "📁 " + module + "\n";
-    agenda += "──────────────────────────────\n";
-    grouped[module].forEach(function(t) {
-      agenda += t.priority + " #" + t.id + " — " + t.desc + "\n";
-    });
-    agenda += "\n";
-  });
-
-  agenda += "══════════════════════════════\n";
-  agenda += "העתק לצ'אט עם הסוכן להתחלת עבודה.";
-
-  ui.alert("סדר יום לסשן", agenda, ui.ButtonSet.OK);
 }
 
 function task_RunReport() {
