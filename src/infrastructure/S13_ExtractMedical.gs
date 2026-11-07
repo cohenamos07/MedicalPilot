@@ -1,6 +1,6 @@
 /**
  * @file        S13_ExtractMedical.gs
- * @version     1.10.0 | @updated 01/11/2026 19:10 | @service S13
+ * @version     1.11.1 | @updated 07/11/2026 22:13 | @service S13
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S13_ExtractMedical.gs
  * @description שירות חילוץ עמוק — קורא שורות מאומתות (Validation_Status="מאומת",
  *              Extraction_Status ריק) מיומן_אירועים_רפואי, מקבץ לפי File_ID
@@ -63,6 +63,20 @@
  *              _s13_callGemini | _s13_buildRowValues | _s13_writeExtractedRow |
  *              _s13_processGroup | _s13_loadCatalog | _s13_validateCode | _s13_toNumber |
  *              _s13_fetchOriginalPart | _s13_genTendency
+ * @changes     [v1.11.1] Task #276 — _s13_callGemini: נוסף responseMimeType="application/json"
+ *              ל-generationConfig (כמו S06) — Gemini מחזיר JSON תקין גם כשיש גרשיים
+ *              בראשי תיבות עבריים (מסמך 2023 נכשל ב-JSON_PARSE). נוספה פונקציית עזר
+ *              פנימית logParseContext — ביומן כשל פענוח נרשמים הודעת השגיאה, אורך
+ *              התשובה ו-300 תווים סביב מקום השבירה. אומת מול הקוד החי (diff מדויק,
+ *              node --check) ובבדיקה בפועל: מסמך 2023 חולץ בהצלחה (8 שורות).
+ * @changes     [v1.11.0] Task #236 — בדיקה תקינה: _s13_buildPrompt — כלל (11) חדש בקטע
+ *              יומן_מצב_רפואי (המספרים 8-10 תפוסים בכללי המעבדה והגנטיקה): שורת בדיקה
+ *              שכל הממצאים בה תקינים → Severity_Code=SEV5 ("תקין — ללא ממצא"),
+ *              Diagnosis_Code=DX15 ("ללא ממצא"), Certainty_Code=CRT2; תקין חלקית → קידוד
+ *              לפי הממצא החריג; מחלת רקע → לפי כלל (5). SEV5/DX15 נוספו ידנית למיפוי_קודים
+ *              (O10:R10, T20:W20), ו"לא תקין" למילות המפתח של SEV1 (R6). אומת מול הקוד החי
+ *              (diff מדויק, node --check) ובבדיקה על 2 שורות מדומות (MOCK-236): תקינה →
+ *              SEV5/DX15/CRT2; תקינה חלקית → SEV1/DX02.
  * @changes     [v1.10.0] Task #264 (שלב 2) — גנטיקה: פיצול לשורה לכל תכונה, באותו
  *              דפוס כמו מעבדה (v1.8.0). חדש: S13_GEN_TENDENCIES (אין|נמוכה|בינונית|
  *              גבוהה), S13_GEN_TENDENCY_SYNONYMS (מוגברת→גבוהה וכו'), S13_GEN_ACMG
@@ -642,6 +656,11 @@ function _s13_buildPrompt(group, fallbackTxt, catalog) {
       "במסמך. Allergen_Code = קוד ה-ATC של החומר מקטלוג Allergen_Code בלבד — אם החומר אינו ברשימה, השאר " +
       "ריק. Reaction = התגובה כפי שמתוארת במסמך, בעברית (למשל \"כאבי שרירים\"); אם לא מצוינת — ריק. " +
       "בכל שורה אחרת Allergen_Code ו-Reaction נשארים ריקים.\n" +
+      // [Task #236] בדיקה תקינה — קוד חומרה SEV5 וקוד אבחנה DX15, רק כשכל הממצאים בשורה תקינים
+      "(11) שורת בדיקה שכל הממצאים בה תקינים (למשל \"תפקוד סיסטולי תקין\", NORMAL, ללא ממצא): " +
+      "Severity_Code = SEV5, Diagnosis_Code = DX15, Certainty_Code = CRT2. אם בשורה יש לפחות ממצא חריג אחד " +
+      "(תקין חלקית, למשל \"NORMAL LV FUNCTION. DILATED ASCENDING AORTA\") — קודד לפי הממצא החריג, ולא SEV5 " +
+      "או DX15. שורת \"מחלת רקע\" — לפי כלל (5) בלבד.\n" +
        "\n--- קטלוג Organ_Code (קוד=איבר) ---\n" + listOf(catalog.organ, function(o) { return o.desc; }) +
       "\n--- קטלוג Event_Code (קוד=סוג אירוע) ---\n" + listOf(catalog.eventCode, function(o) { return o.desc; }) +
       "\n--- קטלוג Specialty_Code ---\n" + listOf(catalog.specialty, function(o) { return o.raw; }) +
@@ -769,7 +788,8 @@ function _s13_callGemini(prompt, originalPart) {
 
     const payload = {
       contents: [{ parts: parts }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 32768, thinkingConfig: { thinkingBudget: 0 } }
+      // [Task #276] responseMimeType — Gemini מחזיר JSON תקין (כולל גרשיים מסומנים בראשי תיבות עבריים), כמו S06
+      generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 32768, thinkingConfig: { thinkingBudget: 0 } }
     };
 
     const response = UrlFetchApp.fetch(url, {
@@ -819,6 +839,14 @@ function _s13_callGemini(prompt, originalPart) {
     raw = textPart.trim();
     raw = raw.replace(/```json/g, "").replace(/```/g, "").trim();
 
+    // [Task #276] יומן כשל פענוח — הודעת השגיאה ו-300 תווים סביב מקום השבירה
+    const logParseContext = function(err, text) {
+      const m   = String(err && err.message || "").match(/position (\d+)/);
+      const pos = m ? parseInt(m[1], 10) : -1;
+      Logger.log("[S13] שגיאת פענוח JSON: " + (err && err.message) + " | אורך תשובה: " + text.length +
+        (pos >= 0 ? " | הקשר סביב מקום " + pos + ": " + text.substring(Math.max(0, pos - 150), pos + 150) : ""));
+    };
+
     try {
       return JSON.parse(raw);
     } catch (parseErr) {
@@ -829,12 +857,14 @@ function _s13_callGemini(prompt, originalPart) {
           return JSON.parse(raw.substring(firstBrace, lastBrace + 1));
         } catch (innerErr) {
           _s13_lastFailReason = "JSON_PARSE";
+          logParseContext(innerErr, raw.substring(firstBrace, lastBrace + 1));
           Logger.log("[S13] חילוץ תת-מחרוזת JSON נכשל גם הוא — raw (1000 תווים ראשונים): " +
             raw.substring(0, 1000));
           return null;
         }
       }
       _s13_lastFailReason = "JSON_PARSE";
+      logParseContext(parseErr, raw);
       Logger.log("[S13] JSON.parse נכשל ולא נמצאו סוגריים מסולסלים תואמים — raw " +
         "(1000 תווים ראשונים): " + raw.substring(0, 1000));
       return null;
