@@ -1,5 +1,5 @@
 # MedicalPilot — CONTEXT
-עדכון אחרון: 24/04/2026 17:15
+עדכון אחרון: 08/11/2026 23:01
 
 ## פרטי משתמש
 - שם: עמוס כהן
@@ -13,7 +13,8 @@
 - גיליון: https://docs.google.com/spreadsheets/d/1uYnt-wleYpuk1ZrX7fTn2HDZ12PNWBEFRDGqHQN_U4I
 - עורך: https://script.google.com/u/0/home/projects/1mTd19xr7KOg71KyL33YoGZawMS1Cfh_xtvMJnbcZjyJQJIyvyuYKDqgf
 - גיטהאב: https://github.com/cohenamos07/MedicalPilot
-- אינדקס: https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/INDEX.md
+- אינדקס: https://github.com/cohenamos07/MedicalPilot/blob/main/INDEX.md
+- מפת עמודות: https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/src/infrastructure/COLUMN_MAP.gs
 
 ## מצב המערכת
 - גרסה: v98.0
@@ -40,6 +41,7 @@
 
 ## בעיות קריטיות
 - System_Logger.gs תלוי שורה 6 — אסור לגעת במבנה הגיליון
+- גיליונות דוגמאות_למידה ויומן_אירועים_רפואי ריקים
 
 ## משימה הבאה
 בניית INDEX.md בגיטהאב + המשך תיעוד 15 שירותים
@@ -51,4 +53,4 @@
 
 ## איך לפתוח שיחה חדשה
 כתוב: "אני עמוס. ממשיכים MedicalPilot."
-קישור אינדקס: https://raw.githubusercontent.com/cohenamos07/MedicalPilot/main/INDEX.md
+קישור אינדקס: https://github.com/cohenamos07/MedicalPilot/blob/main/INDEX.md
