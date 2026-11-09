@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.17.0 | @updated 03/11/2026 11:35 | @service COLUMN_MAP
+ * @version 2.18.0 | @updated 09/11/2026 11:25 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
@@ -46,6 +46,9 @@
  *          תכונות_גנטיות BM-BR (65-70, מפתח = GTR-nnn, writers: S15+עמוס) ובלוק
  *          גנים CC-CH (81-86, מפתח = סמל גן HGNC, writers: S15+עמוס). בלוק פאנלים
  *          BS-BW כולל עכשיו גם PNL-G00-PNL-G09.
+ *          [v2.18.0] Task #277 — S10_למידה_רפואי הוסר (הגליון נמחק; הלמידה נמצאת
+ *          בדוגמאות_למידה_S10 מאז Task 185). מסנכרן_קבצים — 15 עמודות A-O בפועל
+ *          (היה 11 בשמות ישנים), writers: DEV_SYNC, כותרות בשורה 4.
  *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (11), בדיקות_דם (10),
  *          בדיקות_גנטיות (8), הנחיות_רפואיות_ומשימות (8) — 5 גליונות יעד של S09,
  *          נוספו ל-SHEET_CONFIG/SHEETS_MAP עם כותרות באנגלית, יושרו בפועל
@@ -76,6 +79,21 @@
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol, _medDate_normalizeDate
+ *            [v2.18.0] buildS10LearningSheet הוסרה (Task #277).
+ * @changes [v2.18.0] Task #277 — ניקוי והשוואה למבנה בפועל, אין שינוי בשירותי ה-Pipeline.
+ *          SHEETS_MAP["S10_למידה_רפואי"] הוסר (11 שורות) — הגליון נמחק ב-08/11/2026,
+ *          אף שירות לא קרא או כתב אליו (S10 כותב לדוגמאות_למידה_S10, S09 קורא ממנו).
+ *          buildS10LearningSheet הוסרה — הייתה יוצרת את הגליון מחדש אם הורצה.
+ *          SHEETS_MAP["מסנכרן_קבצים"]: 11→15 עמודות — שמות וסדר לפי devSync_RunScanButton
+ *          (DevSyncInspector.gs v3.5): File_Name | View_Summary | Updated_Editor |
+ *          Updated_Git | Editor_Lines | Git_Lines | Version_Editor | Version_Git |
+ *          Service_Editor | Service_Git | Sync_Status (K) | System_Notes | System_Path |
+ *          Git_Raw_Link | Git_Web_Link; writers: ["DEV_SYNC"]. buildDevSyncSheet —
+ *          כותרות בשורה 4 והקפאת 4 שורות (היה שורה 1), כמו בגליון בפועל; שורות 1-3
+ *          לאייקונים (setupDevSyncIcons, ViewEngine.gs v2.12.0). הערות כללי הכתיבה
+ *          ו-SHEET_CONFIG עודכנו (S10 → דוגמאות_למידה_S10). אומת מול הקוד החי (diff
+ *          מדויק לכל בלוק, node --check, טעינת המפה: 15 עמודות במסנכרן_קבצים, אין
+ *          S10_למידה_רפואי) ובבדיקה פונקציונלית (הדפסת מבנה גיליון — 15 עמודות).
  * @changes [v2.17.0] Task #264 (שלב 5) — תיעוד מבני בלבד, אין שינוי לוגי.
  *          SHEETS_MAP["בדיקות_גנטיות"]: 9→17 עמודות — נוספו 10-17 (J-Q): Trait_Code,
  *          Panel_Code (PNL-G00-PNL-G09), Tendency (אין|נמוכה|בינונית|גבוהה),
@@ -277,7 +295,7 @@ S06      — כותב רק לעמודות M, O, P, Q, S, T, X, Y, Z
 S07      — כותב רק לעמודות I, J, K, L, M, N, Q, R, S, T
 S08      — כותב רק לעמודות I, J, K, L, M, U
 S09      — כותב רק לגליונות היעד (יומן_אירועים_רפואי וכו')
-S10      — כותב רק לגליון S10_למידה_רפואי
+S10      — כותב רק לגליון דוגמאות_למידה_S10 (Task 185; הגליון הישן הוסר ב-Task #277)
 QA       — כותב רק לעמודה U
 כל שירות — בהצלחה מנקה S ו-T. בכישלון כותב קוד ב-S ופירוט ב-T
 */
@@ -330,7 +348,7 @@ const SHEET_CONFIG = {
     FIRST_DATA_ROW: 5
   },
   // [Task 185] גליון למידה חדש ל-S10 — שורה אחת לכל אירוע (לא לכל מסמך),
-  // מחליף בפועל את S10_למידה_רפואי הישן (נשאר יתום, לא נמחק אוטומטית)
+  // מחליף בפועל את S10_למידה_רפואי הישן (הגליון וההגדרה שלו הוסרו ב-Task #277)
   "דוגמאות_למידה_S10": {
     FROZEN_ROWS:    4,
     HEADER_ROW:     4,
@@ -577,20 +595,9 @@ const SHEETS_MAP = {
     
   ],
 
-  // [FIX-4] גליון למידה חדש — S10 אימות אירועים רפואיים
-  "S10_למידה_רפואי": [
-    { col: 1, name: "Source_File_ID",       zone: "מפתח",   writers: ["S10"], readers: ["S09"], values: "Drive ID",          notes: "מזהה קובץ המקור — מפתח מקשר לשורה בניהול_מיילים" },
-    { col: 2, name: "Split_Index",          zone: "מפתח",   writers: ["S10"], readers: ["S09"], values: "X/Y",               notes: "מספור האירוע מתוך המסמך — לדוגמה 2/3" },
-    { col: 3, name: "Target_Sheet",         zone: "תוכן",   writers: ["S10"], readers: ["S09"], values: "יומן_אירועים_רפואי|תרופות_קבועות|יומן_מצב_רפואי|בדיקות_דם|בדיקות_גנטיות|הנחיות_רפואיות_ומשימות", notes: "גליון היעד שאליו נכתב האירוע" },
-    { col: 4, name: "Extracted_Data_JSON",  zone: "תוכן",   writers: ["S10"], readers: ["S09"], values: "JSON",               notes: "אובייקט השדות המלא של האירוע לאחר אימות" },
-    { col: 5, name: "Complexity_Level",     zone: "תוכן",   writers: ["S10"], readers: ["S09"], values: "1|2|3|4|5",          notes: "רמת מורכבות האירוע 1=פשוט, 5=מורכב מאוד" },
-    { col: 6, name: "User_Correction_Note", zone: "תוכן",   writers: ["S10"], readers: ["S09"], values: "טקסט חופשי",         notes: "הסבר המשתמש לתיקון — מה Gemini טעה ולמה" },
-    { col: 7, name: "Timestamp",            zone: "טכני",   writers: ["S10"], readers: [],      values: "תאריך ושעה",         notes: "מועד אימות האירוע" }
-  ],
-
   // [Task 185] גליון למידה חדש — שורה אחת לכל אירוע (לא לכל מסמך), מאפשר
   // סינון/קיבוץ לפי Source_File_ID (מסמך) או Routing_Category (קטגוריה).
-  // מחליף בפועל את S10_למידה_רפואי לעיל.
+  // מחליף את S10_למידה_רפואי הישן — הגליון וההגדרה שלו הוסרו ב-Task #277.
   "דוגמאות_למידה_S10": [
     { col: 1,  name: "Source_File_ID",       zone: "מפתח",  writers: ["S10"], readers: ["S09"], values: "Drive ID",           notes: "מזהה קובץ המקור — מפתח קיבוץ: כל השורות עם אותו מזהה = פירוק אחד שלם של מסמך אחד" },
     { col: 2,  name: "Event_Index",          zone: "מפתח",  writers: ["S10"], readers: ["S09"], values: "מספר שלם",           notes: "סדר האירוע בתוך אותו מסמך (1, 2, 3...) — לשחזור סדר מקורי" },
@@ -619,18 +626,25 @@ const SHEETS_MAP = {
     { col: 11, name: "Notes",            zone: "מידע",   writers: ["ExtractorManager"], readers: [],                              values: "טקסט חופשי",                                                       notes: "הערות — למשל: מפתח הוחלף, שגיאה ידועה" }
   ],
 
+  // [Task #277] עודכן ל-15 העמודות בפועל (A-O), לפי devSync_RunScanButton
+  // (DevSyncInspector.gs v3.5). כותרות בשורה 4, נתונים משורה 5. שורות 1-3 —
+  // אייקונים ותוויות (setupDevSyncIcons, ViewEngine.gs). אזור מרחבי מעמודה P.
   "מסנכרן_קבצים": [
-    { col: 1,  name: "File_Name",      zone: "סנכרון", writers: [], readers: [], values: "שם קובץ",       notes: "שם הקובץ ללא סיומת" },
-    { col: 2,  name: "Git_Path",       zone: "סנכרון", writers: [], readers: [], values: "נתיב",           notes: "נתיב מלא בקוד המקור" },
-    { col: 3,  name: "Exists_Editor",  zone: "סנכרון", writers: [], readers: [], values: "כן|לא",          notes: "האם קיים בעורך" },
-    { col: 4,  name: "Exists_Git",     zone: "סנכרון", writers: [], readers: [], values: "כן|לא",          notes: "האם קיים בגיטהאב" },
-    { col: 5,  name: "Editor_Lines",   zone: "סנכרון", writers: [], readers: [], values: "מספר שורות",    notes: "מספר שורות קוד בעורך — לזיהוי שינויים" },
-    { col: 6,  name: "Git_Lines",      zone: "סנכרון", writers: [], readers: [], values: "מספר שורות",    notes: "מספר שורות קוד ב-GitHub — להשוואה" },
-    { col: 7,  name: "Version_Editor", zone: "סנכרון", writers: [], readers: [], values: "שורת גרסה",     notes: "שורת @version מהעורך" },
-    { col: 8,  name: "Version_Git",    zone: "סנכרון", writers: [], readers: [], values: "שורת גרסה",     notes: "שורת @version מהגיט" },
-    { col: 9,  name: "Status",         zone: "סנכרון", writers: [], readers: [], values: "תואם|שונה|חסר",  notes: "מצב השוואה" },
-    { col: 10, name: "Action",         zone: "סנכרון", writers: [], readers: [], values: "שחזר|דחוף",      notes: "פעולה מוצעת" },
-    { col: 11, name: "Notes",          zone: "סנכרון", writers: [], readers: [], values: "טקסט חופשי",    notes: "הערות" }
+    { col: 1,  name: "File_Name",      zone: "זיהוי", writers: ["DEV_SYNC"], readers: [], values: "שם קובץ",       notes: "שם הקובץ בעורך, ללא סיומת" },
+    { col: 2,  name: "View_Summary",   zone: "זיהוי", writers: ["DEV_SYNC"], readers: [], values: "[ צפה בטקסט ]", notes: "לחיצה — תקציר @impacts/@functions באזור המרחבי" },
+    { col: 3,  name: "Updated_Editor", zone: "עורך", writers: ["DEV_SYNC"], readers: [], values: "DDMMYYYY HH:MM", notes: "מועד @updated לפי כותרת הקובץ בעורך" },
+    { col: 4,  name: "Updated_Git",    zone: "גיט", writers: ["DEV_SYNC"], readers: [], values: "DDMMYYYY HH:MM", notes: "מועד @updated לפי כותרת הקובץ בגיטהאב" },
+    { col: 5,  name: "Editor_Lines",   zone: "עורך", writers: ["DEV_SYNC"], readers: [], values: "מספר שורות",    notes: "מספר שורות קוד בעורך — לזיהוי שינויים" },
+    { col: 6,  name: "Git_Lines",      zone: "גיט", writers: ["DEV_SYNC"], readers: [], values: "מספר שורות",    notes: "מספר שורות קוד בגיטהאב — להשוואה" },
+    { col: 7,  name: "Version_Editor", zone: "עורך", writers: ["DEV_SYNC"], readers: [], values: "מספר גרסה",     notes: "@version מהעורך" },
+    { col: 8,  name: "Version_Git",    zone: "גיט", writers: ["DEV_SYNC"], readers: [], values: "מספר גרסה",     notes: "@version מהגיט" },
+    { col: 9,  name: "Service_Editor", zone: "עורך", writers: ["DEV_SYNC"], readers: [], values: "קוד שירות",     notes: "@service מהעורך" },
+    { col: 10, name: "Service_Git",    zone: "גיט", writers: ["DEV_SYNC"], readers: [], values: "קוד שירות",     notes: "@service מהגיט" },
+    { col: 11, name: "Sync_Status",    zone: "סנכרון", writers: ["DEV_SYNC"], readers: [], values: "תואם|⬆ סנכרן לגיטהאב|⬇ סנכרן לעורך", notes: "מצב השוואה — צבע לפי עיצוב מותנה; אייקון הסנכרון לגיט מעליה" },
+    { col: 12, name: "System_Notes",   zone: "סנכרון", writers: ["DEV_SYNC"], readers: [], values: "טקסט חופשי",    notes: "הערות מערכת (חסר בעורך/בגיט)" },
+    { col: 13, name: "System_Path",    zone: "קישור", writers: ["DEV_SYNC"], readers: [], values: "נתיב",          notes: "נתיב הקובץ בגיט (src/infrastructure/...)" },
+    { col: 14, name: "Git_Raw_Link",   zone: "קישור", writers: ["DEV_SYNC"], readers: [], values: "כתובת API",     notes: "קישור GitHub API לקובץ" },
+    { col: 15, name: "Git_Web_Link",   zone: "קישור", writers: ["DEV_SYNC"], readers: [], values: "כתובת אתר",     notes: "קישור לקובץ באתר GitHub" }
    ],
 
    // [הרחבה, Task #206, סבב 3] גליון מיפוי_קודים — טבלה אחודה: מערכות גוף
@@ -1019,47 +1033,10 @@ function buildSheetFromMap() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// [FIX-5] פונקציה 6 — הקמת גליון S10_למידה_רפואי + הגנה
-// ══════════════════════════════════════════════════════════════════
-
-function buildS10LearningSheet() {
-  const SHEET_NAME = "S10_למידה_רפואי";
-  const ss         = SpreadsheetApp.getActiveSpreadsheet();
-  const ui         = SpreadsheetApp.getUi();
-  const existing   = ss.getSheetByName(SHEET_NAME);
-
-  if (existing) {
-    ui.alert("⚠️ גליון '" + SHEET_NAME + "' כבר קיים.\nלשחזור כותרות — השתמש ב'שחזור כותרות'.");
-    return;
-  }
-
-  const cols      = SHEETS_MAP[SHEET_NAME];
-  const sheet     = ss.insertSheet(SHEET_NAME);
-  const totalCols = cols.length;
-  const headers   = new Array(totalCols).fill("");
-  cols.forEach(function(c) { headers[c.col - 1] = c.name || ""; });
-
-  const headerRange = sheet.getRange(1, 1, 1, totalCols);
-  headerRange.setValues([headers]);
-  headerRange.setFontWeight("bold");
-  headerRange.setBackground("#fce4ec");
-  headerRange.setFontColor("#880e4f");
-  sheet.setFrozenRows(1);
-  sheet.autoResizeColumns(1, totalCols);
-  sheet.setColumnWidth(4, 400);
-
-  const protection = sheet.getRange(1, 1, 1, totalCols).protect();
-  protection.setDescription("כותרות S10_למידה_רפואי — מוגן על ידי COLUMN_MAP");
-  protection.setWarningOnly(true);
-
-  sheet.getRange(2, 1).activate();
-
-  Logger.log("[COLUMN_MAP] גליון " + SHEET_NAME + " נוצר בהצלחה עם " + totalCols + " עמודות.");
-  ui.alert("✅ גליון '" + SHEET_NAME + "' נוצר בהצלחה.\nשורת הכותרות מוגנת מפני שינויים.");
-}
-
-// ══════════════════════════════════════════════════════════════════
 // פונקציית עזר — הקמת גליון מסנכרן_קבצים
+// [Task #277] כותרות בשורה 4 ו-4 שורות מוקפאות — כמו בגליון בפועל
+//             (DEV_SYNC_HEADER_ROW ב-DevSyncInspector.gs). שורות 1-3 שמורות
+//             לאייקונים ולתוויות (setupDevSyncIcons ב-ViewEngine.gs).
 // ══════════════════════════════════════════════════════════════════
 
 function buildDevSyncSheet() {
@@ -1073,8 +1050,8 @@ function buildDevSyncSheet() {
   const headers   = new Array(totalCols).fill("");
   cols.forEach(function(c) { headers[c.col - 1] = c.name; });
 
-  sheet.getRange(1, 1, 1, totalCols).setValues([headers]).setFontWeight("bold");
-  sheet.setFrozenRows(1);
+  sheet.getRange(4, 1, 1, totalCols).setValues([headers]).setFontWeight("bold");
+  sheet.setFrozenRows(4);
   sheet.autoResizeColumns(1, totalCols);
 }
 
