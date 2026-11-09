@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.11.0 | @updated 26/10/2026 16:49 | @service VIEWENGINE
+ * @version 2.13.0 | @updated 09/11/2026 12:11 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -52,6 +52,12 @@
  *              (שורה 2), תוויות ורקע תכלת בשורה 3, ומגביה את שורה 2 ל-45
  *              אם היא נמוכה מ-40. runS15EnrichIcon כותב לעמודות M-R בעקיפין,
  *              דרך runS15Enrich() (S15_EnrichCatalog.gs).
+ *              [v2.12.0] מסנכרן_קבצים: setupDevSyncIcons — מוחק את האייקונים הקיימים,
+ *              מכניס 4 איקונים בשורה 2 (A דוח מערכת, B קפוץ לתא, D סנכרון מהגיט,
+ *              K סנכרון לגיט) ותוויות בתכלת בשורה 3. הפונקציות המשויכות
+ *              (DevSyncInspector.gs) לא משתנות. לא כותב לנתונים (שורה 5 ומטה).
+ *              [v2.13.0] runArchiveView (S12) חסום כברירת מחדל (S12_ARCHIVE_ENABLED=false):
+ *              מציג הודעה בלבד — לא מוחק שורה ולא מעביר קבצים עד הסרת החסימה (Task #200).
  *              תלויות: S01 (checkSystemMorning) | S02 (checkUserAccess)
  *                      S03 (runEmailIngestion) | S04 (syncDriveFiles)
  *                      S05 (extractMetaData) | S06 (run_MedicalPilot_V2_6_2, nightlyConvertBatch)
@@ -61,6 +67,7 @@
  * @callers     אייקוני גליון ניהול_מיילים בלבד — שורה 2
  *              אייקוני גליון יומן_אירועים_רפואי — שורה 2
  *              אייקוני גליון תרופות_קבועות — שורה 2
+ *              אייקוני גליון מסנכרן_קבצים — שורה 2 (הצבה בלבד; הפונקציות ב-DevSyncInspector.gs)
  * @functions   switchView | viewEngine_buildCriteria | _doExpand | _removeActiveFilter
  *              runExpandView | runSystemCheckIcon | runAccessCheckIcon
  *              runGmailIcon | runWhatsAppIcon | runDriveIcon
@@ -78,6 +85,24 @@
  *              _labInfographic_loadIconMap | runInfographicIconMedicalStatus_LAB
  *              _labInfographic_buildCatalogs | _labInfographic_buildRecord
  *              runS15EnrichIcon | runS15ValidateIcon | setupMedicationsIcons
+ *              setupDevSyncIcons | S12_ARCHIVE_ENABLED (קבוע)
+ * @changes     [v2.13.0] Task #200 — חסימה זמנית לארכוב (S12): runArchiveView מוחקת שורה
+ *              מניהול_מיילים ומעבירה קבצים בדרייב (moveTo), וטרם נבדקה מקצה לקצה. נוסף
+ *              מתג S12_ARCHIVE_ENABLED = false מעל הפונקציה; כשהוא כבוי — הודעת "הארכוב
+ *              חסום זמנית (Task #200)" ו-return, לפני כל קריאה או כתיבה. חל גם על האייקון
+ *              בעמודה V וגם על הפריט "ארכוב מסמכים (S12)" בתפריט PROD. להפעלה — לשנות
+ *              ל-true. _s12_archiveRow ללא שינוי. אומת מול הקוד החי (diff מדויק, node
+ *              --check לכל הקבצים יחד) ובבדיקה בפועל: לחיצה על האייקון — הודעת החסימה בלבד.
+ * @changes     [v2.12.0] Task #277 — גליון מסנכרן_קבצים: האייקונים הוצבו עד כה ידנית,
+ *              בלי פונקציית הקמה. נוספו DEV_SYNC_ICON_MAP (4 איקונים, קבצים בתיקיית
+ *              האייקונים בדרייב) + DEV_SYNC_ICON_LABEL_BG/FG/LAST_COL ו-setupDevSyncIcons,
+ *              באותו דפוס כמו setupMedicationsIcons. אייקון הסנכרון לגיט
+ *              (devSync_SyncToGit) הועבר מעמודה C לעמודה K (מעל Sync_Status) — הפונקציה
+ *              פועלת לפי השורה המסומנת, לא לפי עמודת האייקון. הרצה חד-פעמית מהעורך
+ *              דורשת שהגליון יהיה פתוח בלשונית (getUi). אומת מול הקוד החי (diff מדויק,
+ *              node --check לכל הקבצים יחד — אין התנגשות שמות), בייצוא הגליון (4
+ *              איקונים בעמודות A/B/D/K, תוויות שורה 3, C3 ריק) ובבדיקה בפועל (אייקון K
+ *              מחזיר "כבר תואם").
  * @changes     [v2.11.0] Task #256 שלב 2 — גליון תרופות_קבועות: אייקוני העשרה
  *              ואימות (תוספת בלבד, ללא שינוי בפונקציות קיימות). (1) חדש:
  *              MEDICATIONS_SHEET_NAME ו-MEDICATIONS_ICON_MAP (אחרי CODE_MAP_ICON_MAP)
@@ -1071,9 +1096,26 @@ function runQAView() {
 // זה הוחלף לגמרי בהעברה פיזית לטאב נפרד.
 // ══════════════════════════════════════════════════════════════════
 
+// [Task #200] מתג חסימה לארכוב (S12) — false = חסום. האייקון בעמודה V ופריט
+// התפריט "ארכוב מסמכים (S12)" מציגים הודעה בלבד, בלי לגעת בשורה או בקבצים.
+const S12_ARCHIVE_ENABLED = false;
+
 function runArchiveView() {
   try {
     const ui    = SpreadsheetApp.getUi();
+
+    // [Task #200] חסימה זמנית — הארכוב מוחק שורה ומעביר קבצים בדרייב, וטרם נבדק
+    // מקצה לקצה. להפעלה: לשנות את S12_ARCHIVE_ENABLED ל-true (מעל הפונקציה).
+    if (!S12_ARCHIVE_ENABLED) {
+      ui.alert(
+        "S12 — ארכוב",
+        "הארכוב חסום זמנית (Task #200) — לא בוצע שום שינוי.\n" +
+        "הפעולה מוחקת שורה ומעבירה קבצים בדרייב, וטרם נבדקה מקצה לקצה.",
+        ui.ButtonSet.OK
+      );
+      return;
+    }
+
     const ss    = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(VIEW_SHEET_NAME);
     const row   = sheet.getActiveCell().getRow();
@@ -2830,6 +2872,124 @@ function setupMedicationsIcons() {
 
   } catch (e) {
     Logger.log("[ViewEngine] שגיאה ב-setupMedicationsIcons: " + e.toString());
+    SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
+  }
+}
+// ══════════════════════════════════════════════════════════════════
+// [Task #277] מסנכרן_קבצים — אייקונים בשורה 2, תוויות בשורה 3.
+// עד Task #277 האייקונים הוצבו ידנית; עכשיו באותו דפוס כמו שאר הגליונות
+// (setupMedicationsIcons). הרצה ידנית חד-פעמית מהעורך.
+// כל פונקציות האייקונים (DevSyncInspector.gs) פועלות לפי השורה המסומנת,
+// לא לפי עמודת האייקון — לכן אפשר להזיז אייקון בלי לשנות את הפונקציה.
+// אייקון הסנכרון לגיט הועבר מעמודה C לעמודה K (מעל Sync_Status).
+// ══════════════════════════════════════════════════════════════════
+
+const DEV_SYNC_ICON_MAP = [
+  {
+    col:    1,
+    script: "devSync_RunScanButton",
+    fileId: "15WNzjTXyT-ZZljSV7RYIENAObIyxEJ8Z",  // איקון הפק דוח.png
+    label:  "[ הרץ דוח מערכת ]"
+  },
+  {
+    col:    2,
+    script: "devSync_NavigateToImpacts",
+    fileId: "1ZDJhVUwZlTdbBchyw6O8RSGlPUJZPua1",  // frog.png
+    label:  "↷ [קפוץ לתא ]"
+  },
+  {
+    col:    4,
+    script: "devSync_SyncToEditor",
+    fileId: "1fMTzURY0J7zIPztuKjiv2-rJFJmNJGQF",  // Github.png
+    label:  "↓ [ סנכרן מהגיט > לעורך >]"
+  },
+  {
+    col:    11,
+    script: "devSync_SyncToGit",
+    fileId: "1eUE7splzU0BU58bxtRW-7zkPD-ahSUzU",  // google-apps-script.png
+    label:  "↑ [ סנכרן מהעורך > לגיט ]"
+  }
+];
+
+const DEV_SYNC_ICON_LABEL_BG = "#00ffff";   // תכלת — כמו התוויות שהוצבו ידנית
+const DEV_SYNC_ICON_LABEL_FG = "#000000";
+const DEV_SYNC_ICON_LAST_COL = 15;          // A-O — עמודות הנתונים של הגליון
+
+function setupDevSyncIcons() {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("מסנכרן_קבצים");
+    const ui    = SpreadsheetApp.getUi();
+
+    if (!sheet) {
+      ui.alert("❌ גליון 'מסנכרן_קבצים' לא נמצא.");
+      return;
+    }
+
+    // מחק איקונים קיימים
+    const existingImages = sheet.getImages();
+    existingImages.forEach(function(img) { img.remove(); });
+    SpreadsheetApp.flush();
+    Logger.log("[ViewEngine] setupDevSyncIcons — נמחקו: " + existingImages.length + " איקונים");
+
+    // שורה 3 בעמודות A-O — ניקוי תוויות ישנות (כולל עמודה C שהתפנתה)
+    sheet.getRange(3, 1, 1, DEV_SYNC_ICON_LAST_COL).clearContent().setBackground("#ffffff");
+
+    // שורה 2 נמוכה מדי לאייקון — מגביהים לגובה המקובל בשאר הגליונות
+    if (sheet.getRowHeight(2) < 40) {
+      sheet.setRowHeight(2, 45);
+    }
+
+    const rowHeight = sheet.getRowHeight(2);
+    const iconSize  = Math.max(30, rowHeight - 4);
+    let   added     = 0;
+
+    DEV_SYNC_ICON_MAP.forEach(function(mapping) {
+      try {
+        const file     = DriveApp.getFileById(mapping.fileId);
+        const blob     = file.getBlob();
+        const colWidth = sheet.getColumnWidth(mapping.col);
+        const offsetX  = Math.max(0, Math.floor((colWidth - iconSize) / 2));
+
+        const img = sheet.insertImage(blob, mapping.col, 2);
+        img.setAltTextTitle(mapping.script);
+        img.assignScript(mapping.script);
+        img.setWidth(iconSize);
+        img.setHeight(iconSize);
+        img.setAnchorCell(sheet.getRange(2, mapping.col));
+        img.setAnchorCellXOffset(offsetX);
+        img.setAnchorCellYOffset(2);
+
+        // תווית שורה 3
+        const labelCell = sheet.getRange(3, mapping.col);
+        labelCell.setValue(mapping.label);
+        labelCell.setBackground(DEV_SYNC_ICON_LABEL_BG);
+        labelCell.setFontColor(DEV_SYNC_ICON_LABEL_FG);
+        labelCell.setHorizontalAlignment("center");
+        labelCell.setVerticalAlignment("middle");
+
+        added++;
+        Logger.log("[ViewEngine] setupDevSyncIcons — נוסף: " + mapping.script + " עמודה " + mapping.col);
+
+      } catch (imgErr) {
+        Logger.log("[ViewEngine] setupDevSyncIcons — שגיאה: " + mapping.script + " | " + imgErr.toString());
+      }
+    });
+
+    SpreadsheetApp.flush();
+
+    ui.alert(
+      "✅ " + added + " מתוך " + DEV_SYNC_ICON_MAP.length + " איקונים הוכנסו לגליון 'מסנכרן_קבצים'\n\n" +
+      "עמודה A — דוח מערכת (devSync_RunScanButton)\n" +
+      "עמודה B — קפוץ לתא (devSync_NavigateToImpacts)\n" +
+      "עמודה D — סנכרון מהגיט לעורך (devSync_SyncToEditor)\n" +
+      "עמודה K — סנכרון מהעורך לגיט (devSync_SyncToGit)"
+    );
+
+    Logger.log("[ViewEngine] setupDevSyncIcons הושלם — " + added + " איקונים");
+
+  } catch (e) {
+    Logger.log("[ViewEngine] שגיאה ב-setupDevSyncIcons: " + e.toString());
     SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
   }
 }
