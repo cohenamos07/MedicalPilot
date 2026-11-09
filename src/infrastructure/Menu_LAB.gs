@@ -1,7 +1,7 @@
 /**
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
-* @version 10.11 | @updated 03/07/2026 12:14 | @service MENU_LAB
+* @version 10.12 | @updated 09/11/2026 11:23 | @service MENU_LAB
   * @git        https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/Menu_LAB.gs
  * @impacts    תפריט מעבדה ראשי של המערכת — מציג כלי פיתוח ותיעוד בלבד.
  *             מבנה: ⚙️ ניהול מערכת | 🔬 כלי פיתוח | 📝 תיעוד מערכת.
@@ -11,7 +11,13 @@
  *             syncSessionDocs (GitHubSync).
  *             סנכרון עורך↔גיט מנוהל בלעדית דרך אייקוני גליון מסנכרן_קבצים.
  *             ניהול משימות מנוהל בלעדית דרך אייקוני גליון ניהול_משימות.
- * @changes    [v10.11] Task 93 — הוספת buildLabMenu_v10_11 עם פריט תפריט נוסף
+ *             [v10.12] syncSessionDocs הוסר מהתפריט — הפונקציה לא קיימת בפרויקט.
+ * @changes    [v10.12] Task #277 — buildLabMenu_v10_11: הוסר הפריט השבור
+ *             'סיכום ומסמך חפיפה' מתת-התפריט 📝 תיעוד מערכת — הפונקציה
+ *             syncSessionDocs לא קיימת באף קובץ (לחיצה החזירה שגיאה). שם הפונקציה
+ *             וכותרת התפריט 'LA v10.11' נשארו ללא שינוי. אומת מול הקוד החי (diff
+ *             מדויק, node --check) ובבדיקה בפועל — בתפריט נשאר רק "עדכון CONTEXT.md".
+ *             [v10.11] Task 93 — הוספת buildLabMenu_v10_11 עם פריט תפריט נוסף
  *             'אבחון שורות יתומות (Task 93)' → qa_findOrphanDuplicateRef_Task93.
  *             buildLabMenu() עודכן להצביע לגרסה החדשה. שני הפריטים (מיגרציה +
  *             אבחון) להסרה לאחר סגירת Task 93 סופית.
@@ -101,9 +107,9 @@ function buildLabMenu_v10_11() {
 
   menu.addSeparator();
 
+  // [Task #277] הוסר הפריט 'סיכום ומסמך חפיפה' — syncSessionDocs לא קיימת בפרויקט
   var subMenuDocs = ui.createMenu('📝 תיעוד מערכת')
-    .addItem('עדכון CONTEXT.md', 'pushContextToGitHub')
-    .addItem('סיכום ומסמך חפיפה', 'syncSessionDocs');
+    .addItem('עדכון CONTEXT.md', 'pushContextToGitHub');
   menu.addSubMenu(subMenuDocs);
 
   menu.addToUi();
