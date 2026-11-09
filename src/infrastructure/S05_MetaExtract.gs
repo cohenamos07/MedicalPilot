@@ -1,15 +1,28 @@
 /**
  * MedicalPilot — S05_MetaExtract.gs
- * @version 2.5.0 | @updated 06/07/2026 20:15 | @service S05
+ * @version 2.6.0 | @updated 09/11/2026 12:09 | @service S05
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S05_MetaExtract.gs
  * @description חילוץ מטא-דאטה מקבצי Drive — סוג, גודל וסטטוס pipeline.
  * @impacts כותב לעמודות M(13), O(15), P(16), S(19), T(20).
  *          דולג על שורות שכבר הומרו ויש להן TXT_URL (עמודה X).
+ *          [v2.6.0] כותב רק לשורות שעדיין בשלב של S05 (M ריק / "ממתין להמרה ל-TXT" /
+ *          "לא נתמך") — כל סטטוס מתקדם יותר נשאר כמו שהוא (S05_OWN_STATUSES).
  *          [v2.5.0] אינו כותב יותר לעמודה R (Duplicate_Flag) — ראה @changes.
  *          תלויות: Drive API, גליון ניהול_מיילים, COLUMN_MAP.gs.
  *          מופעל מהתפריט — אינו חלק מזרימת עיבוד אוטומטי.
  * @callers Menu_PROD.gs, Menu_LAB.gs
  * @functions extractMetaData, extractMetaData_LAB, clearMetaData_LAB
+ *            S05_OWN_STATUSES (קבוע)
+ * @changes [v2.6.0] Task #233 — S05 דרס את Pipeline_Status (M) לכל מסמך עם TXT_URL: דילג
+ *                   רק על M="הומר ל-TXT", וכל ערך מתקדם יותר ("עבר סיווג", "מאושר",
+ *                   "חולץ ליומן אירועים רפואי", "מאושר למחיקה") הוחזר ל-"הומר ל-TXT"
+ *                   (כך קרה ב-23/10/2026 לכל 84 המסמכים). תוקן: קבוע חדש S05_OWN_STATUSES
+ *                   ["", "ממתין להמרה ל-TXT", "לא נתמך"] — S05 מעבד רק שורות שהסטטוס
+ *                   שלהן ברשימה, כל השאר דילוג (בטוח גם לסטטוסים עתידיים). שורות חדשות
+ *                   (M ריק מ-S03/S04) מעובדות כרגיל. אומת מול הקוד החי (diff מדויק,
+ *                   node --check) ובבדיקה בפועל: הרצה על 84 מסמכים — עובדו 0, דולגו 84;
+ *                   השוואת עמודות M/O/P/S/X לפני ואחרי — זהות (6 "חולץ ליומן אירועים
+ *                   רפואי" נשארו). שחזור הסטטוסים שנדרסו ב-23/10 — לא בתחום התיקון.
  * @changes [v2.5.0] הוסרה לגמרי כתיבת עמודה R (Duplicate_Flag) מ-S05:
  *                   (1) הוסרה בדיקת "חשוד כלוגו/ריק" (sizeKB<10) — בדיקה גסה
  *                       שלא הביאה בחשבון סוג קובץ (false positive על TXT קטן
@@ -29,6 +42,9 @@
  *          [v2.3.1] הוספת @impacts וכותרת מלאה לפי סטנדרט.
  *          [v2.3.0] דילוג על שורות שכבר הומרו ויש להן לינק TXT.
  */
+// [Task #233] הסטטוסים שבתחום של S05 בלבד — S05 כותב לעמודה M רק אם הערך הנוכחי ביניהם
+const S05_OWN_STATUSES = ["", "ממתין להמרה ל-TXT", "לא נתמך"];
+
 function extractMetaData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("ניהול_מיילים");
@@ -52,7 +68,10 @@ function extractMetaData() {
       const currentM = (allData[i][12] || "").toString().trim();
       const linkX    = (allData[i][23] || "").toString().trim();
 
-      if (currentM === "הומר ל-TXT" && linkX !== "") {
+      // [Task #233] S05 נוגע רק בשורות שעדיין בשלב שלו (ריק / ממתין להמרה / לא נתמך).
+      // כל סטטוס אחר ("הומר ל-TXT", "עבר סיווג", "מאושר", "חולץ ליומן אירועים רפואי",
+      // "מאושר למחיקה" וכו') — דילוג, כדי לא לדרוס שלב מתקדם יותר בשרשרת.
+      if (S05_OWN_STATUSES.indexOf(currentM) === -1) {
         skipped++;
         continue;
       }
