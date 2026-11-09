@@ -1,6 +1,6 @@
 /**
  * @file        S13_ExtractMedical.gs
- * @version     1.11.1 | @updated 07/11/2026 22:13 | @service S13
+ * @version     1.12.0 | @updated 09/11/2026 20:43 | @service S13
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S13_ExtractMedical.gs
  * @description שירות חילוץ עמוק — קורא שורות מאומתות (Validation_Status="מאומת",
  *              Extraction_Status ריק) מיומן_אירועים_רפואי, מקבץ לפי File_ID
@@ -30,6 +30,9 @@
  *              תכונה (פאנל, ממצא, משמעות, נטייה, המלצה, גן/וריאנט/גנוטיפ/ACMG אם
  *              מופיעים); מערכת הגוף כבר לא SYS14 קבוע — נשארת ריקה להעשרה ב-S15.
  *              בבדיקה גנטית ובבדיקת דם המסמך המקורי מצורף כבר בקריאה הראשונה.
+ *              [v1.12.0] מצב רפואי/כללי — Gemini מחזיר רשימת ממצאים (Findings), ונכתבת
+ *              שורה לכל ממצא, עם איבר, צד ומצב איבר משלו (למשל פענוח הדמיה עם כמה
+ *              ממצאים, או רשימת מחלות רקע). שורת ניתוח נשארת שורה אחת.
  * @impacts     יומן_אירועים_רפואי: קורא בלבד (A-L, [v1.3.1] עודכן מ-A-I, Task
  *              #205 — File_ID עבר לעמודה L), כותב Extraction_Status (I).
  *              בדיקות_דם/בדיקות_גנטיות/תרופות_קבועות/הנחיות_רפואיות_ומשימות/
@@ -56,6 +59,9 @@
  *              מרוכזת (setValues). Medical_System (I), Trait_Code (J), Panel_Code (K)
  *              ו-Enrich_Status (Q) נכתבים ריקים — S15 ימלא מהקטלוג. Drive: המסמך
  *              המקורי נקרא כבר בקריאה הראשונה כשבמסמך יש בדיקה גנטית או בדיקת דם.
+ *              [v1.12.0] יומן_מצב_רפואי: שורה לכל ממצא, בכתיבה מרוכזת (setValues);
+ *              Organ_State_Code (23) ו-Organ_Side_Code (24) מתמלאות בכל שורה, לא רק
+ *              בשורת ניתוח (קוד שאינו בקטלוג → ריק). תשובה בלי Findings — שורה אחת.
  * @callers     runS13ViewIconEvents (ViewEngine.gs, עמודה F ביומן_אירועים_רפואי)
  * @functions   runS13 | _s13_checkRow | _s13_getEligibleGroups | _s13_processSingleRow |
  *              _s13_processBatch | _s13_getSchemaBlock | _s13_fetchTxtUrlByFileId |
@@ -63,6 +69,18 @@
  *              _s13_callGemini | _s13_buildRowValues | _s13_writeExtractedRow |
  *              _s13_processGroup | _s13_loadCatalog | _s13_validateCode | _s13_toNumber |
  *              _s13_fetchOriginalPart | _s13_genTendency
+ * @changes     [v1.12.0] Task #279 — פיצול ממצאים: _s13_getSchemaBlock — הסכימה של מצב
+ *              רפואי/כללי עטופה ברשימת Findings, ולכל פריט נוספו Organ_State_Code ו-
+ *              Organ_Side_Code. _s13_buildPrompt — כלל (12) חדש: פריט נפרד לכל ממצא, עם
+ *              איבר, מערכת, צד (סתירה → ריק) ומצב איבר (OST2 הוסר, OST1 הוסר חלקית),
+ *              חומרה וודאות לכל ממצא, "שינויים צפויים לאחר ניתוח" ב-Severity_Status;
+ *              כותרות קטלוג הצד ומצב האיבר — "לשורות ניתוח וממצאים". _s13_buildRowValues —
+ *              מצב וצד איבר נקלטים בכל שורה ביומן_מצב_רפואי (הוסר התנאי isSurgery).
+ *              _s13_writeExtractedRow — שורה לכל פריט ב-Findings, בכתיבה מרוכזת אחת
+ *              (כמו בדיקת דם); תשובה בלי Findings נכתבת כשורה אחת (תאימות לאחור).
+ *              אומת מול הקוד החי (4 בלוקים, diff מדויק, node --check) ובבדיקה בפועל:
+ *              סי-טי 12/01/2025 (מסמך 3) — 15 שורות במקום שורה אחת, כולל "מצב לאחר
+ *              כריתת כליה ימנית" OST2/LAT1, תריס דו-צדדי LAT3, כליה שמאל תקינה SEV5/DX15.
  * @changes     [v1.11.1] Task #276 — _s13_callGemini: נוסף responseMimeType="application/json"
  *              ל-generationConfig (כמו S06) — Gemini מחזיר JSON תקין גם כשיש גרשיים
  *              בראשי תיבות עבריים (מסמך 2023 נכשל ב-JSON_PARSE). נוספה פונקציית עזר
@@ -473,11 +491,13 @@ function _s13_getSchemaBlock(routingCategory) {
     default:
       // [Task #220 שלב ב] נוספו 6 שדות קוד מתוך קטלוג מיפוי_קודים
       // [Task #262] + Allergen_Code ו-Reaction — רק לשורת רגישות (קוד אירוע A7)
-      return '{"Medical_System":"קוד SYS00-SYS14 בלבד","Organ_Code":"קוד איבר מהקטלוג או ריק",' +
+      // [Task #279] רשימת Findings — פריט לכל ממצא, + מצב וצד איבר לכל פריט (כלל 12)
+      return '{"Findings":[{"Medical_System":"קוד SYS00-SYS14 בלבד","Organ_Code":"קוד איבר מהקטלוג או ריק",' +
         '"Event_Code":"קוד מהקטלוג או ריק","Specialty_Code":"קוד מהקטלוג או ריק",' +
         '"Severity_Code":"קוד מהקטלוג או ריק","Diagnosis_Code":"קוד מהקטלוג או ריק",' +
-        '"Certainty_Code":"קוד מהקטלוג או ריק","Allergen_Code":"קוד ATC מהקטלוג או ריק",' +
-        '"Reaction":"","Primary_Diagnosis":"","Severity_Status":"","Recommendations":""}';
+        '"Certainty_Code":"קוד מהקטלוג או ריק","Organ_State_Code":"קוד מהקטלוג או ריק",' +
+        '"Organ_Side_Code":"קוד מהקטלוג או ריק","Allergen_Code":"קוד ATC מהקטלוג או ריק",' +
+        '"Reaction":"","Primary_Diagnosis":"","Severity_Status":"","Recommendations":""}]}';
   }
 }
 
@@ -661,14 +681,25 @@ function _s13_buildPrompt(group, fallbackTxt, catalog) {
       "Severity_Code = SEV5, Diagnosis_Code = DX15, Certainty_Code = CRT2. אם בשורה יש לפחות ממצא חריג אחד " +
       "(תקין חלקית, למשל \"NORMAL LV FUNCTION. DILATED ASCENDING AORTA\") — קודד לפי הממצא החריג, ולא SEV5 " +
       "או DX15. שורת \"מחלת רקע\" — לפי כלל (5) בלבד.\n" +
+      // [Task #279] ממצאים — פריט נפרד לכל ממצא בשורת מצב רפואי, עם איבר, צד ומצב איבר משלו
+      "(12) שורה עם Routing_Category \"מצב רפואי\" או \"כללי\": החזר ב-Findings פריט נפרד לכל ממצא, " +
+      "אבחנה או מצב שמופיעים בשורה (למשל פענוח הדמיה עם כמה ממצאים, או רשימת מחלות רקע מופרדת בפסיקים — " +
+      "כל אחד פריט). שורה עם ממצא אחד — פריט אחד. כל פריט מקבל את כל שדות הסכימה. Primary_Diagnosis = הממצא " +
+      "הזה בלבד, בעברית ובמונח המקורי בסוגריים אם קיים, כולל גודל אם מופיע (למשל \"הימטומה תת-קופסית 3.3 ס\"מ " +
+      "באונה הימנית של הכבד\"). Organ_Code ו-Medical_System = האיבר והמערכת של הממצא הזה. Organ_Side_Code = " +
+      "הצד של הממצא מקטלוג הצד (LAT1 ימין, LAT2 שמאל, LAT3 דו-צדדי, LAT0 איבר ללא צדדים); אם הצד לא מופיע או " +
+      "שהטקסט סותר את עצמו לגבי הצד — ריק. Organ_State_Code = OST2 לאיבר שהוסר במלואו (\"מצב לאחר כריתת...\"), " +
+      "OST1 לאיבר שהוסר חלקית, אחרת ריק. Severity_Code ו-Certainty_Code — לכל ממצא בנפרד. ממצא שמתואר כ\"שינויים " +
+      "צפויים לאחר ניתוח\" — ציין זאת ב-Severity_Status. אל תמציא ממצא שאינו בשורה, אל תאחד שני ממצאים לפריט " +
+      "אחד, ואל תוסיף ממצאים תקינים שאינם מופיעים בשורה. כללים (5) ו-(11) חלים על כל פריט בנפרד.\n" +
        "\n--- קטלוג Organ_Code (קוד=איבר) ---\n" + listOf(catalog.organ, function(o) { return o.desc; }) +
       "\n--- קטלוג Event_Code (קוד=סוג אירוע) ---\n" + listOf(catalog.eventCode, function(o) { return o.desc; }) +
       "\n--- קטלוג Specialty_Code ---\n" + listOf(catalog.specialty, function(o) { return o.raw; }) +
       "\n--- קטלוג Severity_Code ---\n" + listOf(catalog.severity, function(o) { return o.raw; }) +
       "\n--- קטלוג Diagnosis_Code ---\n" + listOf(catalog.diagnosis, function(o) { return o.raw; }) +
       "\n--- קטלוג Certainty_Code ---\n" + listOf(catalog.certainty, function(o) { return o.raw; }) +
-      "\n--- קטלוג Organ_State_Code (מצב איבר — לשורות ניתוח בלבד) ---\n" + listOf(catalog.organState, function(o) { return o.desc; }) +
-      "\n--- קטלוג Organ_Side_Code (צד איבר — לשורות ניתוח בלבד) ---\n" + listOf(catalog.organSide, function(o) { return o.desc; }) +
+      "\n--- קטלוג Organ_State_Code (מצב איבר — לשורות ניתוח וממצאים) ---\n" + listOf(catalog.organState, function(o) { return o.desc; }) +
+      "\n--- קטלוג Organ_Side_Code (צד איבר — לשורות ניתוח וממצאים) ---\n" + listOf(catalog.organSide, function(o) { return o.desc; }) +
       "\n--- קטלוג Allergen_Code (קוד ATC=חומר — לשורות רגישות בלבד) ---\n" + listOf(catalog.allergen, function(o) { return o.raw; }) +
       "\n";
   }
@@ -1000,7 +1031,7 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
       // Specialty_Name | Medical_System_Name | Event_Code | Event_Description |
       // Severity_Name | Diagnosis_Name | Diagnosis_Certainty | Source_URL |
       // File_ID | Medical_System | Specialty_Code | Severity_Code | Diagnosis_Code | Organ_Code |
-      // Organ_State_Code | Organ_Side_Code ([Task #224] — רק בשורת ניתוח, אחרת ריקים) |
+      // Organ_State_Code | Organ_Side_Code ([Task #224] ניתוח; [Task #279] גם ממצאים) |
       // Allergen_Code | Reaction ([Task #262] — רק בשורת רגישות A7, אחרת ריקים).
       // S_Row מחושב ע"י VIEWENGINE (refreshMedicalStatusRows) — נשאר ריק כאן.
       // Medical_System_Name נגזר מקוד המערכת הסופי (לא מהטקסט החופשי של S09).
@@ -1015,10 +1046,10 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
       const severity  = isBackground ? null : _s13_validateCode(cat.severity,  fields.Severity_Code);
       const diagnosis = _s13_validateCode(cat.diagnosis, fields.Diagnosis_Code);
       const certainty = _s13_validateCode(cat.certainty, isBackground ? "CRT4" : fields.Certainty_Code);
-      // [Task #224] מצב וצד איבר — רק בשורת ניתוח, ורק קוד שקיים בקטלוג (אחרת ריק)
-      const isSurgery  = routingCategory === "ניתוח/פעולה רפואית";
-      const organState = isSurgery ? _s13_validateCode(cat.organState, fields.Organ_State_Code) : null;
-      const organSide  = isSurgery ? _s13_validateCode(cat.organSide,  fields.Organ_Side_Code)  : null;
+      // [Task #224] מצב וצד איבר — רק קוד שקיים בקטלוג (אחרת ריק)
+      // [Task #279] לא רק בשורת ניתוח — גם בכל ממצא של מצב רפואי (מצב וצד לכל ממצא)
+      const organState = _s13_validateCode(cat.organState, fields.Organ_State_Code);
+      const organSide  = _s13_validateCode(cat.organSide,  fields.Organ_Side_Code);
       // [Task #262] חומר גורם ותגובה — רק בשורת רגישות (קוד אירוע A7 מאומת מול הקטלוג),
       // וקוד החומר רק אם קיים בקטלוג התרופות (אחרת ריק — שם החומר נשאר ב-Primary_Diagnosis)
       const isAllergy = !!eventCode && eventCode.code.indexOf(S13_ALLERGY_EVENT_CODE_PREFIX) === 0;
@@ -1116,6 +1147,25 @@ function _s13_writeExtractedRow(ss, routingCategory, fields, ctx) {
     }
     sheet.getRange(sheet.getLastRow() + 1, 1, listRows.length, listRows[0].length).setValues(listRows);
     Logger.log("[S13] נכתבו " + listRows.length + (isGen ? " תכונות" : " תוצאות") + " ל-" + targetSheetName + " | File_ID: " + ctx.fileId);
+    return true;
+  }
+
+  // [Task #279] ממצאים — שורה לכל פריט ב-Findings ביומן_מצב_רפואי, בכתיבה מרוכזת אחת
+  // (אותה תבנית כמו בדיקת דם). שורת ניתוח נשארת שורה אחת. תאימות לאחור: תשובה
+  // בלי Findings (פריט בודד) נכתבת כשורה אחת כמו קודם.
+  if (targetSheetName === "יומן_מצב_רפואי" && routingCategory !== "ניתוח/פעולה רפואית" &&
+      Array.isArray(fields.Findings)) {
+    const findingRows = fields.Findings.filter(function(it) {
+      return it && (it.Primary_Diagnosis || "").toString().trim();
+    }).map(function(it) {
+      return _s13_buildRowValues(routingCategory, it, ctx);
+    });
+    if (findingRows.length === 0) {
+      Logger.log("[S13] אין ממצאים לכתיבה ב-Findings | File_ID: " + ctx.fileId);
+      return false;
+    }
+    sheet.getRange(sheet.getLastRow() + 1, 1, findingRows.length, findingRows[0].length).setValues(findingRows);
+    Logger.log("[S13] נכתבו " + findingRows.length + " ממצאים ל-" + targetSheetName + " | File_ID: " + ctx.fileId);
     return true;
   }
 
