@@ -1,0 +1,226 @@
+// [Task #277] קובץ מנוטרל 09/11/2026 — כל הקוד הפך להערה לבדיקה שאינו בשימוש. למחיקה אם לא נמצאה תקלה.
+// /**
+//  * MedicalPilot — S_Scheduler.gs
+//  * @version 1.0.4 | @updated 09/07/2026 16:19 | @service SCHEDULER
+//  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S_Scheduler.gs
+//  * @description ניהול גובים מתוזמנים — הפעלה ועצירה מהתפריט.
+//  * מנהל טריגר לילי להמרת קבצים ל-TXT (nightlyConvertBatch).
+//  * תומך במנגנון השבתה/השהיה זמני (isActive) ישירות מהרישום.
+//  * @impacts     תלויות: S06_ConvertTXT.gs (nightlyConvertBatch).
+//  * מנהל טריגרים דרך ScriptApp — לא כותב לגליונות.
+//  * @callers     Menu_LAB.gs | Menu_PROD.gs
+//  * @functions   startJob, stopJob, showActiveJobs,
+//  * _getActiveJobIds, _deleteTriggerByFunc, _fmtTime
+//  * @changes     [v1.0.4] תיקון ReferenceError ב-startJob(): שורת ה-ui.alert
+//  *              הסופית (הצלחה) השתמשה במשתנה j.endMin — j לא קיים בהיקף הזה
+//  *              (הלולאה משתמשת ב-job; j היה פרמטר של .filter() נפרד, מחוץ
+//  *              לתחום). זה גרם לקריסת ReferenceError בכל הפעלת גוב מוצלחת —
+//  *              הטריגר עצמו נוצר תקין, אבל הודעת האישור למשתמש קרסה. תוקן:
+//  *              j.endMin → job.endMin.
+//  * @changes     [v1.0.3] הוספת דגל isActive ל-JOB_REGISTRY למניעת הפעלה והשהיית ריצות
+//  */
+// // ══════════════════════════════════════════════════════════════════
+// // רישום גובים — הגדרות קבועות
+// // ══════════════════════════════════════════════════════════════════
+// 
+// const JOB_REGISTRY = [
+//   {
+//     id:          "CONVERT_TXT",
+//     name:        "המרת קבצים ל-TXT",
+//     func:        "nightlyConvertBatch",
+//     startHour:   0,  startMin:  30,   // 00:30
+//     endHour:     7,  endMin:    30,   // 07:30
+//     interval:    30,                  // כל 30 דקות
+//     batchSize:   2,                   // 2 שורות לריצה
+//     isActive:    true                // 🛑 שנה ל-true כדי לאפשר הפעלה, השאר false כדי לעצור/להשהות
+//   }
+// ];
+// 
+// // ══════════════════════════════════════════════════════════════════
+// // פונקציה 1 — הפעל גוב (מהתפריט)
+// // ══════════════════════════════════════════════════════════════════
+// 
+// function startJob() {
+//   const ui = SpreadsheetApp.getUi();
+// 
+//   // בנה רשימת גובים זמינים (שאינם פעילים כבר ושהם מוגדרים כפעילים ברישום)
+//   const active   = _getActiveJobIds();
+//   const available = JOB_REGISTRY.filter(function(j) {
+//     return active.indexOf(j.id) === -1 && j.isActive === true;
+//   });
+// 
+//   // בדיקה מיוחדת אם הג'וב קיים אך מושבת ברישום
+//   const disabledJobs = JOB_REGISTRY.filter(function(j) { return !j.isActive; });
+// 
+//   if (available.length === 0) {
+//     if (disabledJobs.length > 0) {
+//       ui.alert("עצירה זמנית פעילה", "הג'וב מושבת כרגע בקוד (isActive: false).\nכדי להפעילו מחדש, יש לשנות את הדגל ל-true בקוד.", ui.ButtonSet.OK);
+//     } else {
+//       ui.alert("כל הגובים כבר פעילים.", "הרץ 'עצור גוב' לעצירה.", ui.ButtonSet.OK);
+//     }
+//     return;
+//   }
+// 
+//   // בנה טקסט רשימה
+//   let listText = "בחר גוב להפעלה:\n\n";
+//   available.forEach(function(j, i) {
+//     listText += (i + 1) + ". " + j.name + "\n";
+//     listText += "   כל " + j.interval + " דקות | " + j.batchSize + " שורות\n";
+//     listText += "   חלון: " + _fmtTime(j.startHour, j.startMin) + " עד " + _fmtTime(j.endHour, j.endMin) + "\n\n";
+//   });
+//   listText += "הכנס מספר:";
+// 
+//   const result = ui.prompt("הפעל גוב", listText, ui.ButtonSet.OK_CANCEL);
+//   if (result.getSelectedButton() !== ui.Button.OK) return;
+// 
+//   const choice = parseInt(result.getResponseText().trim());
+//   if (isNaN(choice) || choice < 1 || choice > available.length) {
+//     ui.alert("מספר לא תקין.");
+//     return;
+//   }
+// 
+//   const job = available[choice - 1];
+// 
+//   // מחיקת טריגר קיים לאותה פונקציה (למקרה שנשאר)
+//   _deleteTriggerByFunc(job.func);
+// 
+//   // יצירת טריגר חדש
+//   ScriptApp.newTrigger(job.func)
+//     .timeBased()
+//     .everyMinutes(job.interval)
+//     .create();
+// 
+//   Logger.log("גוב הופעל: " + job.id + " | " + job.func);
+// 
+//   ui.alert(
+//     "✅ גוב הופעל בהצלחה",
+//     "שם: "    + job.name + "\n" +
+//     "מרווח: כל " + job.interval + " דקות\n" +
+//     "שורות: " + job.batchSize + " לריצה\n" +
+//     "חלון: "  + _fmtTime(job.startHour, job.startMin) + " עד " + _fmtTime(job.endHour, job.endMin),
+//     ui.ButtonSet.OK
+//   );
+// }
+// 
+// // ══════════════════════════════════════════════════════════════════
+// // פונקציה 2 — עצור גוב (מהתפריט)
+// // ══════════════════════════════════════════════════════════════════
+// 
+// function stopJob() {
+//   const ui = SpreadsheetApp.getUi();
+// 
+//   const triggers = ScriptApp.getProjectTriggers();
+//   const jobFuncs = JOB_REGISTRY.map(function(j) { return j.func; });
+// 
+//   // מצא טריגרים פעילים של גובים מוכרים
+//   const activeTriggers = triggers.filter(function(t) {
+//     return jobFuncs.indexOf(t.getHandlerFunction()) !== -1;
+//   });
+// 
+//   if (activeTriggers.length === 0) {
+//     ui.alert("אין גובים פעילים כרגע.", "", ui.ButtonSet.OK);
+//     return;
+//   }
+// 
+//   // בנה רשימת פעילים
+//   let listText = "גובים פעילים:\n\n";
+//   activeTriggers.forEach(function(t, i) {
+//     const job = JOB_REGISTRY.find(function(j) { return j.func === t.getHandlerFunction(); });
+//     const name = job ? job.name : t.getHandlerFunction();
+//     listText += (i + 1) + ". " + name + "\n";
+//   });
+// 
+//   if (activeTriggers.length > 1) {
+//     listText += (activeTriggers.length + 1) + ". עצור הכל\n";
+//   }
+// 
+//   listText += "\nהכנס מספר:";
+// 
+//   const result = ui.prompt("עצור גוב", listText, ui.ButtonSet.OK_CANCEL);
+//   if (result.getSelectedButton() !== ui.Button.OK) return;
+// 
+//   const choice = parseInt(result.getResponseText().trim());
+//   if (isNaN(choice) || choice < 1 || choice > activeTriggers.length + 1) {
+//     ui.alert("מספר לא תקין.");
+//     return;
+//   }
+// 
+//   let stopped = 0;
+// 
+//   if (choice === activeTriggers.length + 1) {
+//     // עצור הכל
+//     activeTriggers.forEach(function(t) {
+//       ScriptApp.deleteTrigger(t);
+//       stopped++;
+//     });
+//     ui.alert("✅ כל " + stopped + " הגובים נעצרו.", "", ui.ButtonSet.OK);
+//   } else {
+//     // עצור ספציפי
+//     const t   = activeTriggers[choice - 1];
+//     const job = JOB_REGISTRY.find(function(j) { return j.func === t.getHandlerFunction(); });
+//     ScriptApp.deleteTrigger(t);
+//     stopped++;
+//     ui.alert("✅ גוב נעצר: " + (job ? job.name : t.getHandlerFunction()), "", ui.ButtonSet.OK);
+//   }
+// }
+// 
+// // ══════════════════════════════════════════════════════════════════
+// // פונקציה 3 — הצג גובים פעילים (מהתפריט)
+// // ══════════════════════════════════════════════════════════════════
+// 
+// function showActiveJobs() {
+//   const ui       = SpreadsheetApp.getUi();
+//   const triggers = ScriptApp.getProjectTriggers();
+//   const jobFuncs = JOB_REGISTRY.map(function(j) { return j.func; });
+// 
+//   const activeTriggers = triggers.filter(function(t) {
+//     return jobFuncs.indexOf(t.getHandlerFunction()) !== -1;
+//   });
+// 
+//   if (activeTriggers.length === 0) {
+//     ui.alert("📋 גובים פעילים", "אין גובים פעילים כרגע.", ui.ButtonSet.OK);
+//     return;
+//   }
+// 
+//   let report = "📋 גובים פעילים — " + activeTriggers.length + "\n";
+//   report += "═".repeat(35) + "\n\n";
+// 
+//   activeTriggers.forEach(function(t) {
+//     const job = JOB_REGISTRY.find(function(j) { return j.func === t.getHandlerFunction(); });
+//     if (job) {
+//       const statusText = job.isActive ? "✅" : "⏸️ [מושבת זמנית בקוד]";
+//       report += statusText + " " + job.name + "\n";
+//       report += "   כל " + job.interval + " דקות\n";
+//       report += "   חלון: " + _fmtTime(job.startHour, job.startMin) + " עד " + _fmtTime(job.endHour, job.endMin) + "\n\n";
+//     } else {
+//       report += "✅ " + t.getHandlerFunction() + "\n\n";
+//     }
+//   });
+// 
+//   ui.alert("📋 גובים פעילים", report, ui.ButtonSet.OK);
+// }
+// 
+// // ══════════════════════════════════════════════════════════════════
+// // פונקציות עזר
+// // ══════════════════════════════════════════════════════════════════
+// 
+// function _getActiveJobIds() {
+//   const triggers = ScriptApp.getProjectTriggers();
+//   const active   = [];
+//   JOB_REGISTRY.forEach(function(j) {
+//     triggers.forEach(function(t) {
+//       if (t.getHandlerFunction() === j.func) active.push(j.id);
+//     });
+//   });
+//   return active;
+// }
+// 
+// function _deleteTriggerByFunc(funcName) {
+//   ScriptApp.getProjectTriggers().forEach(function(t) {
+//     if (t.getHandlerFunction() === funcName) ScriptApp.deleteTrigger(t);
+//   });
+// }
+// 
+// function _fmtTime(hour, min) {
+//   return (hour < 10 ? "0" : "") + hour + ":" + (min < 10 ? "0" : "") + min;
+// }
