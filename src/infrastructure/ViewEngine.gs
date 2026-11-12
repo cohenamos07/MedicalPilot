@@ -1,6 +1,6 @@
 /**
  * @file        ViewEngine.gs
- * @version 2.13.0 | @updated 09/11/2026 12:11 | @service VIEWENGINE
+ * @version 2.13.1 | @updated 11/11/2026 20:55 | @service VIEWENGINE
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/ViewEngine.gs
  * @description מנוע מבטים — פילטר שורות וגלילה לפי הקשר עבודה בגליון ניהול_מיילים.
  *              13 איקונים בניהול_מיילים (S10 הוסר — עבר ליומן_אירועים_רפואי):
@@ -86,6 +86,12 @@
  *              _labInfographic_buildCatalogs | _labInfographic_buildRecord
  *              runS15EnrichIcon | runS15ValidateIcon | setupMedicationsIcons
  *              setupDevSyncIcons | S12_ARCHIVE_ENABLED (קבוע)
+ * @changes     [v2.13.1] Task #232 — LAB_INFOGRAPHIC_ICON_FOLDER_ID הוחלף מתיקיית אייקוני_מערכת
+ *              לתיקיית אייקונים_רפואיים (1GBO9kR3R8te8-apNMBT4uDcV1dEDtkU_) — הסט המאושר: 27 SVG
+ *              חדשים בסגנון קווי אפור+תכלת (תג אותיות לאיברים) + 19 PNG ישנים + RECO.png. ללא
+ *              שינוי לוגיקה — הטעינה לפי שם קובץ = קוד פועלת גם ל-SVG (data URI לפי סוג התוכן).
+ *              אומת מול הקוד החי (diff מדויק, node --check) ובבדיקה בפועל: אייקוני איברים חדשים
+ *              עם תג, אייקוני מערכות ישנים, אייקון ההמלצה מוצג.
  * @changes     [v2.13.0] Task #200 — חסימה זמנית לארכוב (S12): runArchiveView מוחקת שורה
  *              מניהול_מיילים ומעבירה קבצים בדרייב (moveTo), וטרם נבדקה מקצה לקצה. נוסף
  *              מתג S12_ARCHIVE_ENABLED = false מעל הפונקציה; כשהוא כבוי — הודעת "הארכוב
@@ -2348,9 +2354,10 @@ const LAB_INFOGRAPHIC_BODY_IMAGE_FILE_ID   = "1AEjeyJoGRnBj6tXKSEmhxCtCwQjuA8Ao"
 const LAB_INFOGRAPHIC_TRIGGER_ICON_FILE_ID = "1rKJ2A25ZqKM0e_YeZ8K97kOpyNCV82sC"; // anatomy.png — זהה לטריגר בייצור
 
 // [Task #214] תיקיית האייקונים בדרייב — אייקון נמצא לפי שם קובץ = קוד
-// (למשל SYS12.png, A0.png, A0A.png). החלפת אייקון = העלאת קובץ באותו שם
+// (למשל SYS12.png, A0.svg, A0A.png). החלפת אייקון = העלאת קובץ באותו שם
 // (אם קיימים שניים באותו שם — נבחר המעודכן ביותר). ללא שינוי קוד.
-const LAB_INFOGRAPHIC_ICON_FOLDER_ID = "1LMQWPaoXisYz8OoeeUee5lW1qNJqrP-K";
+// [Task #232] התיקייה הוחלפה לאייקונים_רפואיים — הסט המאושר (SVG + PNG ישנים, כולל RECO).
+const LAB_INFOGRAPHIC_ICON_FOLDER_ID = "1GBO9kR3R8te8-apNMBT4uDcV1dEDtkU_";
 
 // [Task #214] מיקום סמן מערכת הגוף על דמות הגוף (אחוזים מתוך אזור התצוגה).
 // מערכות שאינן ממוקמות באזור אחד (כללית/עור/לימפה/חיסון/גנים) — ללא
