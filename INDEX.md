@@ -1,5 +1,5 @@
 # MedicalPilot — INDEX
-תאריך עדכון: 09/11/2026 21:11
+תאריך עדכון: 12/11/2026 18:06
 
 ## קבצים src/infrastructure
 - [Auth_Check.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Auth_Check.gs)
@@ -13,6 +13,7 @@
 - [Menu_LAB.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Menu_LAB.gs)
 - [Menu_PROD.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Menu_PROD.gs)
 - [Mod_Brain_OCR.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Mod_Brain_OCR.gs)
+- [Mod_Brain_OCR_DL.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Mod_Brain_OCR_DL.gs)
 - [Mod_Ingestion.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Mod_Ingestion.gs)
 - [NetworkDiagnostics.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/NetworkDiagnostics.gs)
 - [QA_Tests.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/QA_Tests.gs)
@@ -34,7 +35,9 @@
 - [S16_Sidebar.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S16_Sidebar.gs)
 - [S16_ValidateMedicalStatus.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S16_ValidateMedicalStatus.gs)
 - [S_Scheduler.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S_Scheduler.gs)
+- [S_Scheduler_DL.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S_Scheduler_DL.gs)
 - [Service_Folders.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Service_Folders.gs)
+- [Service_Folders_DL.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Service_Folders_DL.gs)
 - [System_Doc_Builder.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/System_Doc_Builder.gs)
 - [System_HealthCheck.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/System_HealthCheck.gs)
 - [System_Logger.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/System_Logger.gs)
