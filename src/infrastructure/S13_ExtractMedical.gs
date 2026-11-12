@@ -1,6 +1,6 @@
 /**
  * @file        S13_ExtractMedical.gs
- * @version     1.12.0 | @updated 09/11/2026 20:43 | @service S13
+ * @version     1.13.0 | @updated 10/11/2026 14:10 | @service S13
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S13_ExtractMedical.gs
  * @description שירות חילוץ עמוק — קורא שורות מאומתות (Validation_Status="מאומת",
  *              Extraction_Status ריק) מיומן_אירועים_רפואי, מקבץ לפי File_ID
@@ -33,6 +33,9 @@
  *              [v1.12.0] מצב רפואי/כללי — Gemini מחזיר רשימת ממצאים (Findings), ונכתבת
  *              שורה לכל ממצא, עם איבר, צד ומצב איבר משלו (למשל פענוח הדמיה עם כמה
  *              ממצאים, או רשימת מחלות רקע). שורת ניתוח נשארת שורה אחת.
+ *              [v1.13.0] לכל ממצא נוספים מונח בינלאומי קצר, גודל וסיבה (תרופה או
+ *              מצב לאחר ניתוח) — בסיס לאינפוגרפיקה. הודעת הסיום מציגה בנפרד שורות
+ *              מקור שחולצו ושורות יעד שנכתבו בפועל.
  * @impacts     יומן_אירועים_רפואי: קורא בלבד (A-L, [v1.3.1] עודכן מ-A-I, Task
  *              #205 — File_ID עבר לעמודה L), כותב Extraction_Status (I).
  *              בדיקות_דם/בדיקות_גנטיות/תרופות_קבועות/הנחיות_רפואיות_ומשימות/
@@ -62,6 +65,9 @@
  *              [v1.12.0] יומן_מצב_רפואי: שורה לכל ממצא, בכתיבה מרוכזת (setValues);
  *              Organ_State_Code (23) ו-Organ_Side_Code (24) מתמלאות בכל שורה, לא רק
  *              בשורת ניתוח (קוד שאינו בקטלוג → ריק). תשובה בלי Findings — שורה אחת.
+ *              [v1.13.0] יומן_מצב_רפואי: 29 עמודות — Finding_Term (27), Finding_Size
+ *              (28) ו-Finding_Cause (29), מתמלאות בכל שורת ממצא (ריק אם לא צוין).
+ *              מיפוי_קודים: איבר חדש SYS01I "עצמות (כללי)" (שורה 108).
  * @callers     runS13ViewIconEvents (ViewEngine.gs, עמודה F ביומן_אירועים_רפואי)
  * @functions   runS13 | _s13_checkRow | _s13_getEligibleGroups | _s13_processSingleRow |
  *              _s13_processBatch | _s13_getSchemaBlock | _s13_fetchTxtUrlByFileId |
@@ -69,6 +75,18 @@
  *              _s13_callGemini | _s13_buildRowValues | _s13_writeExtractedRow |
  *              _s13_processGroup | _s13_loadCatalog | _s13_validateCode | _s13_toNumber |
  *              _s13_fetchOriginalPart | _s13_genTendency
+ * @changes     [v1.13.0] Task #281 — מונח, גודל וסיבה לכל ממצא: _s13_getSchemaBlock — לכל
+ *              פריט ב-Findings נוספו Finding_Term, Finding_Size ו-Finding_Cause.
+ *              _s13_buildPrompt — כלל (13) חדש: מונח בינלאומי קצר (עד 3 מילים, לא שם
+ *              האיבר), גודל כמספר+יחידה בלי רווח, סיבה רק אם צוינה במפורש (post-op או
+ *              שם החומר הפעיל של התרופה). _s13_buildRowValues — 29 ערכים ביומן_מצב_רפואי.
+ *              תיקון ספירה בהודעת הסיום: _s13_writeExtractedRow מחזירה את מספר שורות
+ *              היעד שנכתבו (0 = כישלון) במקום true/false; _s13_processGroup מחזירה גם
+ *              targetRows; _s13_processSingleRow ו-_s13_processBatch מציגות "חולצו X
+ *              שורות מקור | נכתבו Y שורות" (קודם הוצג 1 כשנכתבו 15). אומת מול הקוד החי
+ *              (6 בלוקים, diff מדויק, node --check) ובבדיקה בפועל: סי-טי 12/01/2025 —
+ *              15 ממצאים, מונח בכל שורה, גדלים 3.3cm/1.5cm/9.5cm, post-op באמפזימה,
+ *              אוסטאופניה ← SYS01I; ההודעה: "חולצו 1 שורות מקור | נכתבו 15 שורות".
  * @changes     [v1.12.0] Task #279 — פיצול ממצאים: _s13_getSchemaBlock — הסכימה של מצב
  *              רפואי/כללי עטופה ברשימת Findings, ולכל פריט נוספו Organ_State_Code ו-
  *              Organ_Side_Code. _s13_buildPrompt — כלל (12) חדש: פריט נפרד לכל ממצא, עם
@@ -416,9 +434,10 @@ function _s13_processSingleRow(ss, sheet, row) {
   }
 Logger.log("[S13] עיבוד שורה בודדת — File_ID: " + fileId + " | " + group.rows.length + " שורות בקבוצה");
   const result = _s13_processGroup(ss, sheet, group);
+  // [Task #281] ההודעה מציגה בנפרד שורות מקור שחולצו ושורות יעד שנכתבו בפועל
   SpreadsheetApp.getUi().alert(
     result.success
-      ? ("✅ הושלם — נכתבו " + result.written + " שורות לגליונות היעד" + (result.failed ? (" | נכשלו: " + result.failed) : ""))
+      ? ("✅ הושלם — חולצו " + result.written + " שורות מקור | נכתבו " + result.targetRows + " שורות לגליונות היעד" + (result.failed ? (" | נכשלו: " + result.failed) : ""))
       : ("❌ החילוץ נכשל — 0 שורות נכתבו. בדוק Logger לפירוט.")
   );
 }
@@ -432,18 +451,20 @@ function _s13_processBatch(ss, sheet) {
   Logger.log("[S13] אצווה — נמצאו " + groups.length + " קבוצות (File_ID) זכאיות לחילוץ");
 
   let totalWritten = 0;
+  let totalTarget  = 0; // [Task #281] שורות יעד שנכתבו בפועל
   let totalFailed  = 0;
 
   groups.forEach(function(group) {
     Logger.log("[S13] File_ID: " + group.fileId + " | " + group.rows.length + " שורות");
     const result = _s13_processGroup(ss, sheet, group);
     totalWritten += result.written;
+    totalTarget  += result.targetRows;
     totalFailed  += result.failed;
   });
 
   SpreadsheetApp.getUi().alert(
     "✅ אצווה הושלמה — " + groups.length + " קבוצות (File_ID) | " +
-    "נכתבו: " + totalWritten + " שורות | נכשלו: " + totalFailed
+    "חולצו: " + totalWritten + " שורות מקור | נכתבו: " + totalTarget + " שורות יעד | נכשלו: " + totalFailed
   );
 }
 // ══════════════════════════════════════════════════════════════════
@@ -492,12 +513,14 @@ function _s13_getSchemaBlock(routingCategory) {
       // [Task #220 שלב ב] נוספו 6 שדות קוד מתוך קטלוג מיפוי_קודים
       // [Task #262] + Allergen_Code ו-Reaction — רק לשורת רגישות (קוד אירוע A7)
       // [Task #279] רשימת Findings — פריט לכל ממצא, + מצב וצד איבר לכל פריט (כלל 12)
+      // [Task #281] + Finding_Term / Finding_Size / Finding_Cause לכל פריט (כלל 13)
       return '{"Findings":[{"Medical_System":"קוד SYS00-SYS14 בלבד","Organ_Code":"קוד איבר מהקטלוג או ריק",' +
         '"Event_Code":"קוד מהקטלוג או ריק","Specialty_Code":"קוד מהקטלוג או ריק",' +
         '"Severity_Code":"קוד מהקטלוג או ריק","Diagnosis_Code":"קוד מהקטלוג או ריק",' +
         '"Certainty_Code":"קוד מהקטלוג או ריק","Organ_State_Code":"קוד מהקטלוג או ריק",' +
         '"Organ_Side_Code":"קוד מהקטלוג או ריק","Allergen_Code":"קוד ATC מהקטלוג או ריק",' +
-        '"Reaction":"","Primary_Diagnosis":"","Severity_Status":"","Recommendations":""}]}';
+        '"Reaction":"","Primary_Diagnosis":"","Severity_Status":"","Recommendations":"",' +
+        '"Finding_Term":"מונח בינלאומי קצר","Finding_Size":"מספר+יחידה או ריק","Finding_Cause":"post-op או חומר פעיל או ריק"}]}';
   }
 }
 
@@ -692,6 +715,13 @@ function _s13_buildPrompt(group, fallbackTxt, catalog) {
       "OST1 לאיבר שהוסר חלקית, אחרת ריק. Severity_Code ו-Certainty_Code — לכל ממצא בנפרד. ממצא שמתואר כ\"שינויים " +
       "צפויים לאחר ניתוח\" — ציין זאת ב-Severity_Status. אל תמציא ממצא שאינו בשורה, אל תאחד שני ממצאים לפריט " +
       "אחד, ואל תוסיף ממצאים תקינים שאינם מופיעים בשורה. כללים (5) ו-(11) חלים על כל פריט בנפרד.\n" +
+      // [Task #281] מונח קצר, גודל וגורם לכל ממצא — לכרטיס האינפוגרפי
+      "(13) בכל פריט ב-Findings מלא גם: Finding_Term = מונח רפואי בינלאומי קצר באנגלית או קיצור מקובל, עד 3 " +
+      "מילים, שמזהה את סוג הממצא (למשל hematoma, nodules, HH, Ca++, osteopenia, degenerative, myelolipoma, " +
+      "emphysema, s/p nephrectomy, s/p sleeve, normal) — לא שם האיבר ולא תרגום של כל המשפט. Finding_Size = הגודל " +
+      "כפי שמופיע במסמך, כמספר ויחידה בלי רווח (למשל 3.3cm, 15mm, 2x3cm); אם לא צוין גודל — ריק. Finding_Cause = " +
+      "הגורם לממצא רק אם המסמך מציין אותו במפורש: post-op לשינוי שמתואר כצפוי או כתוצאה מניתוח, או שם החומר הפעיל " +
+      "הבינלאומי של תרופה שמתוארת כגורם (למשל pembrolizumab); אם הגורם לא מצוין במפורש — ריק, אל תסיק גורם.\n" +
        "\n--- קטלוג Organ_Code (קוד=איבר) ---\n" + listOf(catalog.organ, function(o) { return o.desc; }) +
       "\n--- קטלוג Event_Code (קוד=סוג אירוע) ---\n" + listOf(catalog.eventCode, function(o) { return o.desc; }) +
       "\n--- קטלוג Specialty_Code ---\n" + listOf(catalog.specialty, function(o) { return o.raw; }) +
@@ -1032,7 +1062,8 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
       // Severity_Name | Diagnosis_Name | Diagnosis_Certainty | Source_URL |
       // File_ID | Medical_System | Specialty_Code | Severity_Code | Diagnosis_Code | Organ_Code |
       // Organ_State_Code | Organ_Side_Code ([Task #224] ניתוח; [Task #279] גם ממצאים) |
-      // Allergen_Code | Reaction ([Task #262] — רק בשורת רגישות A7, אחרת ריקים).
+      // Allergen_Code | Reaction ([Task #262] — רק בשורת רגישות A7, אחרת ריקים) |
+      // Finding_Term | Finding_Size | Finding_Cause ([Task #281] — מונח קצר, גודל וגורם לכל ממצא, או ריק).
       // S_Row מחושב ע"י VIEWENGINE (refreshMedicalStatusRows) — נשאר ריק כאן.
       // Medical_System_Name נגזר מקוד המערכת הסופי (לא מהטקסט החופשי של S09).
       const cat       = ctx.catalog || {};
@@ -1081,7 +1112,10 @@ function _s13_buildRowValues(routingCategory, fields, ctx) {
         organState ? organState.code : "",
         organSide  ? organSide.code  : "",
         allergen   ? allergen.code   : "",
-        reaction
+        reaction,
+        (fields.Finding_Term  || "").toString().trim(),
+        (fields.Finding_Size  || "").toString().trim(),
+        (fields.Finding_Cause || "").toString().trim()
       ];
     }
   }
@@ -1121,13 +1155,14 @@ function _s13_genTendency(value) {
 // [Task #264] בדיקה גנטית — אותו מסלול: שורה לכל תכונה ב-Results
 // ══════════════════════════════════════════════════════════════════
 
+// [Task #281] מחזירה את מספר שורות היעד שנכתבו בפועל (0 = כישלון)
 function _s13_writeExtractedRow(ss, routingCategory, fields, ctx) {
   const targetSheetName = S13_TARGET_SHEETS[routingCategory] || S13_TARGET_SHEETS["כללי"];
   const sheet = ss.getSheetByName(targetSheetName);
 
   if (!sheet) {
     Logger.log("[S13] גליון יעד לא נמצא: " + targetSheetName + " (routingCategory: " + routingCategory + ")");
-    return false;
+    return 0;
   }
 
   if (routingCategory === "בדיקת דם" || routingCategory === "בדיקה גנטית") {
@@ -1143,11 +1178,11 @@ function _s13_writeExtractedRow(ss, routingCategory, fields, ctx) {
     });
     if (listRows.length === 0) {
       Logger.log("[S13] אין " + (isGen ? "תכונות גנטיות" : "תוצאות מעבדה") + " לכתיבה | File_ID: " + ctx.fileId);
-      return false;
+      return 0;
     }
     sheet.getRange(sheet.getLastRow() + 1, 1, listRows.length, listRows[0].length).setValues(listRows);
     Logger.log("[S13] נכתבו " + listRows.length + (isGen ? " תכונות" : " תוצאות") + " ל-" + targetSheetName + " | File_ID: " + ctx.fileId);
-    return true;
+    return listRows.length;
   }
 
   // [Task #279] ממצאים — שורה לכל פריט ב-Findings ביומן_מצב_רפואי, בכתיבה מרוכזת אחת
@@ -1162,22 +1197,23 @@ function _s13_writeExtractedRow(ss, routingCategory, fields, ctx) {
     });
     if (findingRows.length === 0) {
       Logger.log("[S13] אין ממצאים לכתיבה ב-Findings | File_ID: " + ctx.fileId);
-      return false;
+      return 0;
     }
     sheet.getRange(sheet.getLastRow() + 1, 1, findingRows.length, findingRows[0].length).setValues(findingRows);
     Logger.log("[S13] נכתבו " + findingRows.length + " ממצאים ל-" + targetSheetName + " | File_ID: " + ctx.fileId);
-    return true;
+    return findingRows.length;
   }
 
   const rowValues = _s13_buildRowValues(routingCategory, fields, ctx);
   sheet.appendRow(rowValues);
   Logger.log("[S13] נכתבה שורה ל-" + targetSheetName + " | File_ID: " + ctx.fileId);
-  return true;
+  return 1;
 }
 // ══════════════════════════════════════════════════════════════════
 // עיבוד קבוצה מלאה: פרומפט → Gemini → (fallback ל-TXT אם חלקי) →
 // כתיבה לגליונות היעד → סימון Extraction_Status="חולץ" על כל שורה
-// שטופלה בהצלחה. מחזירה {success, written, failed}.
+// שטופלה בהצלחה. מחזירה {success, written, failed, targetRows}.
+// [Task #281] written = שורות מקור שחולצו | targetRows = שורות יעד שנכתבו בפועל
 // ══════════════════════════════════════════════════════════════════
 
 function _s13_processGroup(ss, sourceSheet, group) {
@@ -1238,11 +1274,12 @@ function _s13_processGroup(ss, sourceSheet, group) {
   if (!results || results.length === 0) {
     Logger.log("[S13] File_ID " + group.fileId + " — כשל מלא, אין תוצאות לכתיבה (סיבה: " +
       (_s13_lastFailReason || "לא ידועה") + ")");
-    return { success: false, written: 0, failed: group.rows.length };
+    return { success: false, written: 0, failed: group.rows.length, targetRows: 0 };
   }
 
-  let written = 0;
-  let failed  = 0;
+  let written    = 0;
+  let failed     = 0;
+  let targetRows = 0;
 
   results.forEach(function(result) {
     const idx = result.rowIndex;
@@ -1262,16 +1299,17 @@ function _s13_processGroup(ss, sourceSheet, group) {
       catalog:       catalog
     };
 
-    const ok = _s13_writeExtractedRow(ss, eventRow.routingCategory, result.fields || {}, ctx);
+    const rowsWritten = _s13_writeExtractedRow(ss, eventRow.routingCategory, result.fields || {}, ctx);
 
-    if (ok) {
+    if (rowsWritten > 0) {
       sourceSheet.getRange(eventRow.row, 9).setValue("חולץ"); // I = Extraction_Status
       written++;
+      targetRows += rowsWritten;
     } else {
       failed++;
     }
   });
 
-  Logger.log("[S13] File_ID " + group.fileId + " הושלם — נכתבו: " + written + " | נכשלו: " + failed);
-  return { success: written > 0, written: written, failed: failed };
+  Logger.log("[S13] File_ID " + group.fileId + " הושלם — חולצו: " + written + " | שורות יעד: " + targetRows + " | נכשלו: " + failed);
+  return { success: written > 0, written: written, failed: failed, targetRows: targetRows };
 }
