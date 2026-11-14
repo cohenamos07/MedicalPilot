@@ -742,6 +742,9 @@ function QA_ONETIME_migrateFileIdToL_Task_SRow() {
  * מתוך התפריט הזמני בגליון (AAA_ADD_TEMP_MENU) — לא ישירות מהעורך.
  * דפוס מוכח מ-13/07 ו-04/08/2026: הרשאות Gmail/UrlFetch דורשות
  * הקשר UI אמיתי של גליון פעיל כדי להציג את חלון ההסכמה.
+ * [Task #260] נוספו שתי בדיקות: פתיחת גליון לפי מזהה (openById — הרשאה
+ * מלאה לגליונות, נדרשת ליישום האינפוגרפיקה), וחלון בתוך הגליון — התוצאה
+ * מוצגת בחלון אמיתי (showModalDialog); אם החלון נכשל — הודעה רגילה עם ❌.
  */
 function AAA_FORCE_OAUTH_PROMPT_ALL() {
   var ui = SpreadsheetApp.getUi();
@@ -775,7 +778,28 @@ function AAA_FORCE_OAUTH_PROMPT_ALL() {
     results.push("❌ Sheets — " + e.message);
   }
 
-  ui.alert("בדיקת הרשאות מלאה — תוצאה", results.join("\n"), ui.ButtonSet.OK);
+  try {
+    SpreadsheetApp.openById("1uYnt-wleYpuk1ZrX7fTn2HDZ12PNWBEFRDGqHQN_U4I").getName();
+    results.push("✅ Sheets לפי מזהה (openById) — תקין");
+  } catch (e) {
+    results.push("❌ Sheets לפי מזהה (openById) — " + e.message);
+  }
+
+  // חלון בתוך הגליון — הצלחת ההצגה היא עצמה הבדיקה
+  var lines = results.concat(["✅ חלון בתוך הגליון (Container UI) — תקין"]);
+  try {
+    var body = lines.map(function(line) {
+      return line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }).join("<br>");
+    var html = HtmlService
+      .createHtmlOutput('<div style="direction:rtl;text-align:right;font-family:Arial;font-size:14px;line-height:1.8;">' + body + '</div>')
+      .setWidth(560)
+      .setHeight(320);
+    ui.showModalDialog(html, "בדיקת הרשאות מלאה — תוצאה");
+  } catch (e) {
+    results.push("❌ חלון בתוך הגליון (Container UI) — " + e.message);
+    ui.alert("בדיקת הרשאות מלאה — תוצאה", results.join("\n"), ui.ButtonSet.OK);
+  }
 }
 
 /**
