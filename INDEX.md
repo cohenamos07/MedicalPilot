@@ -1,7 +1,9 @@
 # MedicalPilot — INDEX
-תאריך עדכון: 14/11/2026 22:12
+תאריך עדכון: 15/11/2026 22:13
 
 ## קבצים src/infrastructure
+- [App_BodyModels.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/App_BodyModels.gs)
+- [App_Infographic.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/App_Infographic.gs)
 - [Auth_Check.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Auth_Check.gs)
 - [COLUMN_MAP.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/COLUMN_MAP.gs)
 - [DevSyncInspector.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/DevSyncInspector.gs)
@@ -34,6 +36,7 @@
 - [S15_EnrichCatalog.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S15_EnrichCatalog.gs)
 - [S16_Sidebar.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S16_Sidebar.gs)
 - [S16_ValidateMedicalStatus.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S16_ValidateMedicalStatus.gs)
+- [S17_InfographicApp.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S17_InfographicApp.gs)
 - [S_Scheduler.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S_Scheduler.gs)
 - [S_Scheduler_DL.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/S_Scheduler_DL.gs)
 - [Service_Folders.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/Service_Folders.gs)
