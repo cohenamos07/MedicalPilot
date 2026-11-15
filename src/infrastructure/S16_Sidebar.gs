@@ -1,6 +1,6 @@
 <!--
   MedicalPilot — S16_Sidebar.html
-  @version     2.11.0 | @updated 03/11/2026 12:44 | @service S16
+  @version     2.12.0 | @updated 15/11/2026 17:43 | @service S16
   @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_Sidebar.html
   @description ממשק Dialog לאימות כל קודי הסיווג ביומן_מצב_רפואי (21 עמודות):
                קוד מערכת גוף (select סגור), קוד אירוע/התמחות/חומרה/אבחנה
@@ -46,6 +46,10 @@
                [v2.11.0] שדות השמות בקטלוג (שמות במסמכים / שמות מסחריים) — תצוגה
                בלבד; ברשימת קודי הגנטיקה הסימון ✅/🤖 לפני הקוד; הודעת הסטטוס
                מתנקה במעבר ידני בין שורות.
+               [v2.12.0] מצב המצב הרפואי — אזור "איברי ייחוס (משניים)" מתחת לקוד
+               מערכת הגוף: תגיות (כחולה = שמורה/נוספה, כתומה מקווקוות עם 🤖 = הצעת
+               Gemini), הוספה מרשימה מקובצת לפי מערכת (בלי האיבר הראשי ובלי הנבחרים),
+               הסרה ב-✕, וכפתור "🤖 הצע". ואזור "ממצא" — מונח, גודל וגורם (שדות טקסט).
   @impacts     כפתורים: אשר, הוסף-קוד (4, אחד לכל שדה קטלוג פתוח), ניווט
                הקודם/הבא. תלוי ב: S16_ValidateMedicalStatus.gs — כל
                הלוגיקה מתבצעת שם.
@@ -75,6 +79,10 @@
                [v2.11.0] שדות labRawNames / medTradeNames נעולים (disabled) — בקוד
                מאומת מוצגים שמות הקטלוג, אחרת השם בשורה; הערכים עדיין נשלחים אך
                השרת מתעלם מהם (S15 v1.8.0). אין שינוי בפרמטרים לשרת.
+               [v2.12.0] s16_approve מקבל פרמטרים 11-12 — איברים משניים (מערך קודים)
+               וממצא ({term,size,cause}); null אם האזורים לא הוצגו — לא נכתבים בצד השרת.
+               כפתור "הצע" קורא ל-s16_suggestSecondaryOrgans(row, primaryOrgan) — הצעה
+               בלבד, נוספת לתגיות בחלון ולא נכתבת עד "אשר". מצבי S15 — ללא שינוי.
   @callers     S16_ValidateMedicalStatus.gs (showS16Sidebar)
                S15_EnrichCatalog.gs (s15_showValidation — מצב תרופות)
                S15_EnrichCatalog.gs (s15_showValidation — מצב הנחיות, [v2.7.0])
@@ -88,6 +96,19 @@
                renderLab, renderLabLeftCol, updateLabCodeHint, doApproveLab,
                renderGen, onGenCodeChange, updateGenCodeHint, doApproveGen
                clearStatusMsg
+               [v2.12.0] secondaryOrgansHtml, renderSecondaryChips, addSecondaryOrgan,
+               removeSecondaryOrgan, doSuggestSecondary, organNameOf, findingHtml
+  @changes     [v2.12.0] Task #269 (שלב 5) + Task #240 — איברי ייחוס ושדות ממצא במצב
+               המצב הרפואי. משתנה secondaryState ([{code,suggested,reason}]); render — אזור
+               איברי הייחוס אחרי מקטע קוד המערכת, ואזור הממצא אחריו; מצב התגיות נטען
+               מ-payload.secondaryOrgans; רענון רשימת ההוספה בשינוי מערכת ובשינוי האיבר
+               הראשי. doSuggestSecondary — כפתור נעול בזמן הקריאה, הצעות שאינן האיבר הראשי
+               ואינן כבר בתגיות נוספות ככתומות; הודעת סטטוס ירוקה. doApprove — שולח פרמטרים
+               11-12 רק אם האזורים קיימים בחלון (null אחרת). עיצוב התגיות inline — בלי שינוי
+               בגליון הסגנונות. אומת מול הקוד החי (diff מדויק לכל בלוק, node --check לבלוק
+               הסקריפט), בהדמיית דפדפן (jsdom: תגיות, החרגת האיבר הראשי, הצעה, הוספה/הסרה,
+               פרמטרים לאישור) ובבדיקה בפועל: שורות 9 ו-35, וחלון התרופות ללא שינוי. תוקנו
+               גם רווחים עודפים בתחילת שורות שנוצרו בהדבקה.
   @changes     [v2.11.0] Task #266 + Task #229 + Task #258 — (1) #266: renderLab ו-
                renderMedication — שדה השמות (labRawNames / medTradeNames) הפך לתצוגה
                בלבד: נעול תמיד, ומציג את שמות הקטלוג בקוד מאומת או את השם בשורה —
@@ -598,6 +619,125 @@
       '</div>';
   }
 
+  // ════ [Task #269] איברי ייחוס (משניים) — תגיות + הוספה מרשימה + כפתור "הצע" ════
+  // secondaryState — [{code, suggested, reason}]. באישור נשלחות כל התגיות שבחלון
+  // (גם תגית מוצעת שלא הוסרה). תגית מוצעת — כתומה מקווקוות עם 🤖, רגילה — כחולה.
+  let secondaryState = [];
+
+  function organNameOf(code) {
+    const p = currentPayload || {};
+    const o = (p.organOptions || []).filter(function(x) { return x.code === code; })[0];
+    if (o) return o.name;
+    const s = (p.bodySystemOptions || []).filter(function(x) { return x.code === code; })[0];
+    return s ? s.nameHe : '(לא נמצא בקטלוג)';
+  }
+
+  function secondaryOrgansHtml() {
+    return '<div class="section">' +
+        '<div class="section-head">' +
+          '<div class="section-title">איברי ייחוס (משניים)</div>' +
+          '<button type="button" class="link-new" id="btnSuggestSecondary" onclick="doSuggestSecondary()">🤖 הצע</button>' +
+        '</div>' +
+        '<div id="secondaryChips" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;"></div>' +
+        '<div style="display:flex; gap:6px;">' +
+          '<select id="secondaryAddSelect" style="flex:1; min-width:0;"></select>' +
+          '<button type="button" class="btn-add" onclick="addSecondaryOrgan()">+ הוסף</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderSecondaryChips() {
+    const primary = document.getElementById('organSelect').value || '';
+    let chips = '';
+    secondaryState.forEach(function(item, i) {
+      const style = item.suggested
+        ? 'border:1px dashed #e65100; background:#fff3e0; color:#e65100;'
+        : 'border:1px solid #1565c0; background:#e3f2fd; color:#0d47a1;';
+      chips += '<span title="' + esc(item.reason) + '" style="' + style +
+          ' border-radius:12px; padding:2px 8px; font-size:12px; display:inline-flex; align-items:center; gap:4px;">' +
+        (item.suggested ? '🤖 ' : '') + esc(item.code) + ' — ' + esc(organNameOf(item.code)) +
+        '<button type="button" onclick="removeSecondaryOrgan(' + i + ')"' +
+          ' style="border:none; background:none; cursor:pointer; font-size:13px; color:inherit; padding:0 2px;">✕</button>' +
+        '</span>';
+    });
+    document.getElementById('secondaryChips').innerHTML = chips || '<span class="hint">אין איברי ייחוס</span>';
+
+    // רשימת ההוספה — מקובצת לפי מערכת: קוד המערכת עצמו ואחריו האיברים שלה,
+    // בלי האיבר הראשי ובלי מה שכבר נבחר
+    const taken = secondaryState.map(function(x) { return x.code; }).concat([primary]);
+    let html = '<option value="">— בחר איבר או מערכת —</option>';
+    (currentPayload.bodySystemOptions || []).forEach(function(sys) {
+      let group = '';
+      if (taken.indexOf(sys.code) === -1) {
+        group += '<option value="' + esc(sys.code) + '">' + esc(sys.code) + ' — ' + esc(sys.nameHe) + ' (כל המערכת)</option>';
+      }
+      (currentPayload.organOptions || []).forEach(function(o) {
+        if (o.systemCode !== sys.code || taken.indexOf(o.code) !== -1) return;
+        group += '<option value="' + esc(o.code) + '">' + esc(o.code) + ' — ' + esc(o.name) + '</option>';
+      });
+      if (group) html += '<optgroup label="' + esc(sys.code + ' — ' + sys.nameHe) + '">' + group + '</optgroup>';
+    });
+    document.getElementById('secondaryAddSelect').innerHTML = html;
+  }
+
+  function addSecondaryOrgan() {
+    const code = document.getElementById('secondaryAddSelect').value;
+    if (!code) return;
+    secondaryState.push({ code: code, suggested: false, reason: '' });
+    renderSecondaryChips();
+  }
+
+  function removeSecondaryOrgan(i) {
+    secondaryState.splice(i, 1);
+    renderSecondaryChips();
+  }
+
+  function doSuggestSecondary() {
+    if (!currentPayload) return;
+    const btn = document.getElementById('btnSuggestSecondary');
+    btn.disabled = true;
+    btn.textContent = '⏳ מחפש...';
+    google.script.run
+      .withSuccessHandler(function(res) {
+        btn.disabled = false;
+        btn.textContent = '🤖 הצע';
+        if (!res || !res.success) { handleError(res || { msg: '❌ ההצעה נכשלה' }); return; }
+        const primary = document.getElementById('organSelect').value;
+        (res.suggestions || []).forEach(function(s) {
+          if (s.code === primary) return;
+          if (secondaryState.some(function(x) { return x.code === s.code; })) return;
+          secondaryState.push({ code: s.code, suggested: true, reason: s.reason });
+        });
+        renderSecondaryChips();
+        const el = document.getElementById('statusMsg');
+        el.className = 'ok';
+        el.textContent = res.msg;
+      })
+      .withFailureHandler(function(err) {
+        btn.disabled = false;
+        btn.textContent = '🤖 הצע';
+        handleError(err);
+      })
+      .s16_suggestSecondaryOrgans(currentPayload.row, document.getElementById('organSelect').value);
+  }
+
+  // ════ [Task #240] ממצא — מונח בינלאומי קצר, גודל וגורם (עמודות 27-29) ════
+  // שדות טקסט; נשמרים באישור. תגית Gemini — כשיש ערך בשורה בסטטוס "חדש".
+  function findingHtml(fd) {
+    fd = fd || {};
+    return '<div class="section">' +
+        '<div class="section-title">ממצא' + geminiHintHtml(!!(fd.term || fd.size || fd.cause)) + '</div>' +
+        '<div style="display:flex; gap:8px;">' +
+          '<div style="flex:2; min-width:0;"><label class="edit-label">מונח (בינלאומי, קצר)</label>' +
+            '<input type="text" id="findingTermInput" value="' + esc(fd.term) + '"></div>' +
+          '<div style="flex:1; min-width:0;"><label class="edit-label">גודל</label>' +
+            '<input type="text" id="findingSizeInput" value="' + esc(fd.size) + '"></div>' +
+          '<div style="flex:1; min-width:0;"><label class="edit-label">גורם</label>' +
+            '<input type="text" id="findingCauseInput" value="' + esc(fd.cause) + '"></div>' +
+        '</div>' +
+      '</div>';
+  }
+
         function render(payload) {
     if (!payload || payload.error) {
       handleError(payload || { msg: "שגיאה בטעינה" });
@@ -653,6 +793,8 @@
         '<div id="organHint"></div>' +
         organStateHtml(payload.organState) + // [Task #224]
       '</div>' +
+      secondaryOrgansHtml() +          // [Task #269]
+      findingHtml(payload.finding) +   // [Task #240]
       allergyHtml(payload.allergy) + // [Task #262]
       codeFieldsHtml +
       // [Task #220 שלב ב] וודאות — "+ קוד חדש" בשורת הכותרת, שורת ההזנה מקופלת (כמו שדות הקטלוג)
@@ -680,7 +822,15 @@
       const keep = document.getElementById('organSelect').value;
       fillOrganOptions(this.value, keep ||
         (organSugg && !payload.currentOrganCode && organSugg.systemCode === this.value ? organSugg.code : ''));
+      renderSecondaryChips(); // [Task #269] האיבר הראשי מוחרג מרשימת ההוספה
     };
+
+    // [Task #269] איברי ייחוס — מצב התחלתי מהשורה (עמודה 30), ורענון רשימת ההוספה בשינוי האיבר הראשי
+    secondaryState = (payload.secondaryOrgans || []).map(function(code) {
+      return { code: code, suggested: false, reason: '' };
+    });
+    document.getElementById('organSelect').onchange = renderSecondaryChips;
+    renderSecondaryChips();
 
     // ═══ עמודה שמאלית — Event_Date/Doc_Issuer + תצוגת מסמך מקור ═══
     const previewUrl = payload.sourceUrl ? payload.sourceUrl.replace('/view', '/preview') : '';
@@ -825,6 +975,16 @@
     const reactionInp = document.getElementById('reactionInput');
     const allergen    = allergenSel ? allergenSel.value : null;
     const reaction    = reactionInp ? reactionInp.value : null;
+    // [Task #269] איברים משניים — נשלחים רק אם האזור הוצג בחלון (אחרת null — לא נכתבים)
+    const secondaryOrgans = document.getElementById('secondaryChips')
+      ? secondaryState.map(function(x) { return x.code; }) : null;
+    // [Task #240] ממצא — נשלח רק אם השדות הוצגו בחלון (אחרת null — לא נכתב)
+    const termInp = document.getElementById('findingTermInput');
+    const finding = termInp ? {
+      term:  termInp.value,
+      size:  document.getElementById('findingSizeInput').value,
+      cause: document.getElementById('findingCauseInput').value
+    } : null;
 
     const fieldValues = {};
     ['eventCode', 'specialty', 'severity', 'diagnosis'].forEach(function(key) {
@@ -837,7 +997,7 @@
     });
 
     google.script.run.withSuccessHandler(handleResult).withFailureHandler(handleError)
-      .s16_approve(currentPayload.row, sysCode, certCode, fieldValues, organCode, recoToSend, organState, organSide, allergen, reaction);
+      .s16_approve(currentPayload.row, sysCode, certCode, fieldValues, organCode, recoToSend, organState, organSide, allergen, reaction, secondaryOrgans, finding);
   }
 
    function doSaveCatalogCode(key) {
