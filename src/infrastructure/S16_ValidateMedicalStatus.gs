@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — S16_ValidateMedicalStatus.gs
- * @version     2.5.1 | @updated 03/11/2026 12:39 | @service S16
+ * @version     2.6.0 | @updated 15/11/2026 17:38 | @service S16
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S16_ValidateMedicalStatus.gs
  * @description שער אימות אנושי לכל קודי הסיווג בגליון יומן_מצב_רפואי (21
  *              עמודות, task214a): קוד מערכת גוף (Medical_System) — select
@@ -26,6 +26,10 @@
  *              [v2.5.0] רגישות/אלרגיה (עמודות 25-26) — חומר גורם (select סגור
  *              מבלוק התרופות BA-BF, קוד ATC) ותגובה (טקסט חופשי), מוצגים רק בשורת
  *              רגישות (קוד אירוע A7 / סוג אירוע "רגישות"/"אלרגי") או כשכבר שמור ערך.
+ *              [v2.6.0] איברי ייחוס (משניים, עמודה 30) — תגיות בחלון: הוספה מרשימה
+ *              מקובצת לפי מערכת (בלי האיבר הראשי), הסרה, וכפתור "הצע" שקורא ל-Gemini
+ *              (רק בלחיצה, קודים מבלוק A-D בלבד). Organ_Code(22) = איבר המטרה. וגם
+ *              השלמת ממצא (עמודות 27-29: מונח, גודל, גורם) — שדות טקסט (Task #240).
  * @impacts     יומן_מצב_רפואי: קורא שורה בודדת (21 עמודות), כותב
  *              Medical_System(18), Event_Code(11)+Event_Description(12),
  *              Specialty_Name(9)+Specialty_Code(19),
@@ -56,6 +60,12 @@
  *              [v2.5.0] קורא עד עמודה 26 וכותב Allergen_Code(25) + Reaction(26)
  *              באישור — רק אם נשלחו מהחלון (השדות הוצגו), רק אם העמודות קיימות,
  *              ורק קוד חומר שקיים בבלוק התרופות. מיפוי_קודים: בלוק BA-BF לקריאה בלבד.
+ *              [v2.6.0] קורא עד עמודה 30 וכותב Finding_Term(27) + Finding_Size(28) +
+ *              Finding_Cause(29) ו-Secondary_Organs(30) באישור — רק אם נשלחו מהחלון
+ *              (השדות הוצגו) ורק אם העמודות קיימות; איבר משני — רק קוד מבלוק A-D,
+ *              בלי האיבר הראשי ובלי כפילות, מופרדים בפסיק. s16_suggestSecondaryOrgans
+ *              קורא את השורה ואת בלוק A-D ולא כותב דבר. תלות חדשה: S15_EnrichCatalog.gs
+ *              (_s15_callGemini והגדרות S15_GEMINI_*).
  * @callers     ViewEngine.gs (אייקון "[ S16 אימות ]", MEDICAL_STATUS_ICON_MAP —
  *              script: "showS16Sidebar")
  * @functions   showS16Sidebar | _s16_buildPayload | _s16_buildFieldPayload |
@@ -64,6 +74,20 @@
  *              _s16_saveCatalogCode | _s16_getCurrentPayload |
  *              _s16_keywordMatches | _s16_findKeywordSuggestion |
  *              _s16_buildOrganStatePayload | _s16_buildAllergyPayload
+ *              [v2.6.0] s16_suggestSecondaryOrgans
+ * @changes     [v2.6.0] Task #269 (שלב 5) + Task #240 — איברי ייחוס ושדות ממצא בחלון
+ *              האימות. קבועים: S16_COL_FINDING_TERM/SIZE/CAUSE=27-29,
+ *              S16_COL_SECONDARY_ORGANS=30, S16_SECONDARY_MAX_SUGGEST=4. _s16_buildPayload —
+ *              קריאה עד עמודה 30, payload.secondaryOrgans (מערך קודים) ו-payload.finding
+ *              ({term,size,cause}); רשימת הבחירה נבנית בחלון מ-organOptions + bodySystemOptions
+ *              (בלי שכפול ב-payload — מגבלת גודל ב-Script Properties). s16_approve — פרמטרים
+ *              11-12 (secondaryOrgans, finding); null = לא הוצג — לא נכתב (תאימות לאחור);
+ *              בדיקת קודים מול בלוק A-D לפני כל כתיבה. s16_suggestSecondaryOrgans (חדשה) —
+ *              פרומפט עם טקסט השורה ורשימת קודי A-D, דרך _s15_callGemini; מסננת קודים
+ *              שאינם בקטלוג, את האיבר הראשי וכפילויות, עד 4. אומת מול הקוד החי (diff מדויק
+ *              לכל בלוק, node --check), בהדמיית שרת (הצעה/אישור/דחיית קוד שגוי/אישור בלי
+ *              הפרמטרים החדשים) ובבדיקה בפועל: שורה 9 — הוצע SYS06C, נשמר SYS07A ב-AD9 וגודל
+ *              ב-AB9 (נוקו אחר כך — הגליון זהה למצב שלפני הבדיקה); שורה 35 — "לא נמצאו".
  * @changes     [v2.5.1] Task #229 — כותרת חלון האימות (showModalDialog ב-showS16Sidebar)
  *              לא כוללת עוד את מספר השורה: נקבעה פעם אחת בפתיחת החלון ולא התעדכנה
  *              במעבר בחיצים. המספר הנכון מוצג בשורה הסגולה שבתוך החלון (rowMeta).
@@ -239,6 +263,18 @@ const S16_ALLERGEN_MAP_FIRST_COL       = 53;
 const S16_ALLERGEN_SUGGEST_COLS        = [S16_COL_PRIMARY_DIAGNOSIS, S16_COL_SEVERITY_STATUS];
 const S16_ALLERGY_EVENT_CODE_PREFIX    = "A7";
 const S16_ALLERGY_EVENT_TYPE_KEYWORDS  = ["רגישות", "אלרגי"];
+
+// [Task #240] השלמת ממצא — עמודות 27-29 ביומן_מצב_רפואי (מבנה 30 עמודות):
+// מונח בינלאומי קצר, גודל וגורם (post-op או חומר פעיל). שדות טקסט בחלון.
+const S16_COL_FINDING_TERM             = 27;
+const S16_COL_FINDING_SIZE             = 28;
+const S16_COL_FINDING_CAUSE            = 29;
+
+// [Task #269] איברי ייחוס (משניים) — עמודה 30 ביומן_מצב_רפואי: קודי איבר
+// מבלוק A-D מופרדים בפסיק. Organ_Code (עמודה 22) = איבר המטרה (ראשי).
+// בחירה בתגיות בחלון; כפתור "הצע" קורא ל-Gemini (רק בלחיצה).
+const S16_COL_SECONDARY_ORGANS         = 30;
+const S16_SECONDARY_MAX_SUGGEST        = 4;
 // ══════════════════════════════════════════════════════════════════
 // נקודת כניסה — פתיחת חלון אימות
 // ══════════════════════════════════════════════════════════════════
@@ -506,7 +542,9 @@ function _s16_buildPayload(ss, sheet, row) {
     // בגליון — קוראים רק את מה שקיים, וקוד האיבר יחזור ריק.
     // [Task #224] הורחב לעמודה 24 (מצב וצד איבר) — אותו עיקרון.
     // [Task #262] הורחב לעמודה 26 (חומר גורם ותגובה) — אותו עיקרון.
-    const readWidth = Math.min(S16_COL_REACTION, sheet.getMaxColumns());
+    // [Task #269/#240] הורחב לעמודה 30 (ממצא 27-29 + איברים משניים 30) — אותו עיקרון.
+    const readWidth = Math.min(S16_COL_SECONDARY_ORGANS, sheet.getMaxColumns());
+    const cellText  = function(col) { return col <= readWidth ? (rowValues[col - 1] || "").toString().trim() : ""; };
     const rowValues = sheet.getRange(row, 1, 1, readWidth).getValues()[0];
 
     const fileId   = (rowValues[S16_COL_FILE_ID - 1] || "").toString().trim();
@@ -560,6 +598,11 @@ function _s16_buildPayload(ss, sheet, row) {
       }
     }
 
+    // [Task #269] איברים משניים שמורים (עמודה 30) — קודים מופרדים בפסיק.
+    // רשימת הבחירה בחלון נבנית מ-organOptions + bodySystemOptions (בלי שכפול ב-payload).
+    const secondaryOrgans = cellText(S16_COL_SECONDARY_ORGANS).split(",")
+      .map(function(c) { return c.trim(); }).filter(Boolean);
+
     // 4 שדות הקטלוג הפתוח — דרך המנוע הגנרי
     const fields = {};
     S16_CODE_FIELDS.forEach(function(cfg) {
@@ -587,6 +630,12 @@ function _s16_buildPayload(ss, sheet, row) {
       organSuggestion:  organSuggestion,
       organState:       _s16_buildOrganStatePayload(rowValues), // [Task #224]
       allergy:          _s16_buildAllergyPayload(rowValues),    // [Task #262]
+      secondaryOrgans:  secondaryOrgans,                        // [Task #269]
+      finding: {                                                // [Task #240]
+        term:  cellText(S16_COL_FINDING_TERM),
+        size:  cellText(S16_COL_FINDING_SIZE),
+        cause: cellText(S16_COL_FINDING_CAUSE)
+      },
       fields:           fields
     };
 
@@ -643,9 +692,13 @@ function s16_loadRowByNumber(row) {
 //             undefined/null = השדות לא הוצגו בחלון — העמודות לא נכתבות כלל.
 // [Task #262] allergenCode / reaction — חומר גורם ותגובה (עמודות 25/26).
 //             undefined/null = השדות לא הוצגו בחלון — העמודות לא נכתבות כלל.
+// [Task #269] secondaryOrgans — מערך קודי איבר משניים (עמודה 30).
+//             undefined/null = השדה לא הוצג בחלון — העמודה לא נכתבת כלל.
+// [Task #240] finding — {term, size, cause} (עמודות 27-29).
+//             undefined/null = השדות לא הוצגו בחלון — העמודות לא נכתבות כלל.
 // ══════════════════════════════════════════════════════════════════
 
-function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, recommendation, organStateCode, organSideCode, allergenCode, reaction) {
+function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, recommendation, organStateCode, organSideCode, allergenCode, reaction, secondaryOrgans, finding) {
   try {
     if (!systemCode || !S13_BODY_SYSTEMS[systemCode]) {
       return { success: false, msg: "⚠️ קוד מערכת לא תקין: " + systemCode };
@@ -687,6 +740,32 @@ function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, rec
       return { success: false, msg: "⚠️ קוד החומר " + allergenCode + " לא נמצא בבלוק התרופות במיפוי_קודים" };
     }
 
+    // [Task #269] איברים משניים — נכתבים רק אם נשלחו מהחלון. כל קוד חייב להיות
+    // בבלוק איברים A-D; האיבר הראשי וכפילויות מוסרים; נשמרים מופרדים בפסיק.
+    const writeSecondary = (secondaryOrgans !== undefined && secondaryOrgans !== null);
+    let secondaryText = "";
+    if (writeSecondary) {
+      if (sheet.getMaxColumns() < S16_COL_SECONDARY_ORGANS) {
+        return { success: false, msg: "⚠️ חסרה עמודה Secondary_Organs (עמודה 30) בגליון " + MEDICAL_STATUS_SHEET_NAME };
+      }
+      const organCodes = {};
+      _s16_readCatalogBlock(S16_ORGAN_MAP_FIRST_COL).options.forEach(function(o) { organCodes[o.code] = true; });
+      const clean = [];
+      for (let i = 0; i < secondaryOrgans.length; i++) {
+        const code = (secondaryOrgans[i] || "").toString().trim();
+        if (!code || code === organCode || clean.indexOf(code) !== -1) continue;
+        if (!organCodes[code]) return { success: false, msg: "⚠️ קוד האיבר המשני " + code + " לא נמצא בבלוק האיברים במיפוי_קודים" };
+        clean.push(code);
+      }
+      secondaryText = clean.join(", ");
+    }
+
+    // [Task #240] מונח, גודל וגורם הממצא — נכתבים רק אם נשלחו מהחלון
+    const writeFinding = (finding !== undefined && finding !== null);
+    if (writeFinding && sheet.getMaxColumns() < S16_COL_FINDING_CAUSE) {
+      return { success: false, msg: "⚠️ חסרות עמודות Finding_Term/Finding_Size/Finding_Cause (עמודות 27-29) בגליון " + MEDICAL_STATUS_SHEET_NAME };
+    }
+
     sheet.getRange(row, S16_COL_MEDICAL_SYSTEM).setValue(systemCode);
     // [Task #220 שלב ב] שם המערכת (עמודה 10) מתעדכן לפי הקוד שנבחר — במקום הטקסט החופשי מ-S09
     sheet.getRange(row, S16_COL_MEDICAL_SYSTEM_NAME).setValue(S13_BODY_SYSTEMS[systemCode].nameHe);
@@ -714,6 +793,18 @@ function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, rec
       sheet.getRange(row, S16_COL_REACTION).setValue(reaction);
     }
 
+    // [Task #240] מונח, גודל וגורם הממצא (עמודות 27-29)
+    if (writeFinding) {
+      sheet.getRange(row, S16_COL_FINDING_TERM).setValue((finding.term  || "").toString().trim());
+      sheet.getRange(row, S16_COL_FINDING_SIZE).setValue((finding.size  || "").toString().trim());
+      sheet.getRange(row, S16_COL_FINDING_CAUSE).setValue((finding.cause || "").toString().trim());
+    }
+
+    // [Task #269] איברים משניים (עמודה 30)
+    if (writeSecondary) {
+      sheet.getRange(row, S16_COL_SECONDARY_ORGANS).setValue(secondaryText);
+    }
+
     // [Task #220] המלצה — נכתבת רק אם נשלחה (לא null) ושונה מהערך בתא
     let recoUpdated = false;
     if (recommendation !== null && recommendation !== undefined) {
@@ -730,11 +821,81 @@ function s16_approve(row, systemCode, certaintyCode, fieldValues, organCode, rec
     Logger.log("[S16] אישור שורה " + row + " — SYS:" + systemCode + " | ORGAN:" + organCode +
       (writeOrganState ? " | STATE:" + organStateCode + " | SIDE:" + organSideCode : "") +
       (writeAllergy ? " | ALLERGEN:" + allergenCode + " | REACTION:" + reaction : "") +
+      (writeSecondary ? " | SECONDARY:" + secondaryText : "") +
+      (writeFinding ? " | FINDING:" + (finding.term || "") + "/" + (finding.size || "") + "/" + (finding.cause || "") : "") +
       " | CERT:" + certaintyCode + (recoUpdated ? " | המלצה עודכנה" : ""));
     return { success: true, msg: "✅ השורה אושרה" };
 
   } catch (e) {
     Logger.log("[S16] s16_approve שגיאה: " + e.message);
+    return { success: false, msg: "❌ שגיאה: " + e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [Task #269] כפתור "הצע" — איברי ייחוס (משניים) לשורה, דרך Gemini
+// (_s15_callGemini, S15_EnrichCatalog.gs — אותה פונקציה וטיפול שגיאות).
+// נקרא רק בלחיצה (לא בכל טעינה). מחזיר הצעה בלבד — לא כותב לגליון.
+// primaryOrgan — האיבר הראשי שנבחר כרגע בחלון (עשוי להיות שונה מהשמור).
+// הקודים מאומתים מול בלוק איברים A-D; האיבר הראשי וכפילויות מוסרים.
+// ══════════════════════════════════════════════════════════════════
+
+function s16_suggestSecondaryOrgans(row, primaryOrgan) {
+  try {
+    const ss    = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(MEDICAL_STATUS_SHEET_NAME);
+    if (!sheet) return { success: false, msg: "❌ גליון לא נמצא: " + MEDICAL_STATUS_SHEET_NAME };
+
+    const readWidth = Math.min(S16_COL_SECONDARY_ORGANS, sheet.getMaxColumns());
+    const rowValues = sheet.getRange(row, 1, 1, readWidth).getValues()[0];
+    const cell = function(col) { return col <= readWidth ? (rowValues[col - 1] || "").toString().trim() : ""; };
+
+    primaryOrgan = (primaryOrgan || "").toString().trim();
+    const organBlock = _s16_readCatalogBlock(S16_ORGAN_MAP_FIRST_COL);
+    const nameOf = {};
+    organBlock.options.forEach(function(o) { nameOf[o.code] = o.name; });
+
+    const prompt =
+      "אתה מסייע לרופא לקטלג שורה אחת ביומן מצב רפואי.\n" +
+      "האיבר הראשי (איבר המטרה) של השורה: " + (primaryOrgan ? primaryOrgan + " — " + (nameOf[primaryOrgan] || "") : "לא נבחר") + "\n" +
+      "מצא איברי ייחוס (משניים): איברים או מערכות גוף נוספים שהשורה נוגעת בהם ישירות — " +
+      "למשל פיזור או מעורבות של איבר נוסף, איבר שנפגע כתופעת לוואי, איבר שהבדיקה מעידה עליו מלבד המטרה, " +
+      "או איבר שההמלצה מפנה אליו. אל תכלול את האיבר הראשי. אל תנחש — אם אין איבר כזה בטקסט, החזר רשימה ריקה. " +
+      "השתמש רק בקודים מהרשימה למטה, עד " + S16_SECONDARY_MAX_SUGGEST + " קודים.\n\n" +
+      "השורה:\n" +
+      "סוג אירוע: " + cell(S16_COL_EVENT_TYPE) + "\n" +
+      "אבחנה עיקרית: " + cell(S16_COL_PRIMARY_DIAGNOSIS) + "\n" +
+      "חומרה: " + cell(S16_COL_SEVERITY_STATUS) + "\n" +
+      "המלצה: " + cell(S16_COL_RECOMMENDATIONS) + "\n" +
+      "מונח הממצא: " + cell(S16_COL_FINDING_TERM) + "\n" +
+      "גורם הממצא: " + cell(S16_COL_FINDING_CAUSE) + "\n\n" +
+      "רשימת הקודים (קוד — שם):\n" +
+      organBlock.options.map(function(o) { return o.code + " — " + o.name; }).join("\n") + "\n\n" +
+      'החזר JSON בלבד, ללא טקסט נוסף, בפורמט: {"organs":[{"code":"","reason":""}]} — reason בעברית, עד 8 מילים.';
+
+    const result = _s15_callGemini(prompt);
+    if (!result) return { success: false, msg: "❌ Gemini לא החזיר תשובה תקינה — ראה יומן הביצוע" };
+
+    const seen = {};
+    const suggestions = [];
+    (result.organs || []).forEach(function(item) {
+      const code = ((item && item.code) || "").toString().trim().toUpperCase();
+      if (!code || !nameOf.hasOwnProperty(code) || code === primaryOrgan || seen[code]) return;
+      if (suggestions.length >= S16_SECONDARY_MAX_SUGGEST) return;
+      seen[code] = true;
+      suggestions.push({ code: code, name: nameOf[code], reason: ((item && item.reason) || "").toString().trim() });
+    });
+
+    Logger.log("[S16] הצעת איברים משניים לשורה " + row + " — " +
+      (suggestions.map(function(s) { return s.code; }).join(", ") || "אין"));
+    return {
+      success:     true,
+      suggestions: suggestions,
+      msg:         suggestions.length ? "🤖 הוצעו " + suggestions.length + " איברים — לבדוק לפני אישור" : "🤖 לא נמצאו איברי ייחוס בטקסט השורה"
+    };
+
+  } catch (e) {
+    Logger.log("[S16] s16_suggestSecondaryOrgans שגיאה: " + e.message);
     return { success: false, msg: "❌ שגיאה: " + e.message };
   }
 }
