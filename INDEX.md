@@ -1,5 +1,5 @@
 # MedicalPilot — INDEX
-תאריך עדכון: 15/11/2026 22:13
+תאריך עדכון: 25/11/2026 21:54
 
 ## קבצים src/infrastructure
 - [App_BodyModels.gs](https://cdn.jsdelivr.net/gh/cohenamos07/MedicalPilot@main/src/infrastructure/App_BodyModels.gs)
