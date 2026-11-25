@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   MedicalPilot — App_Infographic.html
-  @version     1.3.0 | @updated 14/11/2026 21:53 | @service S17
+  @version     1.6.0 | @updated 25/11/2026 21:42 | @service S17
   @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/App_Infographic.html
   @description דף התצוגה של יישום האינפוגרפיקה לרופא (Task #260) — מצב אירוע:
                מסמך אחד בכל מסך. כותרת = אייקון הבדיקה + קיצור בינלאומי לפי קוד
@@ -43,11 +43,26 @@
                מקצועי — בעברית (מקרא, כותרות, תוויות); מונחים וקיצורים מקצועיים
                (MRI, CT, CBC, H/L, ATC, ACMG, s/p, post-op, R/L) — באנגלית. אייקון
                איבר ברשימות ההיסטוריה; תווית עליונה בגרף מעבדה מפורט לא נחתכת.
+               [v1.4.0] פס פרופיל מטופל בתחילת הסרגל העליון, בכל הלשוניות: סמל מין
+               בינלאומי (♂/♀) וגיל; אין נתון — "?" ורקע אפור; אישה — ⚠ (דמות הגוף
+               מוצגת כגבר); ערך הדגמה — מסגרת מקווקוות ותג "הדגמה"; פירוט בריחוף.
+               [v1.5.0] אזורי "לא תועד" בלשונית מצב נוכחי (תקן IPS): אלרגיות, תרופות
+               והנחיות בלי שורות — "לא תועדו · נבדקו N מסמכים" (ולא אזור ריק שנקרא כ"אין");
+               הנחיות שכולן בוצעו — "אין הנחיות פתוחות"; שורת אריחים אפורה קבועה "אין מידע
+               במסמכים" לחיסונים, מכשור רפואי ושתלים, היסטוריה חברתית ומשפחתית (יחוברו
+               לנתונים ב-#271 שלב ב).
+               [v1.6.0] היסטוריה — שכבת "מעבדה חריגה" (מתג, כבויה כברירת מחדל): בדיקות שהתוצאה
+               האחרונה שלהן חריגה, מקובצות לפי איבר המטרה לסמן אחד עם מונה (עיגול בצבע הסימון H/L/A);
+               בלי מיקום — בפס "מערכתי". בחירת סמן (רשומות או מעבדה) — קו כחול מקווקו ועיגול חלול לכל
+               איבר ייחוס, ותגיות מטרה/ייחוס ברשימה; לחיצה על בדיקה ברשימה — פתיחה בלשונית מעבדה.
+               הסינון לפי מערכת/התמחות חל גם על השכבה. מקרא: מעבדה חריגה, ייחוס.
   @impacts     תצוגה בלבד — אינו כותב לשום גליון. מקבל dataJson מ-s17_renderPage
                (S17_InfographicApp.gs): רשומות, מסמכים, מסמך פתיחה, אייקונים,
                hostMode (web/dialog), requested (found/lab/missing), requestedKey,
-               specialties, specialtyFilter, lab, [v1.3.0] now, gen, requested=gen. כולל את
+               specialties, specialtyFilter, lab, [v1.3.0] now, gen, requested=gen, [v1.4.0] profile. כולל את
                App_BodyModels.html דרך s17_include.
+               [v1.5.0] now.docCount — מספר המסמכים שנבדקו.
+               [v1.6.0] lab.tests[].organ / secondary / linkFrom, records[].secondary.
   @callers     S17_InfographicApp.gs (s17_renderPage, template.evaluate)
   @functions   eventAbbr | dotDate | esc | iconImg | iconBox | sideChip | chipsFor |
                labelFor | itemRow | positionsFor | bodySvg | render | buildSelect |
@@ -58,8 +73,19 @@
                panelAbbr | lastPoint | isAbnormal | fmtNum | trendSvg | hasFile |
                renderLab | [v1.3.0] todayTs | medZone | doseText | medRowHtml |
                insRowHtml | renderNow | genPanelName | genHasFile | tendBarHtml |
-               genRowHtml | renderGen | testDocs | renderTests
-  @changes     [v1.3.0] Task #260 שלב 4 — לשוניות בדיקות, מצב נוכחי וגנטיקה; מעבר
+               genRowHtml | renderGen | testDocs | renderTests | [v1.4.0] renderProfile | [v1.5.0] NOT_DOC_DOMAINS |
+               [v1.6.0] organPoint | organLabel | labMatchesFilter | labLayerTests |
+               labGroups | labMarkHtml | linkOverlaySvg | secondaryHtml | labRefs | labSelHtml
+  @changes     [v1.6.0] Task #269 שלב 8 — שכבת מעבדה חריגה וקישור מטרה↔ייחוס בלשונית
+               היסטוריה (renderHistory, legendHtml, עיצוב .lmark/.linksvg/.refs); הפונקציות משותפות
+               לחלופה ב (#250). אומת: diff מדויק מול העורך, הדמיה ובדיקה בפועל (4 צעדים).
+               [v1.5.0] Task #283 — אזורי "לא תועד" (renderNow, NOT_DOC_DOMAINS, עיצוב
+               .notdoc ו-.ndstrip). אומת: diff מדויק מול העורך, בדיקת תחביר, הדמיה של
+               שני מקרים ובדיקה בפועל.
+               [v1.4.0] Task #271 שלב א — פס פרופיל מטופל (renderProfile, אלמנט #profile
+               בסרגל, עיצוב .profile). אומת: diff מדויק מול העורך, בדיקת תחביר,
+               הדמיה של 4 מקרים ובדיקה בפועל.
+               [v1.3.0] Task #260 שלב 4 — לשוניות בדיקות, מצב נוכחי וגנטיקה; מעבר
                לעברית בכל טקסט שאינו מונח מקצועי; קישור חזרה משותף להיסטוריה
                ולבדיקות (state.cameFrom); אייקון איבר ברשימות ההיסטוריה; תיקון
                חיתוך התווית העליונה בגרף מעבדה מפורט.
@@ -169,6 +195,18 @@
   .docnav.hidden { display: none; }
   .backlink { font-size: 13px; color: #00828e; cursor: pointer; text-decoration: underline; }
 
+  /* ── [Task #271] פס פרופיל מטופל — מין וגיל ── */
+  .profile { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #1565c0;
+             border-radius: 8px; padding: 4px 10px; background: #fff; color: #1565c0;
+             font-weight: 700; direction: ltr; cursor: default; }
+  .profile .sex  { font-size: 20px; line-height: 1; }
+  .profile .age  { font-size: 17px; }
+  .profile .warn { color: #ea6a00; font-size: 16px; }
+  .profile .demo { font-size: 11px; font-weight: 400; color: #8a979d; border: 1px dashed #8a979d;
+                   border-radius: 4px; padding: 0 4px; direction: rtl; }
+  .profile.isdemo { border-style: dashed; }
+  .profile.nodata { border-color: #b0bec5; color: #90a4ae; background: #eceff1; }
+
   /* ── [שלב 2] היסטוריה: סינון, סמנים מקובצים, רשימה, ציר זמן ── */
   .ftype { display: flex; gap: 14px; font-size: 14px; margin-bottom: 6px; }
   .fbtns { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -190,6 +228,26 @@
   .srow .gmark { position: relative; transform: none; width: 44px; }
   .srow .gmark .ic { width: 44px; height: 44px; border-width: 3px; }
   .srow .gmark .ic img { width: 30px; height: 30px; }
+  /* [Task #269] סמן מעבדה חריגה, קישור מטרה ↔ ייחוס, מתג השכבה */
+  .lab { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+         border-radius: 50%; color: #fff; font-size: 12px; font-weight: 700; border: 2px solid #fff;
+         box-shadow: 0 0 0 1px #90a4ae; flex: none; }
+  .lmark { cursor: pointer; display: flex; justify-content: center; }
+  .marker.lmark .lab { width: 62%; height: auto; aspect-ratio: 1 / 1; font-size: 11px; }
+  .lmark.dim .lab { opacity: .5; }
+  .lmark.sel .lab { box-shadow: 0 0 0 3px #1f2a30; }
+  .srow .lmark { position: relative; transform: none; width: 44px; }
+  .srow .lmark .lab { width: 30px; height: 30px; }
+  .bodybox svg.linksvg { position: absolute; top: 0; left: 0; pointer-events: none; }
+  .linksvg line { stroke: #1565c0; stroke-width: 3; stroke-dasharray: 10 7; }
+  .linksvg circle { fill: none; stroke: #1565c0; stroke-width: 3; }
+  .labtoggle { display: block; font-size: 13px; margin: 2px 0 6px; cursor: pointer; }
+  .refs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; margin-top: 6px; direction: ltr; }
+  .refs .ttl { font-weight: 700; color: #5b6b73; }
+  .refs .ref { border: 1px dashed #1565c0; color: #1565c0; border-radius: 10px; padding: 1px 8px; }
+  .refs .ref.nopos { border-color: #9aa6ab; color: #5b6b73; }
+  .legend .lab { width: 18px; height: 18px; font-size: 10px; margin-right: 5px; vertical-align: middle; }
+  .legend .lnk { display: inline-block; width: 26px; border-top: 3px dashed #1565c0; vertical-align: middle; margin-right: 5px; }
   .recs { border-top: 1px solid #eef1f3; margin-top: 8px; padding-top: 6px; }
   .recs .ttl { font-size: 13px; color: #5b6b73; font-weight: 700; margin-bottom: 4px; }
   .rec { display: flex; align-items: center; gap: 8px; padding: 5px 4px; cursor: pointer; direction: ltr;
@@ -251,6 +309,12 @@
   .zone { border: 1px solid #dfe5e8; border-radius: 10px; padding: 6px 8px; }
   .zone .zt { font-weight: 700; font-size: 14px; color: #36464e; margin-bottom: 4px; display: flex; gap: 6px; align-items: center; }
   .zone .zt .n { color: #78909c; font-weight: 400; font-size: 12px; }
+  /* [Task #283] אזורי "לא תועד" — אפור אחיד, מסגרת מקווקוות */
+  .zone.notdoc { background: #f1f3f4; border: 1px dashed #c9d3d8; }
+  .zone.notdoc .nd { color: #5b6b73; font-size: 13px; }
+  .ndstrip { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; font-size: 14px; color: #5b6b73; }
+  .ndstrip .ttl { font-weight: 700; }
+  .ndstrip .tile { background: #f1f3f4; border: 1px dashed #c9d3d8; border-radius: 10px; padding: 4px 12px; color: #36464e; }
   .med { display: grid; grid-template-columns: 26px 1fr auto auto; gap: 8px; align-items: center; padding: 3px 2px;
          border-top: 1px solid #f0f3f4; font-size: 14px; }
   .med img { width: 22px; height: 22px; object-fit: contain; }
@@ -315,6 +379,7 @@
 <body>
 <div class="app">
   <div class="nav">
+    <span class="profile" id="profile" dir="ltr"></span>
     <span class="tabs">
       <button id="tabEvent" type="button">אירוע</button>
       <button id="tabHistory" type="button">היסטוריה</button>
@@ -493,6 +558,9 @@ function legendHtml(withHistory) {
     '<span><span class="sw diamond"></span>s/p</span>' +
     '<span>&#10005; הוסר</span><span>&#9998; post-op</span>' +
     (withHistory ? '<span><b>N</b> = מספר רשומות</span><span style="color:#ea6a00"><b>!</b> לא אומת</span>' : '') +
+    // [Task #269] שכבת מעבדה וקישור מטרה ↔ ייחוס
+    (withHistory ? '<span><span class="lab" style="background:#d32f2f">H</span>מעבדה חריגה</span>' +
+                   '<span><span class="lnk"></span>ייחוס</span>' : '') +
     '</div>';
 }
 
@@ -720,34 +788,140 @@ function timelineHtml(indexes) {
   return '<div class="timeline">' + svg + '</svg></div>';
 }
 
+// ── [Task #269] שכבת מעבדה חריגה על הדמות + קישור מטרה ↔ ייחוס ──
+// סמן מעבדה: בדיקה שהתוצאה האחרונה שלה חריגה (H/L/A), במיקום איבר המטרה (שיוך מהשרת:
+// קוד הבדיקה ← פאנל ← מערכת). בלי מיקום — בפס "מערכתי". בחירת סמן (רשומות או מעבדה) —
+// קו מקווקו לכל איבר ייחוס ועיגול חלול עליו; ייחוס בלי מיקום — ברשימה בלבד.
+// בדיקות עם אותו איבר מטרה — סמן אחד עם מונה (כמו קבוצות הרשומות), כדי שלא ייערמו.
+// הפונקציות משותפות — ישמשו גם לתצוגת גוף בלשונית מעבדה (#250).
+function organPoint(code) {
+  var p = S17_ORGAN_POS[code] || S17_ORGAN_POS[(code || "").substring(0, 5)];
+  return p ? (p.c || p.r || p.l || null) : null;
+}
+function organLabel(code) {
+  var name = (DATA.organNames || {})[code] || (DATA.systemNames || {})[(code || "").substring(0, 5)] || "";
+  return code + (name ? " " + name : "");
+}
+function labMatchesFilter(t) {
+  if (state.filterValue === "ALL") return true;
+  var sys = (t.organ || t.system || "").substring(0, 5);
+  if (state.filterType === "system") return sys === state.filterValue;
+  var rule = (DATA.specialtyFilter || {})[state.filterValue];
+  if (!rule) return false;
+  if (rule.all) return true;
+  return (rule.systems || []).indexOf(sys) !== -1;
+}
+function labLayerTests() {
+  return ((DATA.lab || {}).tests || []).filter(function(t) {
+    return t.points.length && isAbnormal(lastPoint(t)) && labMatchesFilter(t);
+  });
+}
+function labGroups(tests) {
+  var byOrgan = {}, out = [];
+  tests.forEach(function(t) {
+    var k = "L:" + (t.organ || t.system || "?");
+    if (!byOrgan[k]) { byOrgan[k] = { key: k, organ: t.organ || t.system || "", pt: organPoint(t.organ), tests: [] }; out.push(byOrgan[k]); }
+    byOrgan[k].tests.push(t);
+  });
+  return out;
+}
+function labMarkHtml(g, style) {
+  var flags = g.tests.map(function(t) { return lastPoint(t).flag; });
+  var flag = flags.indexOf("H") !== -1 ? "H" : flags.indexOf("A") !== -1 ? "A" : flags[0];
+  var allUnv = g.tests.every(function(t) { return !lastPoint(t).verified; });
+  return '<div class="marker gmark lmark' + (allUnv ? " dim" : "") + (state.selectedGroup === g.key ? " sel" : "") +
+    '" data-key="' + esc(g.key) + '"' + (style ? ' style="' + style + '"' : '') +
+    ' title="' + esc(g.tests.map(function(t) { var p = lastPoint(t);
+      return t.name + " · " + fmtNum(p.v) + " " + (t.unit || ""); }).join("\n")) + '">' +
+    '<span class="lab" style="background:' + (FLAG_COLOR[flag] || "#9aa6ab") + '">' + esc(flag) + '</span>' +
+    (g.tests.length > 1 ? '<span class="cnt">' + g.tests.length + '</span>' : '') + '</div>';
+}
+function linkOverlaySvg(from, codes) {
+  var vb = BODY_VIEW, out = "";
+  codes.forEach(function(code) {
+    var to = organPoint(code);
+    if (!to || !from) return;
+    out += '<line x1="' + from[0] + '" y1="' + from[1] + '" x2="' + to[0] + '" y2="' + to[1] + '"/>' +
+           '<circle cx="' + to[0] + '" cy="' + to[1] + '" r="16"><title>' + esc(organLabel(code)) + '</title></circle>';
+  });
+  return out ? '<svg class="linksvg" viewBox="' + vb.x + ' ' + vb.y + ' ' + vb.w + ' ' + vb.h +
+               '" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">' + out + '</svg>' : "";
+}
+function secondaryHtml(codes) {
+  if (!codes.length) return "";
+  return '<div class="refs"><span class="ttl">ייחוס</span>' + codes.map(function(code) {
+    return '<span class="ref' + (organPoint(code) ? "" : " nopos") + '">' + esc(organLabel(code)) + '</span>';
+  }).join("") + '</div>';
+}
+function labRefs(g) {
+  var refs = [];
+  g.tests.forEach(function(t) {
+    (t.secondary || []).forEach(function(c) { if (refs.indexOf(c) === -1) refs.push(c); }); });
+  return refs;
+}
+function labSelHtml(g) {
+  return '<div class="recs"><div class="ttl">מעבדה · ' + g.tests.length + '</div>' +
+    '<div class="refs"><span class="ttl">מטרה</span><span class="ref">' + esc(organLabel(g.organ)) + '</span></div>' +
+    secondaryHtml(labRefs(g)) +
+    g.tests.map(function(t) {
+      var p = lastPoint(t);
+      return '<div class="rec labrec" data-key="' + esc(t.key) + '" title="פתח בלשונית מעבדה">' +
+        '<span class="lab" style="background:' + (FLAG_COLOR[p.flag] || "#9aa6ab") + '">' + esc(p.flag) + '</span>' +
+        '<span class="d">' + esc(dotDate(p.date)) + '</span>' +
+        '<span><b>' + esc(t.name) + '</b> ' + esc(fmtNum(p.v)) + ' ' + esc(t.unit || "") +
+        ' <small>' + esc(PANEL_ABBR[t.panel] || t.panel || "") + '</small></span>' +
+        (p.verified ? '' : '<span class="ddot"></span>') +
+        ((t.secondary || []).length ? '<small>→ ' + esc(t.secondary.join(", ")) + '</small>' : '') + '</div>';
+    }).join("") + '<div class="refs"><span class="ttl">לחיצה על בדיקה — פתיחה בלשונית מעבדה</span></div></div>';
+}
+
 function renderHistory(card) {
   var indexes = filteredIndexes();
   var groups  = buildGroups(indexes);
   var placed  = groups.filter(function(g) { return g.pt; }).sort(function(a, b) { return a.pt[1] - b.pt[1]; });
   var sys     = groups.filter(function(g) { return !g.pt; });
 
-  var used = [], marks = "";
-  placed.forEach(function(g) { marks += groupMarkHtml(g, pctPos(layoutPoint(g.pt, used))); });
+  // [Task #269] שכבת מעבדה חריגה — כבויה כברירת מחדל
+  var allLab  = labLayerTests();
+  var labs    = state.labLayer ? labGroups(allLab) : [];
+  var labPlaced = labs.filter(function(g) { return g.pt; });
+  var labSys    = labs.filter(function(g) { return !g.pt; });
+
+  var used = [], marks = "", shown = {};
+  placed.forEach(function(g) {
+    var xy = layoutPoint(g.pt, used); shown[g.key] = xy; marks += groupMarkHtml(g, pctPos(xy)); });
+  labPlaced.forEach(function(g) {
+    var xy = layoutPoint(g.pt, used); shown[g.key] = xy; marks += labMarkHtml(g, pctPos(xy)); });
 
   var sel = groups.filter(function(g) { return g.key === state.selectedGroup; })[0];
-  var listPart = "";
+  var selLab = labs.filter(function(g) { return g.key === state.selectedGroup; })[0];
+  var listPart = "", refs = [];
   if (sel) {
     var first = DATA.records[sel.items[0]];
+    sel.items.forEach(function(i) {
+      (DATA.records[i].secondary || []).forEach(function(c) { if (refs.indexOf(c) === -1) refs.push(c); }); });
     listPart = recListHtml((sel.pt ? (first.organ.code || first.systemCode) : (first.systemCode || "")) +
-                           " · " + sel.items.length, sel.items);
+                           " · " + sel.items.length, sel.items) + secondaryHtml(refs);
+  } else if (selLab) {
+    refs = labRefs(selLab);
+    listPart = labSelHtml(selLab);
   } else if (state.showBackground) {
     listPart = recListHtml("HX", indexes.filter(function(i) {
       return DATA.records[i].certainty.code === BACKGROUND_CERTAINTY; }));
   }
+  var links = (sel || selLab) ? linkOverlaySvg(shown[state.selectedGroup] || null, refs) : "";
 
   card.innerHTML =
     '<div class="main"><div class="list hlist">' + filterButtonsHtml() +
+      '<label class="labtoggle"><input type="checkbox" id="labLayer"' + (state.labLayer ? " checked" : "") +
+        '> מעבדה חריגה (' + allLab.length + ')</label>' +
       (indexes.length ? '' : '<div class="empty">אין רשומות בסינון זה</div>') +
-      (sys.length ? '<div class="systemic"><div class="ttl">מערכתי</div><div class="srow">' +
-        sys.map(function(g) { return groupMarkHtml(g, ""); }).join("") + '</div></div>' : '') +
+      ((sys.length || labSys.length) ? '<div class="systemic"><div class="ttl">מערכתי</div><div class="srow">' +
+        sys.map(function(g) { return groupMarkHtml(g, ""); }).join("") +
+        labSys.map(function(g) { return labMarkHtml(g, ""); }).join("") + '</div></div>' : '') +
       listPart +
     '</div>' +
-    '<div class="bodywrap"><div class="bodybox hbody">' + bodySvg() +
+    '<div class="bodywrap"><div class="bodybox hbody">' + bodySvg() + links +
       '<span class="sidelbl" style="left:4%">R</span><span class="sidelbl" style="right:4%">L</span>' +
       marks + '</div></div></div>' +
     timelineHtml(indexes) + legendHtml(true);
@@ -773,12 +947,28 @@ function renderHistory(card) {
     };
   });
   Array.prototype.forEach.call(card.querySelectorAll(".rec, .timeline circle"), function(el) {
+    if (el.classList.contains("labrec")) return;
     el.onclick = function() { openRecord(Number(el.getAttribute("data-i"))); };
   });
   var lane = card.querySelector("#bgLane");
   if (lane) lane.onclick = function() {
     state.selectedGroup = null; state.showBackground = !state.showBackground; render();
   };
+  // [Task #269] מתג השכבה ומעבר מבדיקה מסומנת ללשונית מעבדה
+  var lb = card.querySelector("#labLayer");
+  if (lb) lb.onchange = function() {
+    state.labLayer = lb.checked;
+    if (!lb.checked && /^L:/.test(state.selectedGroup || "")) state.selectedGroup = null;
+    render();
+  };
+  Array.prototype.forEach.call(card.querySelectorAll(".labrec"), function(el) {
+    el.onclick = function() {
+      var t = selLab.tests.filter(function(x) { return x.key === el.getAttribute("data-key"); })[0];
+      if (!t) return;
+      state.labPanel = t.panel || ""; state.labAbnormalOnly = false; state.labOpen = t.key;
+      setMode("lab");
+    };
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -990,9 +1180,17 @@ function insRowHtml(x, today) {
     '<span class="due' + dueCls + '">' + (x.kind === "מתמשכת" && !x.due ? "∞" : esc(dueTxt)) + '</span></div>';
 }
 
+// [Task #283] תחומי התקציר הבינלאומי (IPS) שאין להם עדיין נתונים במערכת — אריח קבוע
+// "אין מידע במסמכים" (יחוברו לנתונים ב-#271 שלב ב). כל הטקסט בעברית, עיצוב אפור אחיד.
+var NOT_DOC_DOMAINS = [{ name: "חיסונים" }, { name: "מכשור רפואי ושתלים" },
+  { name: "היסטוריה חברתית", hint: "עישון, אלכוהול" }, { name: "היסטוריה משפחתית" }];
+
 function renderNow(card) {
   var now = DATA.now || { meds: [], instructions: [], atcNames: {} };
   var today = todayTs();
+  // [Task #283] "לא תועד" — הבחנה בין "אין" לבין "לא תועד במסמכים", עם מספר המסמכים שנבדקו
+  var docs = now.docCount || 0;
+  var notDoc = 'לא תועדו' + (docs ? ' · נבדקו ' + docs + ' מסמכים' : '');
 
   // רצועת אלרגיות — מרשומות יומן המצב עם קוד אירוע A7*, החומר לפי קוד ATC
   var seen = {};
@@ -1007,7 +1205,7 @@ function renderNow(card) {
       return '<span class="al"><b>' + esc(eventAbbr(r.eventCode)) + '</b> · ' +
         esc(inn || r.allergenCode || "—") + (r.allergenCode && inn ? ' <small>' + esc(r.allergenCode) + '</small>' : '') +
         (r.verified ? '' : '<span class="ddot"></span>') + '</span>';
-    }).join("") : '<span>לא נרשמו</span>') + '</div>';
+    }).join("") : '<span>' + notDoc + '</span>') + '</div>';
 
   // לוח תרופות לפי אזורים
   var zones = {};
@@ -1025,7 +1223,10 @@ function renderNow(card) {
       (z === "ENDED" ? ' <span class="backlink" id="nowEnded">הסתר</span>' : '') + '</div>' +
       list.map(function(m) { return medRowHtml(m, today); }).join("") + '</div>';
   }
-  html += '<div class="nowgrid"><div class="nowcol">' + zoneHtml("CHRONIC") + '</div>' +
+  // [Task #283] אין אף תרופה — אזור אפור "לא תועדו" (ולא אזור ריק שנקרא כ"אין")
+  var medsNone = now.meds.length ? '' :
+    '<div class="zone notdoc"><div class="zt">תרופות</div><div class="nd">' + notDoc + '</div></div>';
+  html += '<div class="nowgrid"><div class="nowcol">' + medsNone + zoneHtml("CHRONIC") + '</div>' +
     '<div class="nowcol">' + ZONE_ORDER.slice(1).map(zoneHtml).join("") + '</div>';
 
   // הנחיות — פתוחות קודם, לפי תאריך יעד (באיחור ראשונים), ואז ללא יעד
@@ -1040,9 +1241,16 @@ function renderNow(card) {
   html += '<div class="nowcol"><div class="zone"><div class="zt">הנחיות <span class="n">' + openCnt +
     ' פתוחות</span> <label style="font-weight:400;font-size:13px;margin-left:10px"><input type="checkbox" id="nowDone"' +
     (state.nowShowDone ? " checked" : "") + '> כולל שבוצעו</label></div>' +
-    (ins.length ? ins.map(function(x) { return insRowHtml(x, today); }).join("") : '<div class="empty">אין הנחיות פתוחות</div>') +
+    (ins.length ? ins.map(function(x) { return insRowHtml(x, today); }).join("") :
+      '<div class="empty">' + (now.instructions.length ? 'אין הנחיות פתוחות' : notDoc) + '</div>') +
     '</div></div>';
   html += '</div>';
+
+  // [Task #283] אריחים קבועים לתחומי IPS שאין עליהם נתונים במערכת
+  html += '<div class="ndstrip"><span class="ttl">אין מידע במסמכים' + (docs ? ' (נבדקו ' + docs + ')' : '') + '</span>' +
+    NOT_DOC_DOMAINS.map(function(d) {
+      return '<span class="tile"' + (d.hint ? ' title="' + esc(d.hint) + '"' : '') + '>' + esc(d.name) + '</span>';
+    }).join("") + '</div>';
 
   html += '<div class="legend"><span><span class="due over" style="padding:0 5px">dd.mm</span> באיחור</span>' +
     '<span><span class="due soon" style="padding:0 5px">dd.mm</span> עד 30 יום</span>' +
@@ -1294,7 +1502,32 @@ if (DATA.requested === "gen") {
   state.genHighlight = DATA.requestedKey || "";
 }
 
+// [Task #271] פס פרופיל מטופל — מין (סמל בינלאומי) וגיל, קבוע בכל הלשוניות.
+// אין נתון — "?" ורקע אפור ("לא תועד"). אישה — אזהרה: דמות הגוף מוצגת כגבר (דמות אישה נדחתה).
+// ערך הדגמה — מסגרת מקווקוות ותג "הדגמה". פירוט מלא בחלונית הריחוף.
+function renderProfile() {
+  var el = document.getElementById("profile");
+  var p = DATA.profile || {};
+  var sexSym = p.sex === "M" ? "\u2642" : (p.sex === "F" ? "\u2640" : "?");
+  var sexHe  = p.sex === "M" ? "גבר" : (p.sex === "F" ? "אישה" : "מין לא תועד");
+  var ageTxt = (p.age !== null && p.age !== undefined) ? String(p.age) : "?";
+  var tip = sexHe + " · " + (p.birthYear ? "שנת לידה " + p.birthYear : "שנת לידה לא תועדה");
+  var html = '<span class="sex">' + sexSym + '</span><span class="age">' + esc(ageTxt) + '</span>';
+  if (p.sex === "F") {
+    html += '<span class="warn">&#9888;</span>';
+    tip += " · דמות הגוף מוצגת כגבר — דמות אישה טרם נבנתה";
+  }
+  if (p.demo) {
+    html += '<span class="demo">הדגמה</span>';
+    tip += " · ערך הדגמה";
+  }
+  el.innerHTML = html;
+  el.title = tip;
+  el.className = "profile" + ((!p.sex && ageTxt === "?") ? " nodata" : "") + (p.demo ? " isdemo" : "");
+}
+
 document.getElementById("footer").textContent = DATA.builtAt ? ("נטען: " + DATA.builtAt) : "";
+renderProfile();
 if (!DATA.error) buildSelect();
 render();
 </script>
