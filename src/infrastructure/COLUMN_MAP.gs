@@ -1,6 +1,6 @@
 /**
  * MedicalPilot — COLUMN_MAP.gs
- * @version 2.19.0 | @updated 10/11/2026 14:13 | @service COLUMN_MAP
+ * @version 2.21.0 | @updated 24/11/2026 20:30 | @service COLUMN_MAP
  * @git https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/COLUMN_MAP.gs
  * @description מאגר עמודות מרכזי — Single Source of Truth לכל גיליוני המערכת.
  * @impacts גיליונות: ניהול_מיילים (27 עמודות), דוגמאות_למידה, מנהל_משאבים, S10, מסנכרן_קבצים,
@@ -52,6 +52,11 @@
  *          [v2.19.0] Task #281 — יומן_מצב_רפואי: 29 עמודות (היה 26) — נוספו
  *          Finding_Term (27, מונח בינלאומי קצר), Finding_Size (28, מספר+יחידה) ו-
  *          Finding_Cause (29, post-op או חומר פעיל), writers: S13 — בסיס לאינפוגרפיקה.
+ *          [v2.20.0] Task #269 — מיפוי_קודים: 91 עמודות (היה 86) — נוסף בלוק שיוך_איברים CI-CM
+ *          (87-91: Item_Code | Item_Type | Organ_Code | Link_Role | Description), writers: עמוס,
+ *          readers: S17 (מתוכנן). יומן_מצב_רפואי: 30 עמודות — נוספה Secondary_Organs (30).
+ *          [v2.21.0] Task #271 — פרופיל_מטופל (חדש): 4 עמודות (Patient_Sex | Birth_Year |
+ *          Data_Source | Updated_Date), שורת נתונים אחת (שורה 5), writers: עמוס, readers: S17.
  *          [v2.9.4] תרופות_קבועות (11), יומן_מצב_רפואי (11), בדיקות_דם (10),
  *          בדיקות_גנטיות (8), הנחיות_רפואיות_ומשימות (8) — 5 גליונות יעד של S09,
  *          נוספו ל-SHEET_CONFIG/SHEETS_MAP עם כותרות באנגלית, יושרו בפועל
@@ -77,12 +82,34 @@
  *          [v2.14.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות הנחיות_רפואיות_ומשימות J-M ובלוק BX-CB במיפוי_קודים
  *          [v2.16.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות בדיקות_דם K-S ובלוקים BG-BL ו-BS-BW במיפוי_קודים
  *          [v2.17.0] S15_EnrichCatalog (SHEET_CONFIG) — עמודות בדיקות_גנטיות I-Q ובלוקים BM-BR ו-CC-CH במיפוי_קודים
+ *          [v2.20.0] S17_InfographicApp (מתוכנן, Task #269 שלב 8) — בלוק CI-CM במיפוי_קודים ועמודה 30 ביומן_מצב_רפואי
+ *          [v2.21.0] S17_InfographicApp (s17_buildProfile) — פרופיל_מטופל; QA_Tests (qa271_createProfileSheet) —
+ *          הקמת הגליון לפי SHEET_CONFIG/SHEETS_MAP (חד-פעמית)
  * @functions SHEET_CONFIG, SHEETS_MAP, SHEETS_DEFAULT_DATA,
  *            insertEditorGitLinesColumns, printSheetMap, printColumnDetail,
  *            restoreHeaders, checkWritePermissions, buildSheetFromMap,
  *            buildS10LearningSheet, buildDevSyncSheet,
  *            _promptSheetName, _colToLetter, _letterToCol, _medDate_normalizeDate
  *            [v2.18.0] buildS10LearningSheet הוסרה (Task #277).
+ * @changes [v2.21.0] Task #271 (שלב א) — תיעוד מבני בלבד, אין שינוי לוגי.
+ *          SHEET_CONFIG + SHEETS_MAP: גליון חדש פרופיל_מטופל (תקן 4 השורות, נתונים בשורה 5) —
+ *          1 Patient_Sex (M|F), 2 Birth_Year (YYYY), 3 Data_Source (ידני|חולץ|הדגמה), 4 Updated_Date.
+ *          הגליון הוקם בפונקציה החד-פעמית qa271_createProfileSheet (QA_Tests.gs) מתוך ההגדרות
+ *          האלה; ערכי הדגמה הוזנו ידנית ע"י עמוס (M, 1960, הדגמה). אומת מול הקוד החי (diff
+ *          מדויק, node --check, טעינת המפה: 14 גליונות) ומול הגליון החי (כותרות, עיצוב, שורה 5).
+ * @changes [v2.20.0] Task #269 (שלב 4) — תיעוד מבני בלבד, אין שינוי לוגי.
+ *          SHEETS_MAP["מיפוי_קודים"]: 86→91 עמודות — בלוק שיוך_איברים 87-91 (CI-CM: Item_Code |
+ *          Item_Type (LOINC|PNL|GTR|ATC) | Organ_Code | Link_Role (ראשי|משני) | Description),
+ *          שורה לכל שיוך, רבים-לרבים: ראשי = איבר המטרה (אחד לפריט), משני = איבר ייחוס.
+ *          מערכת הגוף נגזרת מקידומת האיבר הראשי וגוברת על Medical_System בבלוק (גיבוי);
+ *          ירושה: LOINC ← פאנל השורה ← Medical_System. הכותרות CI3:CM4 ו-258 שורות שיוך
+ *          (142 מעבדה, 93 גנטיקה, 23 תרופות) נוספו בגליון החי ע"י עמוס מטבלת הצעה מאומתת.
+ *          SHEETS_MAP["יומן_מצב_רפואי"]: 29→30 עמודות — נוספה 30 Secondary_Organs (zone: טכני,
+ *          writers: ["S13","S16"] מתוכנן, readers: ["S17"]) — איברי ייחוס מופרדים בפסיק;
+ *          Organ_Code (22) = ראשי. הכותרת AD4 נוספה בגליון החי ע"י עמוס. S13/S16/S17 עוד לא
+ *          קוראים/כותבים — שלבים 5, 7, 8 של המשימה. אומת מול הקוד החי (diff מדויק לכל בלוק,
+ *          node --check, טעינת המפה: 30 ו-91 עמודות, מספור רציף) ומול הגליון החי: 30 מתוך 30
+ *          שמות ביומן_מצב_רפואי ו-91 מתוך 91 במיפוי_קודים זהים לשורה 4.
  * @changes [v2.19.0] Task #281 — תיעוד מבני בלבד, אין שינוי לוגי.
  *          SHEETS_MAP["יומן_מצב_רפואי"]: 26→29 עמודות — נוספו 27 Finding_Term (מונח
  *          בינלאומי קצר, עד 3 מילים), 28 Finding_Size (מספר+יחידה בלי רווח או ריק) ו-
@@ -380,6 +407,12 @@ const SHEET_CONFIG = {
     FROZEN_ROWS:    4,
     HEADER_ROW:     4,
     FIRST_DATA_ROW: 5
+  },
+  // [Task #271] גליון פרופיל_מטופל — שורת נתונים אחת (שורה 5), לפי תקן 4-השורות
+  "פרופיל_מטופל": {
+    FROZEN_ROWS:    4,
+    HEADER_ROW:     4,
+    FIRST_DATA_ROW: 5
   }
 };
 const SHEETS_MAP = {
@@ -526,7 +559,8 @@ const SHEETS_MAP = {
     { col: 26, name: "Reaction",             zone: "תוכן",  writers: ["S13","S16"], readers: [], values: "טקסט חופשי או ריק", notes: "[Task #262] התגובה לחומר (למשל כאבי שרירים) — רק בשורות קוד אירוע A7. S13 מציע, S16 מאשר/עורך" },
     { col: 27, name: "Finding_Term",         zone: "תוכן",  writers: ["S13"],       readers: [], values: "מונח רפואי בינלאומי קצר או קיצור מקובל (למשל hematoma, HH, Ca++, osteopenia) או ריק", notes: "[Task #281] סוג הממצא בשפה בינלאומית — מוצג בכרטיס האינפוגרפי כשהאייקון דו-משמעי. S13 מציע; עריכה ישירה בגליון (S16 לא מציג עדיין)" },
     { col: 28, name: "Finding_Size",         zone: "תוכן",  writers: ["S13"],       readers: [], values: "מספר + יחידה (למשל 3.3cm, 15mm) או ריק", notes: "[Task #281] גודל הממצא כפי שמופיע במסמך — ריק אם לא צוין" },
-    { col: 29, name: "Finding_Cause",        zone: "תוכן",  writers: ["S13"],       readers: [], values: "post-op או שם חומר פעיל בינלאומי (למשל pembrolizumab) או ריק", notes: "[Task #281] הגורם לממצא רק אם המסמך מציין אותו במפורש (\"שינויים צפויים לאחר ניתוח\", \"מושרה תרופה\") — אחרת ריק" }
+    { col: 29, name: "Finding_Cause",        zone: "תוכן",  writers: ["S13"],       readers: [], values: "post-op או שם חומר פעיל בינלאומי (למשל pembrolizumab) או ריק", notes: "[Task #281] הגורם לממצא רק אם המסמך מציין אותו במפורש (\"שינויים צפויים לאחר ניתוח\", \"מושרה תרופה\") — אחרת ריק" },
+    { col: 30, name: "Secondary_Organs",     zone: "טכני",  writers: ["S13","S16"], readers: ["S17"], values: "קודי איבר מבלוק איברים A-D מופרדים בפסיק (למשל SYS07A, SYS08) או ריק", notes: "[Task #269] איברי ייחוס (משני) של השורה; Organ_Code (עמ' 22) = איבר המטרה (ראשי). קודים מהקטלוג בלבד, בלי כפילות ובלי Organ_Code עצמו. ריק = לא נבדק/אין. מתוכנן: S16 — בחירה מרובה + כפתור הצעה (שלב 5), S13 — הצעה לשורות חדשות (שלב 7), S17 — תצוגה (שלב 8)" }
   ],
   // [Task 184] גליון יעד — בדיקות דם שחולצו ע"י S09 (כותרות אנגלית)
   "בדיקות_דם": [
@@ -792,7 +826,28 @@ const SHEETS_MAP = {
     { col: 83, name: "Description",      zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "טקסט חופשי בעברית", notes: "[Task #264] מהחלון או מההצעה הממתינה; יכול להישאר ריק" },
     { col: 84, name: "Raw_Value",        zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "ניסוחי הגן במסמכים מופרדים בפסיקים", notes: "[Task #264] מחושב בשרת מההצעה ומעמודה M בשורה — לא נשלח מהחלון (לקח #266)" },
     { col: 85, name: "Icon_Link",        zone: "מיפוי", writers: ["עמוס"], readers: [], values: "URL", notes: "[Task #264] ריק כרגע — לשימוש עתידי באינפוגרפיקה" },
-    { col: 86, name: "Medical_System",   zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "SYS00-SYS14", notes: "[Task #264] מערכת הגוף של הגן — מההצעה הממתינה, אחרת מערכת התכונה שאושרה באותה שורה" }
+    { col: 86, name: "Medical_System",   zone: "מיפוי", writers: ["S15","עמוס"], readers: ["S15"], values: "SYS00-SYS14", notes: "[Task #264] מערכת הגוף של הגן — מההצעה הממתינה, אחרת מערכת התכונה שאושרה באותה שורה" },
+
+    // [Task #269] בלוק שיוך_איברים (CI-CM) — טבלת שיוך רבים-לרבים בין פריט קטלוג לאיבר/מערכת, שורה לכל שיוך. כותרת שורה 3: "שיוך_איברים".
+    // ראשי = איבר המטרה (אחד לפריט), משני = איבר ייחוס (ללא הגבלה). מערכת הגוף נגזרת מקידומת קוד האיבר הראשי וגוברת על Medical_System בבלוק הפריט (שנשאר כגיבוי).
+    // ירושה בקריאה: LOINC בלי שורת שיוך ← שיוך הפאנל של שורת התוצאה (Panel_Code בבדיקות_דם) ← Medical_System בבלוק. מולא ידנית ע"י עמוס מטבלת הצעה מאומתת (15/11/2026, 258 שורות).
+    // ייקרא ע"י S17 (שלב 8 של #269) — סמני מעבדה על דמות הגוף וקישור מטרה↔ייחוס. לא נכתב בקוד.
+    { col: 87, name: "Item_Code",        zone: "מיפוי", writers: ["עמוס"], readers: ["S17"], values: "קוד פריט: LOINC (BG) / Panel_Code (BS) / Trait_Code (BM) / ATC_Code (BA)", notes: "[Task #269] מפתח השיוך (לא ייחודי — שורה לכל איבר). עמודה בעיצוב טקסט — קוד כמו 718-7 מתפרש אחרת כתאריך" },
+    { col: 88, name: "Item_Type",        zone: "מיפוי", writers: ["עמוס"], readers: ["S17"], values: "LOINC|PNL|GTR|ATC", notes: "[Task #269] סוג הפריט — קובע באיזה בלוק נמצא הקוד. קודי אירוע ואבחנה — מחוץ להיקף (אינם תלויי איבר)" },
+    { col: 89, name: "Organ_Code",       zone: "מיפוי", writers: ["עמוס"], readers: ["S17"], values: "קוד איבר או מערכת מבלוק איברים A-D (למשל SYS05B, SYS08)", notes: "[Task #269] פריט בלי איבר ספציפי — קוד מערכת קיים (למשל SYS00B מדדים כלליים), בלי קודי אזור תפקודי חדשים" },
+    { col: 90, name: "Link_Role",        zone: "מיפוי", writers: ["עמוס"], readers: ["S17"], values: "ראשי|משני", notes: "[Task #269] ראשי = איבר המטרה, בדיוק אחד לכל פריט; משני = איבר ייחוס, ללא הגבלה" },
+    { col: 91, name: "Description",      zone: "מיפוי", writers: ["עמוס"], readers: [], values: "טקסט חופשי בעברית — \"שם הפריט → שם האיבר\"", notes: "[Task #269] תיעוד לקריאה ידנית בלבד" }
+  ],
+
+  // [Task #271] גליון פרופיל_מטופל — שלב א: מין ושנת לידה בלבד. שורת נתונים אחת (שורה 5),
+  // שורות 1-3 שמורות לאייקונים ולתוויות לפי התקן. הוקם בפונקציה חד-פעמית ב-QA_Tests.gs
+  // (qa271_createProfileSheet). הזנה ידנית; בשלב POC — ערכי הדגמה (Data_Source="הדגמה").
+  // נקרא ע"י S17 (s17_buildProfile) — פס פרופיל בראש האינפוגרפיקה ובחירת דמות הגוף לפי מין.
+  "פרופיל_מטופל": [
+    { col: 1, name: "Patient_Sex",  zone: "תוכן", writers: ["עמוס"], readers: ["S17"], values: "M|F",                     notes: "[Task #271] מין המטופל — קוד בינלאומי. קובע את דמות הגוף בתצוגה (כרגע גבר בלבד — F מוצג על דמות גבר עם סימון אי-התאמה). ריק = לא תועד" },
+    { col: 2, name: "Birth_Year",   zone: "תוכן", writers: ["עמוס"], readers: ["S17"], values: "שנה בת 4 ספרות (YYYY)",   notes: "[Task #271] הגיל מחושב בתצוגה (השנה הנוכחית פחות שנת הלידה). ריק = לא תועד" },
+    { col: 3, name: "Data_Source",  zone: "טכני", writers: ["עמוס"], readers: ["S17"], values: "ידני|חולץ|הדגמה",         notes: "[Task #271] מקור הנתון. הדגמה = ערך לא אמיתי לצורכי POC (החלטת 11/11/2026 — לא מזינים נתוני אמת ידנית); מסומן בתצוגה" },
+    { col: 4, name: "Updated_Date", zone: "טכני", writers: ["עמוס"], readers: [],      values: "תאריך DD/MM/YYYY",        notes: "[Task #271] תאריך העדכון האחרון של השורה" }
   ]
 
 };
