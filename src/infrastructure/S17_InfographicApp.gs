@@ -1,6 +1,6 @@
 /**
  * @file        S17_InfographicApp.gs
- * @version 1.3.0 | @updated 14/11/2026 21:53 | @service S17
+ * @version 1.6.0 | @updated 25/11/2026 21:42 | @service S17
  * @git         https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/S17_InfographicApp.gs
  * @description יישום האינפוגרפיקה לרופא (Task #260) — צד השרת. בונה את נתוני
  *              התצוגה מהקודים בלבד (לא מקריאת המסמך): כל שורות יומן_מצב_רפואי,
@@ -27,6 +27,16 @@
  *              מאוחדות לפי Trait_Code (נשארת המאוחרת, כל המסמכים נשמרים להדגשה),
  *              שם התכונה מקטלוג התכונות, דרגת נטייה 0-3, קיצור ACMG. שורה בלי קוד
  *              תכונה — נשארת נפרדת. מסמך שנמצא רק בגנטיקה — requested="gen".
+ *              [v1.4.0] פרופיל מטופל: s17_buildProfile קורא את פרופיל_מטופל (שורה 5) —
+ *              מין (M/F, אחר = לא תועד), שנת לידה (1900 עד השנה הנוכחית), גיל מחושב,
+ *              מקור ו-demo (Data_Source="הדגמה"); מוחזר ב-payload.profile.
+ *              [v1.5.0] אזורי "לא תועד" (Task #283): s17_countSourceDocs סופרת את
+ *              המסמכים השונים (File_ID) ביומן_אירועים_רפואי; s17_buildNow מחזירה
+ *              now.docCount — מספר המסמכים שנבדקו, לתצוגה בלשונית מצב נוכחי.
+ *              [v1.6.0] שיוך דואלי (Task #269 שלב 8): s17_readOrganLinks קוראת את בלוק
+ *              שיוך_איברים (CI-CM) — איבר ראשי ומשניים לכל פריט; s17_buildLab מוסיפה לכל
+ *              בדיקה organ, secondary ו-linkFrom בירושה: קוד הבדיקה ← פאנל ← Medical_System;
+ *              s17_buildPayload מוסיפה לכל רשומה secondary (עמודה 30 Secondary_Organs).
  * @impacts     קריאה בלבד: יומן_מצב_רפואי ובדיקות_דם (כל השורות משורה 5, עמודות
  *              לפי שם הכותרת בשורה 4), מיפוי_קודים (בלוקים: איברים A, קוד אירוע E,
  *              התמחות J, חומרה O, ודאות Y, מצב איבר AD, צד AI, מאפייני מעבדה BG,
@@ -48,6 +58,11 @@
  *              בדיקות_גנטיות (כל השורות משורה 5, עמודות לפי שם הכותרת בשורה 4);
  *              מיפוי_קודים — בלוקים מאגר תרופות ATC BA, סוגי הנחיות BX, תכונות
  *              גנטיות BM. אין כתיבה לשום גליון.
+ *              [v1.4.0] קריאה בלבד נוספת: פרופיל_מטופל (שורה 5, לפי כותרות שורה 4).
+ *              [v1.5.0] קריאה בלבד נוספת: יומן_אירועים_רפואי — עמודת File_ID בלבד
+ *              (לפי כותרת שורה 4).
+ *              [v1.6.0] קריאה בלבד נוספת: מיפוי_קודים — בלוק שיוך_איברים CI-CM;
+ *              יומן_מצב_רפואי — עמודה Secondary_Organs.
  * @callers     יישום ווב (doGet) | אייקון בגליון יומן_אירועים_רפואי, תא E2
  *              (runInfographicAppIconEvents) | הרצה ידנית מהעורך
  *              (setupInfographicAppIconEvents) | App_Infographic.html
@@ -56,8 +71,18 @@
  *              setupInfographicAppIconEvents | s17_include | s17_readCatalogBlock |
  *              s17_buildCatalogs | s17_dateToTs | s17_loadIcons | s17_buildPayload |
  *              s17_buildLab | [v1.3.0] s17_readSheetObjects | s17_buildNow |
- *              s17_buildGen
- * @changes     [v1.3.0] Task #260 שלב 4 — נוספו s17_readSheetObjects, s17_buildNow
+ *              s17_buildGen | [v1.4.0] s17_buildProfile | [v1.5.0] s17_countSourceDocs |
+ *              [v1.6.0] s17_readOrganLinks
+ * @changes     [v1.6.0] Task #269 שלב 8 — נוספה s17_readOrganLinks; s17_buildLab — איבר מטרה
+ *              ואיברי ייחוס לכל בדיקה בירושה; s17_buildPayload — rec.secondary. קריאה בלבד.
+ *              אומת: diff מדויק מול העורך, node --check, ובדיקה בפועל (סמן לבלב ×3 → ייחוס כליות).
+ *              [v1.5.0] Task #283 — נוספה s17_countSourceDocs; s17_buildNow מחזירה docCount
+ *              (מסמכים שנבדקו, לאזורי "לא תועד"). קריאה בלבד. אומת: diff מדויק מול העורך,
+ *              node --check, ובדיקה בפועל (נבדקו 38).
+ *              [v1.4.0] Task #271 שלב א — נוספה s17_buildProfile (מין, שנת לידה, גיל,
+ *              סימון הדגמה מהגליון פרופיל_מטופל); s17_buildPayload מחזיר profile.
+ *              קריאה בלבד. אומת: diff מדויק מול העורך, node --check, ובדיקה בפועל (♂ 66 הדגמה).
+ *              [v1.3.0] Task #260 שלב 4 — נוספו s17_readSheetObjects, s17_buildNow
  *              (לשונית מצב נוכחי) ו-s17_buildGen (לשונית גנטיקה); s17_buildPayload
  *              מחזיר now ו-gen ומזהה requested="gen". קריאה בלבד.
  *              [v1.2.0] Task #260 שלב 3 — נוספה s17_buildLab (נתוני המעבדה ללשונית
@@ -319,6 +344,28 @@ function s17_loadIcons(keys, iconMap) {
   return icons;
 }
 
+// [Task #269] בלוק שיוך_איברים (CI-CM) במיפוי_קודים: Item_Code | Item_Type | Organ_Code |
+// Link_Role (ראשי/משני) | Description. מחזיר מפה קוד פריט → { primary, secondary[] }.
+// איבר ראשי אחד לפריט (הראשון שנמצא), משניים ללא הגבלה. קריאה בלבד.
+const S17_MAP_COL_LINK = 87;  // CI-CM שיוך_איברים
+
+function s17_readOrganLinks(codeSheet) {
+  const links = {};
+  if (!codeSheet) return links;
+  const lastRow = codeSheet.getLastRow();
+  if (lastRow < S17_FIRST_DATA_ROW) return links;
+  codeSheet.getRange(S17_FIRST_DATA_ROW, S17_MAP_COL_LINK, lastRow - S17_FIRST_DATA_ROW + 1, 4).getValues()
+    .forEach(function(r) {
+      const item = (r[0] || "").toString().trim();
+      const organ = (r[2] || "").toString().trim();
+      if (!item || !organ) return;
+      const link = links[item] || (links[item] = { primary: "", secondary: [] });
+      if ((r[3] || "").toString().trim() === "ראשי") { if (!link.primary) link.primary = organ; }
+      else if (link.secondary.indexOf(organ) === -1) link.secondary.push(organ);
+    });
+  return links;
+}
+
 // [שלב 3] נתוני המעבדה ללשונית "מעבדה" — כל השורות (כמו ביומן המצב), מקובצות
 // לבדיקה לפי LOINC_Code (בלי קוד — לפי שם הבדיקה), כל בדיקה עם נקודות הזמן שלה.
 // שם הבדיקה — השם הבינלאומי מקטלוג מאפייני המעבדה; סימון H/L/A — מעמודת הסטטוס
@@ -385,8 +432,17 @@ function s17_buildLab(ss) {
       file: cell(row, "File_ID")
     });
   });
+  // [Task #269] איבר מטרה ואיברי ייחוס לכל בדיקה — ירושה: קוד הבדיקה (LOINC) ← הפאנל ←
+  // מערכת הגוף (Medical_System, בלי איברי ייחוס). linkFrom = הרמה שממנה נלקח השיוך.
+  const links = s17_readOrganLinks(codeSheet);
   result.tests.forEach(function(t) {
     t.points.sort(function(a, b) { return (a.ts || 0) - (b.ts || 0); });
+    const own = t.loinc && links[t.loinc] && links[t.loinc].primary ? links[t.loinc] : null;
+    const pnl = !own && t.panel && links[t.panel] && links[t.panel].primary ? links[t.panel] : null;
+    const link = own || pnl;
+    t.organ = link ? link.primary : t.system;
+    t.secondary = link ? link.secondary.slice() : [];
+    t.linkFrom = own ? "LOINC" : pnl ? "PNL" : "SYS";
   });
   return result;
 }
@@ -413,6 +469,23 @@ function s17_readSheetObjects(ss, sheetName) {
     out.push(obj);
   });
   return out;
+}
+
+// [Task #283] מספר המסמכים שנבדקו — File_ID שונים בגליון יומן_אירועים_רפואי (כל
+// מסמך שעבר את S09). מוצג באזורי "לא תועד" בלשונית מצב נוכחי. עמודה לפי שם הכותרת
+// בשורה 4; גליון או עמודה חסרים — 0. קריאה בלבד.
+function s17_countSourceDocs(ss) {
+  const sheet = ss.getSheetByName(S17_EVENTS_SHEET_NAME);
+  if (!sheet) return 0;
+  const lastRow = sheet.getLastRow();
+  if (lastRow < S17_FIRST_DATA_ROW) return 0;
+  const headers = sheet.getRange(S17_HEADER_ROW, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const col = headers.indexOf("File_ID") + 1;
+  if (col < 1) return 0;
+  const ids = {};
+  sheet.getRange(S17_FIRST_DATA_ROW, col, lastRow - S17_FIRST_DATA_ROW + 1, 1).getValues()
+    .forEach(function(r) { const v = (r[0] || "").toString().trim(); if (v) ids[v] = true; });
+  return Object.keys(ids).length;
 }
 
 // [שלב 4] נתוני לשונית "עכשיו": תרופות (מאוחדות לפי החומר הפעיל — השורה עם
@@ -461,7 +534,8 @@ function s17_buildNow(ss) {
     };
   });
 
-  return { meds: meds, instructions: instructions, atcNames: atcNames, instrNames: instrNames };
+  return { meds: meds, instructions: instructions, atcNames: atcNames, instrNames: instrNames,
+           docCount: s17_countSourceDocs(ss) };   // [Task #283] מסמכים שנבדקו — לאזורי "לא תועד"
 }
 
 // [שלב 4] נתוני לשונית "גנטיקה" — שורה לכל תכונה, מאוחדות לפי Trait_Code (נשארת
@@ -496,6 +570,28 @@ function s17_buildGen(ss) {
     else { prev.rows = t.rows; prev.files = files; }
   });
   return { traits: traits };
+}
+
+// [Task #271] פרופיל המטופל (שלב א) — מין ושנת לידה מהגליון פרופיל_מטופל (שורה 5).
+// הגיל מחושב לפי השנה הנוכחית. ערך מין שאינו M/F, או שנה לא תקינה — נחשבים "לא תועד".
+// demo=true כשמקור הנתון "הדגמה" — מסומן בתצוגה. גליון חסר — כל השדות ריקים. קריאה בלבד.
+const S17_PROFILE_SHEET_NAME = "פרופיל_מטופל";
+
+function s17_buildProfile(ss) {
+  const rows = s17_readSheetObjects(ss, S17_PROFILE_SHEET_NAME);
+  const r = rows.length ? rows[0] : {};
+  const sexRaw = (r["Patient_Sex"] || "").toUpperCase();
+  const sex = (sexRaw === "M" || sexRaw === "F") ? sexRaw : "";
+  const year = parseInt(r["Birth_Year"], 10);
+  const thisYear = new Date().getFullYear();
+  const birthYear = (year >= 1900 && year <= thisYear) ? year : null;
+  return {
+    sex:       sex,
+    birthYear: birthYear,
+    age:       birthYear !== null ? thisYear - birthYear : null,
+    source:    r["Data_Source"] || "",
+    demo:      (r["Data_Source"] || "") === "הדגמה"
+  };
 }
 
 // בניית כל הנתונים ליישום: רשומות, מסמכים, אייקונים, קטלוגים
@@ -538,6 +634,9 @@ function s17_buildPayload(requestedDocKey) {
       rec.sourceUrl     = readExtra(rowValues, "Source_URL");
       rec.primaryDx     = readExtra(rowValues, "Primary_Diagnosis");
       rec.allergenCode  = readExtra(rowValues, "Allergen_Code");
+      // [Task #269] איברי ייחוס (משניים) — עמודה 30, קודי איבר מופרדים בפסיק
+      rec.secondary     = readExtra(rowValues, "Secondary_Organs").split(",")
+        .map(function(s) { return s.trim(); }).filter(Boolean);
       rec.verified      = rec.recordStatus === "מאומת";
       records.push(rec);
     });
@@ -642,6 +741,7 @@ function s17_buildPayload(requestedDocKey) {
     lab:         lab,
     now:         now,
     gen:         gen,
+    profile:     s17_buildProfile(ss),   // [Task #271] פרופיל מטופל — פס עליון ובחירת דמות הגוף
     builtAt:     Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm")
   };
 }
