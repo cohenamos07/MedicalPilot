@@ -2623,3 +2623,281 @@ function task216a_setupClassificationDropdownsProduction() {
     SpreadsheetApp.getUi().alert("שגיאה: " + e.message);
   }
 }
+
+// ══════════════════════════════════════════════════════════════════
+// [Task #269 שלב 6 + Task #240] מילוי חד-פעמי — איברי ייחוס (עמודה 30) ושדות
+// ממצא (עמודות 27-29) בשורות יומן_מצב_רפואי. שתי הרצות מהעורך:
+//   1) qa269_buildProposals — קריאה ל-Gemini עם המסמך המקורי, פעם אחת לכל File_ID
+//      (_s13_fetchOriginalPart / _s13_callGemini; TXT כגיבוי), וכתיבת הצעות לגליון
+//      זמני QA_הצעות_269 בלבד. היומן לא משתנה. ממשיכה מהמקום שעצרה (מגבלת זמן).
+//   2) qa269_applyProposals — מעתיקה ליומן רק שורות עם ✓ בעמודה O, ורק לתאים ריקים.
+//      השורה ביומן מאותרת לפי File_ID + תאריך + אבחנה (רענון היומן ממיין שורות).
+// qa269_resetProgress — מאפס את ההתקדמות להרצה מחדש. חד-פעמי — למחוק אחרי השימוש.
+// ══════════════════════════════════════════════════════════════════
+
+const QA269_REVIEW_SHEET = "QA_הצעות_269";
+const QA269_PROP_DONE    = "QA269_DONE_FILE_IDS";
+const QA269_TIME_LIMIT   = 5 * 60 * 1000;
+const QA269_MAX_SECONDARY = 4;
+const QA269_HEADERS = ["Journal_Row", "File_ID", "Event_Date", "Primary_Diagnosis", "Organ_Code",
+  "Cur_Term", "Cur_Size", "Cur_Cause", "Cur_Secondary",
+  "Prop_Term", "Prop_Size", "Prop_Cause", "Prop_Secondary", "Reason", "Apply", "Status"];
+
+function _qa269_dateKey(value) {
+  if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone(), "dd/MM/yyyy");
+  return (value || "").toString().trim();
+}
+
+function _qa269_readJournal() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(MEDICAL_STATUS_SHEET_NAME);
+  const first = SHEET_CONFIG[MEDICAL_STATUS_SHEET_NAME].FIRST_DATA_ROW;
+  const last  = sheet.getLastRow();
+  const width = Math.min(S16_COL_SECONDARY_ORGANS, sheet.getMaxColumns());
+  const values = last >= first ? sheet.getRange(first, 1, last - first + 1, width).getValues() : [];
+  const rows = [];
+  values.forEach(function(v, i) {
+    const cell = function(col) { return col <= width ? (v[col - 1] || "").toString().trim() : ""; };
+    if (!cell(S16_COL_FILE_ID)) return;
+    rows.push({
+      row:       first + i,
+      fileId:    cell(S16_COL_FILE_ID),
+      dateKey:   _qa269_dateKey(v[S16_COL_EVENT_DATE - 1]),
+      eventType: cell(S16_COL_EVENT_TYPE),
+      diagnosis: cell(S16_COL_PRIMARY_DIAGNOSIS),
+      severity:  cell(S16_COL_SEVERITY_STATUS),
+      reco:      cell(S16_COL_RECOMMENDATIONS),
+      organ:     cell(S16_COL_ORGAN_CODE),
+      term:      cell(S16_COL_FINDING_TERM),
+      size:      cell(S16_COL_FINDING_SIZE),
+      cause:     cell(S16_COL_FINDING_CAUSE),
+      secondary: cell(S16_COL_SECONDARY_ORGANS)
+    });
+  });
+  return { sheet: sheet, rows: rows };
+}
+
+// docMode: "file" — המסמך מצורף כקובץ | "txt" — טקסט המסמך בסוף הפרומפט | "none" — רק השורות
+function _qa269_buildPrompt(group, organOptions, docMode, docText) {
+  const nameOf = {};
+  organOptions.forEach(function(o) { nameOf[o.code] = o.name; });
+  const source = docMode === "file" ? "המסמך הרפואי המקורי מצורף לבקשה זו כקובץ."
+               : docMode === "txt"  ? "טקסט המסמך הרפואי מופיע בסוף הבקשה."
+               : "המסמך עצמו אינו זמין — הסתמך על טקסט השורות בלבד.";
+  let p =
+    "אתה מסייע לרופא להשלים שדות בשורות של יומן מצב רפואי שחולצו ממסמך רפואי אחד. " + source + "\n" +
+    "לכל שורה החזר:\n" +
+    "term = מונח רפואי בינלאומי קצר באנגלית או קיצור מקובל, עד 3 מילים, שמזהה את סוג הממצא (למשל hematoma, " +
+    "nodules, HH, Ca++, osteopenia, degenerative, emphysema, s/p nephrectomy, s/p sleeve, normal) — לא שם האיבר ולא תרגום של כל המשפט.\n" +
+    "size = הגודל של הממצא בשורה כפי שמופיע במסמך, כמספר ויחידה בלי רווח (למשל 3.3cm, 15mm, 2x3cm); אם לא צוין — ריק.\n" +
+    "cause = הגורם לממצא רק אם המסמך מציין אותו במפורש: post-op לשינוי שמתואר כצפוי או כתוצאה מניתוח, או שם החומר " +
+    "הפעיל הבינלאומי של תרופה שמתוארת כגורם (למשל pembrolizumab); אחרת ריק — אל תסיק גורם.\n" +
+    "secondary = עד " + QA269_MAX_SECONDARY + " קודים מרשימת האיברים והמערכות (איברי ייחוס): איברים או מערכות נוספים " +
+    "שהממצא, הגורם או ההמלצה בשורה נוגעים בהם ישירות לפי המסמך — למשל פיזור או מעורבות של איבר נוסף, המערכת שעליה " +
+    "פועלת תרופה שמתוארת כגורם, או איבר שנפגע כתופעת לוואי. בלי האיבר הראשי של השורה. אם אין — רשימה ריקה. אל תנחש.\n" +
+    "reason = הסבר קצר בעברית, עד 12 מילים, לבחירת secondary (ריק אם הרשימה ריקה).\n\n" +
+    "--- השורות ---\n";
+  group.rows.forEach(function(r, i) {
+    p += "[" + i + "] סוג אירוע: " + r.eventType + " | אבחנה: " + r.diagnosis + " | חומרה: " + r.severity +
+      " | המלצה: " + r.reco + " | איבר ראשי: " + (r.organ ? r.organ + " — " + (nameOf[r.organ] || "") : "לא נבחר") + "\n";
+  });
+  p += "\n--- רשימת האיברים והמערכות (קוד — שם) ---\n" +
+    organOptions.map(function(o) { return o.code + " — " + o.name; }).join("\n");
+  if (docMode === "txt") p += "\n\n--- טקסט המסמך ---\n" + docText.substring(0, 60000);
+  p += '\n\nהחזר JSON בלבד, ללא טקסט נוסף: {"rows":[{"i":0,"term":"","size":"","cause":"","secondary":[""],"reason":""}]}' +
+    " — פריט לכל שורה, i = המספר שבסוגריים המרובעים.";
+  return p;
+}
+
+function qa269_buildProposals() {
+  const start = Date.now();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const journal = _qa269_readJournal();
+  const organOptions = _s16_readCatalogBlock(S16_ORGAN_MAP_FIRST_COL).options;
+  const organSet = {};
+  organOptions.forEach(function(o) { organSet[o.code] = true; });
+
+  let review = ss.getSheetByName(QA269_REVIEW_SHEET);
+  if (!review) {
+    review = ss.insertSheet(QA269_REVIEW_SHEET);
+    review.getRange(1, 1, 1, QA269_HEADERS.length).setValues([QA269_HEADERS]).setFontWeight("bold");
+    review.setFrozenRows(1);
+  }
+  const props = PropertiesService.getScriptProperties();
+  const done  = JSON.parse(props.getProperty(QA269_PROP_DONE) || "[]");
+
+  // קיבוץ לפי File_ID, בסדר ההופעה ביומן
+  const groups = [];
+  const byId   = {};
+  journal.rows.forEach(function(r) {
+    if (!byId[r.fileId]) { byId[r.fileId] = { fileId: r.fileId, rows: [] }; groups.push(byId[r.fileId]); }
+    byId[r.fileId].rows.push(r);
+  });
+
+  let processed = 0, failed = 0;
+  for (let g = 0; g < groups.length; g++) {
+    const group = groups[g];
+    if (done.indexOf(group.fileId) !== -1) continue;
+    if (Date.now() - start > QA269_TIME_LIMIT) {
+      Logger.log("[QA269] ⏸ עצירה לפני מגבלת הזמן — להריץ שוב את qa269_buildProposals להמשך.");
+      return;
+    }
+
+    const originalPart = _s13_fetchOriginalPart(group.fileId);
+    let docMode = originalPart ? "file" : "none";
+    let docText = null;
+    if (!originalPart) {
+      docText = _s13_fetchTxtContent(_s13_fetchTxtUrlByFileId(group.fileId));
+      if (docText) docMode = "txt";
+    }
+    const response = _s13_callGemini(_qa269_buildPrompt(group, organOptions, docMode, docText), originalPart);
+    if (!response) {
+      failed++;
+      Logger.log("[QA269] ❌ " + group.fileId + " — Gemini נכשל (" + _s13_lastFailReason + "), יינסה שוב בהרצה הבאה");
+      continue;
+    }
+    const items = response.rows || [];
+
+    const out = group.rows.map(function(r, i) {
+      const it  = items.filter(function(x) { return Number(x.i) === i; })[0] || {};
+      const sec = [];
+      (it.secondary || []).forEach(function(c) {
+        c = (c || "").toString().trim().toUpperCase();
+        if (c && organSet[c] && c !== r.organ && sec.indexOf(c) === -1 && sec.length < QA269_MAX_SECONDARY) sec.push(c);
+      });
+      const pTerm  = r.term      ? "" : (it.term  || "").toString().trim();
+      const pSize  = r.size      ? "" : (it.size  || "").toString().trim();
+      const pCause = r.cause     ? "" : (it.cause || "").toString().trim();
+      const pSec   = r.secondary ? "" : sec.join(", ");
+      const any    = !!(pTerm || pSize || pCause || pSec);
+      return [r.row, r.fileId, r.dateKey, r.diagnosis, r.organ, r.term, r.size, r.cause, r.secondary,
+        pTerm, pSize, pCause, pSec, (it.reason || "").toString().trim(), any ? "✓" : "", any ? "הוצע" : "אין מה להשלים"];
+    });
+    review.getRange(review.getLastRow() + 1, 1, out.length, QA269_HEADERS.length).setValues(out);
+
+    done.push(group.fileId);
+    props.setProperty(QA269_PROP_DONE, JSON.stringify(done));
+    processed++;
+    Logger.log("[QA269] " + group.fileId + " — " + out.length + " שורות (" + docMode + ")");
+  }
+  Logger.log("[QA269] ✅ סיום — מסמכים בהרצה זו: " + processed + ", כשלים: " + failed +
+    (failed ? " — להריץ שוב לניסיון חוזר" : "") + ". לבדוק את הגליון " + QA269_REVIEW_SHEET +
+    " ואז להריץ qa269_applyProposals.");
+}
+
+function qa269_applyProposals() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const review = ss.getSheetByName(QA269_REVIEW_SHEET);
+  if (!review || review.getLastRow() < 2) {
+    Logger.log("[QA269] ❌ אין גליון הצעות — להריץ קודם qa269_buildProposals");
+    return;
+  }
+  const journal  = _qa269_readJournal();
+  const organSet = {};
+  _s16_readCatalogBlock(S16_ORGAN_MAP_FIRST_COL).options.forEach(function(o) { organSet[o.code] = true; });
+  const data = review.getRange(2, 1, review.getLastRow() - 1, QA269_HEADERS.length).getValues();
+
+  let applied = 0, skipped = 0, cells = 0;
+  data.forEach(function(v, i) {
+    if ((v[14] || "").toString().trim() !== "✓") return;
+    const statusCell = review.getRange(i + 2, 16);
+    const fileId  = (v[1] || "").toString().trim();
+    const dateKey = _qa269_dateKey(v[2]);
+    const diag    = (v[3] || "").toString().trim();
+    const matches = journal.rows.filter(function(r) {
+      return r.fileId === fileId && r.dateKey === dateKey && r.diagnosis === diag;
+    });
+    if (matches.length !== 1) {
+      statusCell.setValue("❌ לא אותרה שורה יחידה ביומן (" + matches.length + ")");
+      skipped++;
+      return;
+    }
+    const r = matches[0];
+    const writes = [];
+    const term  = (v[9]  || "").toString().trim();
+    const size  = (v[10] || "").toString().trim();
+    const cause = (v[11] || "").toString().trim();
+    if (term  && !r.term)  writes.push([S16_COL_FINDING_TERM,  term]);
+    if (size  && !r.size)  writes.push([S16_COL_FINDING_SIZE,  size]);
+    if (cause && !r.cause) writes.push([S16_COL_FINDING_CAUSE, cause]);
+    const sec = [];
+    (v[12] || "").toString().split(",").forEach(function(c) {
+      c = c.trim().toUpperCase();
+      if (c && organSet[c] && c !== r.organ && sec.indexOf(c) === -1) sec.push(c);
+    });
+    if (sec.length && !r.secondary) writes.push([S16_COL_SECONDARY_ORGANS, sec.join(", ")]);
+
+    writes.forEach(function(w) { journal.sheet.getRange(r.row, w[0]).setValue(w[1]); });
+    cells += writes.length;
+    applied++;
+    statusCell.setValue(writes.length ? "✅ הוחל — שורה " + r.row + " (" + writes.length + " תאים)" : "— אין תאים ריקים להשלמה");
+  });
+  Logger.log("[QA269] ✅ החלה — שורות: " + applied + ", תאים שנכתבו: " + cells + ", דולגו: " + skipped +
+    ". עמודת Status בגליון " + QA269_REVIEW_SHEET + " מפרטת כל שורה.");
+}
+
+function qa269_resetProgress() {
+  PropertiesService.getScriptProperties().deleteProperty(QA269_PROP_DONE);
+  Logger.log("[QA269] ההתקדמות אופסה. גליון " + QA269_REVIEW_SHEET + " לא נמחק — למחוק ידנית כדי להתחיל מאפס.");
+}
+
+/**
+ * [Task #271] פונקציה חד-פעמית — יוצרת את הגליון "פרופיל_מטופל" (אם עדיין לא קיים),
+ * כותבת כותרות מ-SHEETS_MAP לשורה 4, מעצבת לפי התקן (רקע #1A3A5C, טקסט לבן מודגש,
+ * שורות 1-3 לבנות, גבהי שורות 15/40/15/26), מקפיאה 4 שורות ומגדירה תבנית תאריך
+ * לעמודת Updated_Date. אינה כותבת נתונים — ערכי ההדגמה מוזנים ידנית בשורה 5.
+ * אינה תלויה ב-SpreadsheetApp.getUi(). הרצה חד-פעמית מהעורך; למחוק אחרי ההרצה (#238).
+ */
+function qa271_createProfileSheet() {
+  const SHEET_NAME = "פרופיל_מטופל";
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const cols = SHEETS_MAP[SHEET_NAME];
+  const cfg  = SHEET_CONFIG[SHEET_NAME];
+  if (!cols || !cfg) { Logger.log("❌ אין הגדרה ב-SHEETS_MAP / SHEET_CONFIG עבור: " + SHEET_NAME); return; }
+
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  if (sheet) {
+    Logger.log("⚠️ גליון '" + SHEET_NAME + "' כבר קיים — לא נוצר מחדש, רק מעדכן כותרת/עיצוב.");
+  } else {
+    sheet = ss.insertSheet(SHEET_NAME);
+    Logger.log("✅ גליון '" + SHEET_NAME + "' נוצר.");
+  }
+
+  const headerRow = cfg.HEADER_ROW;
+  const dataRow   = cfg.FIRST_DATA_ROW;
+  const totalCols = cols.length;
+  const headers   = new Array(totalCols).fill("");
+  cols.forEach(function(c) { headers[c.col - 1] = c.name || ""; });
+
+  // כתיבת הכותרת לשורה 4
+  sheet.getRange(headerRow, 1, 1, totalCols)
+    .setValues([headers])
+    .setBackground("#1A3A5C")
+    .setFontColor("#FFFFFF")
+    .setFontWeight("bold");
+
+  // שורות 1-3 — רקע לבן
+  sheet.getRange(1, 1, 3, totalCols)
+    .setBackground("#FFFFFF")
+    .setFontWeight("normal");
+
+  // גבהי שורות תואמים לתקן
+  sheet.setRowHeight(1, 15);
+  sheet.setRowHeight(2, 40);
+  sheet.setRowHeight(3, 15);
+  sheet.setRowHeight(4, 26);
+
+  // הקפאת 4 שורות
+  sheet.setFrozenRows(cfg.FROZEN_ROWS);
+
+  // תבנית תאריך לעמודת Updated_Date בשורת הנתונים
+  const dateCol = cols.filter(function(c) { return c.name === "Updated_Date"; })[0];
+  if (dateCol) sheet.getRange(dataRow, dateCol.col).setNumberFormat("dd/mm/yyyy");
+
+  // רוחב עמודות אחיד
+  sheet.setColumnWidths(1, totalCols, 130);
+
+  Logger.log("✅ " + SHEET_NAME + " — " + totalCols + " עמודות (" + headers.join(" | ") +
+    "), כותרת בשורה " + headerRow + ", " + cfg.FROZEN_ROWS + " שורות הוקפאו. שורת נתונים: " + dataRow);
+}
