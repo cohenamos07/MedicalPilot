@@ -1,6 +1,6 @@
 /**
  * @file        System_Doc_Builder.gs
- * @version     2.2.0 | @updated 06/11/2026 14:53 | @service INFRA
+ * @version     2.2.1 | @updated 24/11/2026 20:58 | @service INFRA
  * @git         src/infrastructure/System_Doc_Builder.gs
  * @description בניית גיליונות תיעוד מערכת וניהול משימות פיתוח.
  *              כולל: גיליון תיעוד AI, גיליון קשרי שירות, גיליון ניהול_משימות.
@@ -11,6 +11,8 @@
  *              E=Module  | F=Description | G=Priority   | H=Notes
  *              [v2.1.0] ניהול_משימות: שורה 5 (TASK_DATA_START) נשמרת ריקה למשימה חדשה;
  *              task_RefreshList כותב את הנתונים משורה 6, ממוינים לפי Task_ID.
+ *              [v2.2.1] שורת מספר פנוי ("⚪ פנוי" — Task_ID + Status + Notes) נשמרת ברענון
+ *              וממוינת למקומה; נספרת בנפרד בדוח הסיכום.
  *              גיליון תיעוד מערכת AI — כותרות + שורות שירות.
  *              גיליון תיעוד_פונקציות — רשימת פונקציות מהעורך.
  *              גיליון יומן_אירועים_רפואי — עיצוב 4 שורות עליונות + כותרות אנגלית.
@@ -24,6 +26,11 @@
  *              task_RefreshList | task_EndOfDay | task_DocFunctions
  *              task_AddFromDialog | task_SyncToday
  *              buildMedicalEventsSheet
+ * @changes     [v2.2.1] Task #242 — task_RefreshList: isEmptyRow — שורה ריקה רק כשגם Task_ID
+ *              ריק (קודם: Module ו-Description בלבד — שורות "⚪ פנוי" נמחקו ברענון, 11 שורות
+ *              ב-24/11/2026, שוחזרו ב-Ctrl+Z). דוח הסיכום: ספירת "⚪ פנוי" בנפרד, "סה\"כ ... שורות".
+ *              אומת: diff מדויק, node --check, הדמיה, ובגליון החי — 268 שורות נשמרו (29 פתוחות,
+ *              229 סגורות, 10 פנויות), כל קבוצה בסדר עולה, שורה 5 ריקה.
  * @changes     [v2.2.0] Task #273 — task_SessionStart (כפתור "[ רענן משימות ]"): מציגה
  *              רק את דוח הרענון של task_RefreshList. הוסרו חלון "סדר יום לסשן" (קיים
  *              ב-task_EndOfDay ובפתיחת יום עם הסוכן), חיפוש מסמך חפיפה ישן בדרייב
@@ -525,8 +532,11 @@ function task_RefreshList() {
     const data     = sheet.getRange(TASK_DATA_START, 1, rowCount, 8).getValues();
 
     // ── שלב 2: סינון שורות ריקות ─────────────────────────────────
+    // [Task #242] שורה ריקה = גם Task_ID ריק. שורת מספר פנוי ("⚪ פנוי" — Task_ID +
+    // Status + Notes, בלי Module ו-Description) נשמרת וממוינת למקומה (החלטת 15/11/2026).
     function isEmptyRow(row) {
-      return row[COL_MODULE - 1] === "" && row[COL_DESC - 1] === "";
+      return String(row[COL_TASK_ID - 1]).trim() === "" &&
+             row[COL_MODULE - 1] === "" && row[COL_DESC - 1] === "";
     }
     const validRows = data.filter(function(row) {
       return !isEmptyRow(row);
@@ -589,11 +599,13 @@ function task_RefreshList() {
     SpreadsheetApp.flush();
 
     // ── שלב 5: דוח סיכום ─────────────────────────────────────────
-    let open = 0, inProg = 0, closed = 0;
+    // [Task #242] מספרים פנויים נספרים בנפרד — לא כמשימות פתוחות
+    let open = 0, inProg = 0, closed = 0, free = 0;
     validRows.forEach(function(row) {
       const s = String(row[COL_STATUS - 1]).trim();
       if      (s.includes("סגור"))   closed++;
       else if (s.includes("בביצוע")) inProg++;
+      else if (s.includes("פנוי"))   free++;
       else                            open++;
     });
 
@@ -602,8 +614,9 @@ function task_RefreshList() {
       "🔴 פתוח:   " + open   + "\n" +
       "🟡 בביצוע: " + inProg + "\n" +
       "✅ סגור:   " + closed  + "\n" +
+      "⚪ פנוי:   " + free    + "\n" +
       "─────────────────\n" +
-      "סה\"כ: " + validRows.length + " משימות\n" +
+      "סה\"כ: " + validRows.length + " שורות\n" +
       "שורות ריקות שהוסרו: " + blankRemoved + "\n" +
       "שורה " + TASK_DATA_START + " פנויה למשימה חדשה"
     );
