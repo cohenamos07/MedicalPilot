@@ -1,7 +1,7 @@
 /**
  * MedicalPilot — Menu_LAB.gs
  * תפריט מעבדה (LA)
-* @version 10.12 | @updated 09/11/2026 11:23 | @service MENU_LAB
+* @version 10.13 | @updated 24/11/2026 20:30 | @service MENU_LAB
   * @git        https://api.github.com/repos/cohenamos07/MedicalPilot/contents/src/infrastructure/Menu_LAB.gs
  * @impacts    תפריט מעבדה ראשי של המערכת — מציג כלי פיתוח ותיעוד בלבד.
  *             מבנה: ⚙️ ניהול מערכת | 🔬 כלי פיתוח | 📝 תיעוד מערכת.
@@ -12,7 +12,11 @@
  *             סנכרון עורך↔גיט מנוהל בלעדית דרך אייקוני גליון מסנכרן_קבצים.
  *             ניהול משימות מנוהל בלעדית דרך אייקוני גליון ניהול_משימות.
  *             [v10.12] syncSessionDocs הוסר מהתפריט — הפונקציה לא קיימת בפרויקט.
- * @changes    [v10.12] Task #277 — buildLabMenu_v10_11: הוסר הפריט השבור
+ *             [v10.13] 🔬 כלי פיתוח ← 🔐 אישור כל ההרשאות → authorizeAllScopes (Auth_Check, S02).
+ * @changes    [v10.13] Task #255 — buildLabMenu_v10_11: פריט ראשון בתת-התפריט 🔬 כלי פיתוח —
+ *             '🔐 אישור כל ההרשאות' (authorizeAllScopes) + קו מפריד. כותרת התפריט 'LA v10.11' ושם
+ *             הפונקציה ללא שינוי. אומת מול הקוד החי (diff מדויק, node --check).
+ *             [v10.12] Task #277 — buildLabMenu_v10_11: הוסר הפריט השבור
  *             'סיכום ומסמך חפיפה' מתת-התפריט 📝 תיעוד מערכת — הפונקציה
  *             syncSessionDocs לא קיימת באף קובץ (לחיצה החזירה שגיאה). שם הפונקציה
  *             וכותרת התפריט 'LA v10.11' נשארו ללא שינוי. אומת מול הקוד החי (diff
@@ -96,7 +100,10 @@ function buildLabMenu_v10_11() {
 
   menu.addSeparator();
 
+  // [Task #255] אישור כל הרשאות Google במסך הסכמה אחד (authorizeAllScopes, Auth_Check.gs)
   var subMenuDev = ui.createMenu('🔬 כלי פיתוח')
+    .addItem('🔐 אישור כל ההרשאות', 'authorizeAllScopes')
+    .addSeparator()
     .addItem('הדפסת מבנה גיליון', 'printSheetMap')
     .addItem('פרטי עמודה בודדת', 'printColumnDetail')
     .addItem('בדיקת תקינות TXT_URL', 'checkTxtUrlIntegrity')
